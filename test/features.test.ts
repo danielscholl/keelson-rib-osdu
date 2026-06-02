@@ -112,4 +112,28 @@ describe("buildFeaturesBoard edge cases", () => {
     if (rows?.kind !== "rows") return;
     expect(rows.items[0]?.trailing).toBe("no motion, unowned");
   });
+
+  test("missing liveness is non-active in both the pulse and the Stalled rows", () => {
+    const b = buildFeaturesBoard([{ title: "No liveness", assignees: ["x"] }], [], NOW);
+    expect(b.header?.segments?.find((s) => s.label === "stalled")?.n).toBe(1);
+    const rows = b.sections.find((s) => s.kind === "rows");
+    expect(rows?.kind).toBe("rows");
+    if (rows?.kind !== "rows") return;
+    expect(rows.items).toHaveLength(1);
+    expect(rows.items[0]?.chip).toEqual({ label: "QUIET" });
+  });
+
+  test("the draft sublabel pluralizes", () => {
+    const openSub = (drafts: number) => {
+      const mrs = [
+        { state: "opened", draft: false, created_at: "2026-06-01T00:00:00.000Z" },
+        ...Array.from({ length: drafts }, () => ({ state: "opened", draft: true })),
+      ];
+      const s = buildFeaturesBoard([], mrs, NOW).sections.find((x) => x.kind === "stats");
+      return s?.kind === "stats" ? s.items.find((i) => i.label === "Open MR")?.sub : undefined;
+    };
+    expect(openSub(0)).toBe("0 drafts");
+    expect(openSub(1)).toBe("1 draft");
+    expect(openSub(2)).toBe("2 drafts");
+  });
 });

@@ -125,7 +125,11 @@ function buildKpis(mrs: MrRow[], now: Date): StatItem[] {
       (m.latest_pipeline_status ?? "").toLowerCase() !== "failed",
   );
   return [
-    { label: "Open MR", value: open.length, sub: `${drafts.length} draft` },
+    {
+      label: "Open MR",
+      value: open.length,
+      sub: `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"}`,
+    },
     { label: "Stale MR", value: stale.length, sub: "> 7 days", tone: staleTone(stale.length) },
     {
       label: "Blocked MR",
@@ -183,7 +187,9 @@ type RowItem = {
 function buildStalled(epics: EpicRow[], now: Date): RowItem[] {
   return (
     epics
-      .filter((e) => e.liveness && e.liveness !== "active")
+      // Anything not "active" (including a missing liveness) is non-active, so the
+      // rows stay consistent with the pulse, which counts the same set as stalled.
+      .filter((e) => e.liveness !== "active")
       .map((e) => ({ epic: e, age: ageDays(e.last_motion, now) }))
       // Unknown age (no motion ever) sorts oldest-first.
       .sort((a, b) => (b.age ?? Number.POSITIVE_INFINITY) - (a.age ?? Number.POSITIVE_INFINITY))
@@ -191,7 +197,7 @@ function buildStalled(epics: EpicRow[], now: Date): RowItem[] {
       .map(({ epic, age }) => {
         const tags = [age === null ? "no motion" : `stale-${age}d`];
         if (ownerOf(epic) === "unowned") tags.push("unowned");
-        const liveness = String(epic.liveness ?? "quiet");
+        const liveness = (typeof epic.liveness === "string" && epic.liveness) || "quiet";
         return {
           glyph: (liveness === "quiet" ? "neutral" : "warn") as Tone,
           chip: { label: liveness.toUpperCase() },
