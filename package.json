@@ -1,0 +1,28 @@
+{
+  "name": "@keelson/rib-osdu",
+  "version": "0.0.0",
+  "description": "OSDU CIMPL bridge as a Keelson rib — live cluster/Flux topology and (later) platform-health lanes.",
+  "license": "Apache-2.0",
+  "author": "Daniel Scholl",
+  "type": "module",
+  "main": "./src/index.ts",
+  "files": [
+    "src",
+    "bin",
+    "workflows",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "collect:topology": "bun bin/collect-topology.ts",
+    "link:keelson": "bun dev/link.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@types/bun": "latest",
+    "typescript": "^6.0.3"
+  }
+}

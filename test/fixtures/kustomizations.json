@@ -1,0 +1,83 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "metadata": {
+        "name": "cimpl-stack",
+        "namespace": "flux-system",
+        "labels": { "cimpl-stack.layer": "0" }
+      },
+      "spec": {},
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True",
+            "reason": "ReconciliationSucceeded",
+            "message": "Applied revision: main@sha1:abc123"
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "name": "osdu-foundation",
+        "namespace": "flux-system",
+        "labels": { "cimpl-stack.layer": "1" }
+      },
+      "spec": { "dependsOn": [{ "name": "cimpl-stack" }] },
+      "status": {
+        "conditions": [{ "type": "Ready", "status": "True", "reason": "ReconciliationSucceeded" }]
+      }
+    },
+    {
+      "metadata": {
+        "name": "osdu-platform",
+        "namespace": "flux-system",
+        "labels": { "cimpl-stack.layer": "2" }
+      },
+      "spec": { "dependsOn": [{ "name": "osdu-foundation" }] },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "HealthCheckFailed",
+            "message": "Helm install failed: timed out waiting for the condition"
+          }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "name": "osdu-services",
+        "namespace": "flux-system",
+        "labels": { "cimpl-stack.layer": "3" }
+      },
+      "spec": { "dependsOn": [{ "name": "osdu-platform" }] },
+      "status": {
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False",
+            "reason": "DependencyNotReady",
+            "message": "dependency 'flux-system/osdu-platform' is not ready"
+          }
+        ]
+      }
+    },
+    {
+      "metadata": { "name": "experimental", "namespace": "flux-system" },
+      "spec": { "suspend": true },
+      "status": {}
+    },
+    {
+      "metadata": { "name": "orphan", "namespace": "flux-system" },
+      "spec": { "dependsOn": [{ "name": "does-not-exist" }] },
+      "status": {
+        "conditions": [{ "type": "Ready", "status": "Unknown", "reason": "Progressing" }]
+      }
+    }
+  ]
+}
