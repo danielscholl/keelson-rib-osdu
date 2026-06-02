@@ -1,0 +1,78 @@
+{
+  "release": "default",
+  "branch": "master",
+  "provider": "cimpl",
+  "services": [
+    {
+      "name": "storage",
+      "display_name": "Storage",
+      "sonar": { "security_rating": "C" },
+      "vulnerabilities": {
+        "critical": 10,
+        "high": 33,
+        "medium": 5,
+        "low": 2,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "search-service",
+      "display_name": "Search",
+      "sonar": { "security_rating": "B" },
+      "vulnerabilities": {
+        "critical": 6,
+        "high": 17,
+        "medium": 12,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "legal",
+      "display_name": "Legal",
+      "sonar": { "security_rating": "A" },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 1,
+        "medium": 3,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "policy",
+      "display_name": "Policy",
+      "sonar": { "security_rating": "D" },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "partition",
+      "display_name": "Partition",
+      "sonar": { "security_rating": "A" },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "register",
+      "display_name": "Register",
+      "sonar": { "security_rating": "A" },
+      "vulnerabilities": null
+    }
+  ]
+}

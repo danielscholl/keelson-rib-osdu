@@ -14,6 +14,10 @@ export interface TestMetrics {
 export interface VulnCounts {
   critical?: number | null;
   high?: number | null;
+  medium?: number | null;
+  low?: number | null;
+  info?: number | null;
+  unknown?: number | null;
 }
 export interface ServiceReport {
   name?: string;
