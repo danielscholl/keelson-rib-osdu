@@ -4,11 +4,13 @@ import { currentContext } from "./kubectl.ts";
 
 const TOPOLOGY_KEY = "rib:osdu:topology";
 const QUALITY_KEY = "rib:osdu:quality";
+const FEATURES_KEY = "rib:osdu:features";
 
 // Absolute paths to the deterministic collectors, resolved at module load so a
 // workflow node runs the right file regardless of the run's cwd.
 const TOPOLOGY_COLLECTOR = new URL("../bin/collect-topology.ts", import.meta.url).pathname;
 const QUALITY_COLLECTOR = new URL("../bin/collect-quality.ts", import.meta.url).pathname;
+const FEATURES_COLLECTOR = new URL("../bin/collect-features.ts", import.meta.url).pathname;
 
 // Validate through the canvas view union (not a bare member schema) so the
 // producer-side guard enforces node-id / column-key uniqueness — the same
@@ -30,6 +32,7 @@ const rib: Rib = {
   views: [
     { key: TOPOLOGY_KEY, canvasKind: "view", title: "Cluster Topology" },
     { key: QUALITY_KEY, canvasKind: "view", title: "Quality" },
+    { key: FEATURES_KEY, canvasKind: "view", title: "Features" },
   ],
 
   // The producers: deterministic workflows whose node prints a view payload,
@@ -68,6 +71,22 @@ const rib: Rib = {
       },
       bindSnapshotKey: QUALITY_KEY,
       validate: expectView(QUALITY_KEY, "board"),
+    },
+    {
+      definition: {
+        name: "osdu-features",
+        description:
+          'Use when: tracking delivery — what is moving and what is stalled. Triggers: "what\'s moving", "show features", "stalled epics", "open MRs". Does: runs the osdu-activity epic + merge-request CLIs and publishes a features board — an active/quiet pulse, MR KPI tiles (open / stale / blocked / ready), "Movers" cards with progress bars, and "Stalled" rows with a why-flagged note — to the Features canvas. NOT for: merging or editing MRs.',
+        nodes: [
+          {
+            id: "collect",
+            bash: `bun ${FEATURES_COLLECTOR}`,
+            output_schema: { type: "object", required: ["view", "sections"] },
+          },
+        ],
+      },
+      bindSnapshotKey: FEATURES_KEY,
+      validate: expectView(FEATURES_KEY, "board"),
     },
   ],
 

@@ -98,7 +98,7 @@ The deployment's health + access panel. Three regions:
 - **Movers (active)** — cards: title + `ACTIVE` status pill + **progress bar** (completion %) +
   meta row (`100% · 2 of 2 tasks · 0 MRs/7d · owner`).
 - **Stalled (quiet)** — cards: title + `QUIET` pill + meta + a **"why flagged"** footnote (`stale-61d, unowned`).
-- **Source:** `osdu-activity epic --output json` + `osdu-activity mr --output json`.
+- **Source:** `osdu-activity epic list --output json` + `osdu-activity mr --output json`.
 
 ### 3.5 Current Events (feed)
 A full-width, collapsible panel at the bottom of the page — a chronological event stream. Each row =
@@ -142,11 +142,12 @@ are kubectl-derived. CLIs handle their own auth (e.g. `glab` fallback) — no to
 - **Phase 0 — seam proof (done).** A kubectl Flux **topology graph** and a Quality **table** proved
   the end-to-end pipeline (discovery → workflow → snapshot → canvas render) with near-zero base
   change. *These were proofs, not the real surfaces* — the real surfaces are the composites above.
-- **Phase 1 — generic `board` view (Keelson base, G1).** A composite view kind Keelson lacks
-  (see ARCHITECTURE §Gaps). The gating dependency; proven by rebuilding the Quality lane as a board
-  in the existing canvas drawer.
-- **Phase 2 — build the lanes as boards.** Quality → Security → Features, each a contributed
-  workflow + board payload, still in the drawer.
+- **Phase 1 — generic `board` view (Keelson base, G1). Done.** The composite view kind (with cell
+  tone G0 and card link/copy G2) shipped to keelson `main` in PR #95, proven by rebuilding the Quality
+  lane as a board in the canvas drawer.
+- **Phase 2 — build the lanes as boards (in progress).** Quality ✓ and Features ✓ (active/quiet pulse,
+  MR KPI tiles, Movers cards, Stalled rows) render as boards today; **Security** and **Release Train**
+  are next — each a contributed workflow + board payload, still in the drawer.
 - **Phase 3 — top-level CIMPL surface + region layout (Keelson base, G4).** Compose the lane boards
   into the full page (collapsed cluster header · banner · 3 columns · collapsed feed) as a primary nav tab.
 - **Phase 4 — Cluster ICC.** Access cards + lifecycle + actions (depends on card link/copy + action round-trip primitives, G2/G3).

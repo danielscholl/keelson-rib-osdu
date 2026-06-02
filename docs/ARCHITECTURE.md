@@ -64,20 +64,20 @@ never imported**. CLIs own auth; collectors degrade to a valid empty payload on 
 
 | Surface region | Needs | Keelson today |
 |---|---|---|
-| Quality Sonar table, worst-acceptance table | data table + colored cells | `table` ✓ (+ cell-tone, in flight) |
+| Quality Sonar table, worst-acceptance table | data table + colored cells | `table` ✓ (+ cell-tone G0 ✓) |
 | Topology (seam proof) | node-link graph | `graph` ✓ |
-| KPI tiles, pulse bars, progress bars, cards, status rows, action buttons | composite dashboard | **missing** |
+| KPI tiles, pulse, progress bars, cards, status rows (links/copy) | composite dashboard | `board` ✓ (G1 + G2) |
 
-The single flat `table` we shipped for Quality is only one region of the real Quality surface. Every
-real surface is a composite. That is the gap.
+The composite `board` kind that expresses these regions has landed in the Keelson base (PR #95).
+Quality and Features render as boards today; the remaining surfaces are the same primitives recomposed.
 
 ## 6. Keelson gap analysis (the gating work)
 
-Keelson's canvas catalog is a closed union of `table` and `graph` (`packages/shared/src/canvas.ts`,
-`canvasViewSchema`). The bridge surfaces need primitives none of those express. Proposed **base** work,
-domain-free and reusable by any rib:
+Keelson's canvas catalog was a closed union of `table` and `graph`; the bridge surfaces needed
+primitives neither expressed. The **base** work below is domain-free and reusable by any rib.
+**Status: G0 + G1 + G2 shipped to keelson `main` in PR #95**; G3 and G4 remain.
 
-### G1 — Composite "board" view kind  *(the big one; gates Phases 2–4)*
+### G1 — Composite "board" view kind  *(✓ SHIPPED — keelson PR #95)*
 A new additive member of `canvasViewSchema`: `view: "board"` — an ordered list of typed **sections**,
 each a generic block. Sketch (domain-free; tone/labels only, no OSDU terms):
 
@@ -107,11 +107,10 @@ the Current Events feed. Work: schema + renderer + dispatch + tests in `packages
 The badge primitives (rating A–E, count/severity, status pills) are just toned cells/segments/pills — no
 extra kinds needed.
 
-### G2 — Cell affordances: link + copy
-Cards and tables need cells that are **clickable links** (`href`) and **copy buttons** (`copyable`) —
-portal URLs and credentials. Today a cell is scalar text only. Extend the cell/field shape (building on
-the in-flight `{value, tone}` cell) with optional `href` and `copyable`. Without this, the ICC Access
-grid and any URL column are functionally lossy.
+### G2 — Cell affordances: link + copy  *(✓ SHIPPED — keelson PR #95)*
+Card fields carry optional `href` (clickable links) and `copyable` (copy buttons) — for portal URLs and
+credentials. Links are gated to `http(s)` only (unsafe schemes collapse to plain text). Folded into the
+board contract alongside G1; the Features lane's epic cards/rows link out through it today.
 
 ### G3 — Rib action round-trip in the UI
 The Cluster ICC has **actions** (Reconcile / Suspend / Delete). The `Rib` contract already has
@@ -141,29 +140,30 @@ renderer; a collapsed region shows its board's header strip (chip + segments). B
 SPA-navigation plus a small surface descriptor on the `Rib` contract — larger than G1, best designed
 once 2–3 real boards exist to lay out.
 
-### G0 — Table cell tone *(in flight)*
-Branch `feat/canvas-table-cell-tone` on keelson: optional `{value, tone}` cell form + `data-tone`
-rendering. Covers the colored %/badges in tables. Already built; folds into G1's table block.
+### G0 — Table cell tone  *(✓ SHIPPED — keelson PR #95)*
+Optional `{value, tone}` cell form + `data-tone` rendering — the colored %/badges in tables. Folded
+into G1's table block; `tone` is reused by every board primitive (segments, stats, bars, cards, rows).
 
-**Dependency order:** G0 (done) → **G1** (+ G2) unlocks the lane boards (Phase 2) → **G4** composes
-them into the top-level page (Phase 3) → **G2 + G3** unlock the Cluster ICC's links / credentials and
-Reconcile/Suspend/Delete actions (Phase 4). G1 is first and provable today by rebuilding Quality as a
-board in the drawer.
+**Dependency order:** G0 + G1 + G2 (✓ shipped) unlocked the lane boards (Phase 2 — Quality and Features
+are boards now) → **G4** composes them into the top-level page (Phase 3) → **G3** unlocks the Cluster
+ICC's Reconcile/Suspend/Delete actions (Phase 4). **G4 is the next base gap**, best designed now that two
+real boards exist to lay out.
 
 ## 7. Current state (what exists now)
 
-- **Topology graph** (`rib:osdu:topology`, kubectl) and **Quality table** (`rib:osdu:quality`,
-  `osdu-quality release --output json`) are built and verified live end-to-end. They proved the
-  pipeline and the "wrap-the-CLI" data layer with near-zero base change.
-- They are **seam proofs, not the final surfaces.** The topology graph will be retired (the real
-  cluster surface is the ICC board); the Quality table becomes one `table` *section* of the Quality
-  board once G1 lands.
-- The only base change so far is **G0** (table cell tone). G1–G3 are the new, larger asks this
-  document scopes.
+- **Three views verified live end-to-end:** the **Topology graph** (`rib:osdu:topology`, kubectl), the
+  **Quality board** (`rib:osdu:quality`, `osdu-quality release --output json`), and the **Features board**
+  (`rib:osdu:features`, `osdu-activity epic list` + `mr --output json`). Quality and Features are full
+  `board` composites — pulse + KPI tiles + table/cards/rows; the Quality flat table is now one section.
+- **Base gaps G0 + G1 + G2 shipped** to keelson `main` (PR #95): cell tone, the composite `board` view,
+  and card-field link/copy. The Features lane was built with **zero further base change** — it fits the
+  existing board contract.
+- The topology graph remains a seam proof (the real cluster surface is the ICC board, Phase 4).
+- Remaining base asks: **G4** (top-level surface + region layout) and **G3** (rib-action round-trip).
 
 ## 8. Next step
 
-Open a Keelson base issue for **G1** (the `board` view kind; fold in G2 cell link/copy and the
-already-built G0 cell-tone). Acceptance: the Quality lane re-rendered as a board in the canvas drawer.
-Track **G4** (top-level surface + region layout) as a dependent follow-on, designed once 2–3 boards
-exist. Then Security / Features as boards, the page layout, and finally the Cluster ICC.
+G1 shipped and two lanes (Quality, Features) render as boards. Next: build the **Security** lane and
+**Release Train** as boards (more boards to lay out), then design **G4** (the top-level `CIMPL` surface +
+region layout) in the Keelson base and compose the lane boards into the full page — and finally the
+**Cluster ICC** (which also needs G3, the rib-action round-trip).

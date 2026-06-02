@@ -1,0 +1,62 @@
+{
+  "statistics": {
+    "total_epics": 4,
+    "total_active": 2,
+    "total_quiet": 1,
+    "total_stale": 1,
+    "total_dead": 0,
+    "total_open_issues": 7
+  },
+  "data": {
+    "epics": [
+      {
+        "title": "Unified QA Reporting Dashboard",
+        "web_url": "https://community.opengroup.org/groups/osdu/platform/-/epics/69",
+        "liveness": "active",
+        "last_motion": "2026-06-01T12:00:00.000Z",
+        "total_issue_count": 10,
+        "open_issue_count": 2,
+        "assignees": ["alice"],
+        "related_mrs": [
+          { "state": "merged", "merged_at": "2026-05-30T12:00:00.000Z" },
+          { "state": "merged", "merged_at": "2026-05-28T12:00:00.000Z" },
+          { "state": "opened", "merged_at": null }
+        ]
+      },
+      {
+        "title": "Schema Service Hardening",
+        "web_url": "https://community.opengroup.org/groups/osdu/platform/-/epics/70",
+        "liveness": "active",
+        "last_motion": "2026-05-31T09:00:00.000Z",
+        "total_issue_count": 0,
+        "open_issue_count": 0,
+        "assignees": [],
+        "related_mrs": [
+          { "state": "merged", "merged_at": "2026-05-29T08:00:00.000Z" },
+          { "state": "merged", "merged_at": "2026-01-01T08:00:00.000Z" },
+          { "state": "opened", "merged_at": null }
+        ]
+      },
+      {
+        "title": "Legacy Ingestion Cleanup",
+        "web_url": "https://community.opengroup.org/groups/osdu/platform/-/epics/71",
+        "liveness": "quiet",
+        "last_motion": "2026-04-02T00:00:00.000Z",
+        "total_issue_count": 5,
+        "open_issue_count": 5,
+        "assignees": [],
+        "related_mrs": []
+      },
+      {
+        "title": "Deprecated CRS Migration",
+        "web_url": "https://community.opengroup.org/groups/osdu/platform/-/epics/72",
+        "liveness": "stale",
+        "last_motion": "2026-02-02T00:00:00.000Z",
+        "total_issue_count": 8,
+        "open_issue_count": 6,
+        "assignees": ["bob"],
+        "related_mrs": []
+      }
+    ]
+  }
+}
