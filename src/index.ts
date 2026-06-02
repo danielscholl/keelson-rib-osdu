@@ -3,23 +3,39 @@ import { canvasViewSchema } from "@keelson/shared";
 import { currentContext } from "./kubectl.ts";
 
 const TOPOLOGY_KEY = "rib:osdu:topology";
+const QUALITY_KEY = "rib:osdu:quality";
 
-// Absolute path to the deterministic collector, resolved at module load so the
-// workflow's bash node runs the right file regardless of the run's cwd.
-const COLLECTOR = new URL("../bin/collect-topology.ts", import.meta.url).pathname;
+// Absolute paths to the deterministic collectors, resolved at module load so a
+// workflow node runs the right file regardless of the run's cwd.
+const TOPOLOGY_COLLECTOR = new URL("../bin/collect-topology.ts", import.meta.url).pathname;
+const QUALITY_COLLECTOR = new URL("../bin/collect-quality.ts", import.meta.url).pathname;
+
+// Validate through the canvas view union (not a bare member schema) so the
+// producer-side guard enforces node-id / column-key uniqueness — the same
+// checks the SPA render gate runs — before a frame is ever broadcast.
+function expectView(key: string, kind: CanvasView["view"]) {
+  return (data: unknown): CanvasView => {
+    const view = canvasViewSchema.parse(data);
+    if (view.view !== kind) throw new Error(`${key} expects a ${kind} view`);
+    return view;
+  };
+}
 
 const rib: Rib = {
   id: "osdu",
   displayName: "OSDU",
 
-  // Binds the rib-namespaced snapshot key to the canvas graph view. The button
-  // appears on the Ribs page; the data arrives when the workflow below runs.
-  views: [{ key: TOPOLOGY_KEY, canvasKind: "view", title: "Cluster Topology" }],
+  // Each view binds a rib-namespaced snapshot key to a canvas renderer. The
+  // buttons appear on the Ribs page; data arrives when the workflows run.
+  views: [
+    { key: TOPOLOGY_KEY, canvasKind: "view", title: "Cluster Topology" },
+    { key: QUALITY_KEY, canvasKind: "view", title: "Quality" },
+  ],
 
-  // The producer: a deterministic workflow whose bash node prints a graph
-  // payload, which the executor promotes to structured output and the rib
-  // binding publishes to TOPOLOGY_KEY (fail-closed via `validate`). No React,
-  // no hand-coded server route — the UI data comes from a workflow.
+  // The producers: deterministic workflows whose node prints a view payload,
+  // which the executor promotes to structured output and the rib binding
+  // publishes (fail-closed via `validate`). No React, no hand-coded route —
+  // the UI data comes from a workflow.
   contributeWorkflows: () => [
     {
       definition: {
@@ -29,20 +45,29 @@ const rib: Rib = {
         nodes: [
           {
             id: "collect",
-            bash: `bun ${COLLECTOR}`,
+            bash: `bun ${TOPOLOGY_COLLECTOR}`,
             output_schema: { type: "object", required: ["view", "nodes", "edges"] },
           },
         ],
       },
       bindSnapshotKey: TOPOLOGY_KEY,
-      // Validate through the canvas view union (not the bare graph schema) so the
-      // producer-side guard enforces node-id uniqueness — the same check the
-      // SPA's render gate runs — before a frame is ever broadcast.
-      validate: (data: unknown): CanvasView => {
-        const view = canvasViewSchema.parse(data);
-        if (view.view !== "graph") throw new Error(`${TOPOLOGY_KEY} expects a graph view`);
-        return view;
+      validate: expectView(TOPOLOGY_KEY, "graph"),
+    },
+    {
+      definition: {
+        name: "osdu-quality",
+        description:
+          'Use when: reviewing platform release quality. Triggers: "show quality", "how are the services", "sonar / test pass rates / CVEs". Does: runs the osdu-quality release CLI and publishes a quality board — a good/poor/fail pulse, KPI tiles, and a per-service table (acceptance/unit pass rates, coverage, Sonar R·S·M ratings, CVE counts) — to the Quality canvas. NOT for: changing pipelines or merging.',
+        nodes: [
+          {
+            id: "collect",
+            bash: `bun ${QUALITY_COLLECTOR}`,
+            output_schema: { type: "object", required: ["view", "sections"] },
+          },
+        ],
       },
+      bindSnapshotKey: QUALITY_KEY,
+      validate: expectView(QUALITY_KEY, "board"),
     },
   ],
 

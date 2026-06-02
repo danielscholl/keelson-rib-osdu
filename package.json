@@ -18,6 +18,7 @@
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "collect:topology": "bun bin/collect-topology.ts",
+    "collect:quality": "bun bin/collect-quality.ts",
     "link:keelson": "bun dev/link.ts"
   },
   "devDependencies": {

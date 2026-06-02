@@ -1,0 +1,77 @@
+{
+  "release": "default",
+  "branch": "master",
+  "provider": "cimpl",
+  "services": [
+    {
+      "name": "partition",
+      "display_name": "Partition",
+      "sonar": {
+        "coverage_pct": 94.7,
+        "quality_gate": "ERROR",
+        "reliability_rating": "A",
+        "security_rating": "A",
+        "maintainability_rating": "A"
+      },
+      "unit": { "pass_rate": 100.0 },
+      "acceptance": { "pass_rate": 100.0 },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "crs-conversion",
+      "display_name": "CRS Conversion",
+      "sonar": {
+        "coverage_pct": 10.9,
+        "quality_gate": "ERROR",
+        "reliability_rating": "B",
+        "security_rating": "A",
+        "maintainability_rating": "A"
+      },
+      "unit": { "pass_rate": 100.0 },
+      "acceptance": { "pass_rate": 0.0 },
+      "vulnerabilities": { "critical": 10, "high": 33 }
+    },
+    {
+      "name": "search-service",
+      "display_name": "Search",
+      "sonar": {
+        "coverage_pct": 82.6,
+        "reliability_rating": "D",
+        "security_rating": "A",
+        "maintainability_rating": "A"
+      },
+      "unit": { "pass_rate": 100.0 },
+      "acceptance": { "pass_rate": 100.0 },
+      "vulnerabilities": { "critical": 6, "high": 17 }
+    },
+    {
+      "name": "register",
+      "display_name": "Register",
+      "sonar": {
+        "coverage_pct": 56.4,
+        "reliability_rating": "D",
+        "security_rating": "A",
+        "maintainability_rating": "A"
+      },
+      "unit": { "pass_rate": 97.0 },
+      "acceptance": { "pass_rate": 80.7 },
+      "vulnerabilities": { "critical": 0, "high": 1 }
+    },
+    {
+      "name": "wellbore-worker",
+      "display_name": "Wellbore Worker",
+      "sonar": null,
+      "unit": null,
+      "acceptance": null,
+      "vulnerabilities": null
+    }
+  ],
+  "aggregates": {}
+}
