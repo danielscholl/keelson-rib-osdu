@@ -181,27 +181,26 @@ type RowItem = {
   trailing: string;
 };
 function buildStalled(epics: EpicRow[], now: Date): RowItem[] {
-  return epics
-    .filter((e) => e.liveness && e.liveness !== "active")
-    .map((e) => ({ epic: e, age: ageDays(e.last_motion, now) ?? 0 }))
-    .sort((a, b) => b.age - a.age)
-    .slice(0, STALLED_CAP)
-    .map(({ epic, age }) => {
-      const tags = [`stale-${age}d`];
-      if (ownerOf(epic) === "unowned") tags.push("unowned");
-      const liveness = String(epic.liveness ?? "quiet");
-      return {
-        glyph: (liveness === "active"
-          ? "neutral"
-          : liveness === "quiet"
-            ? "neutral"
-            : "warn") as Tone,
-        chip: { label: liveness.toUpperCase() },
-        text: epic.title || "—",
-        ...(epic.web_url ? { href: epic.web_url } : {}),
-        trailing: tags.join(", "),
-      };
-    });
+  return (
+    epics
+      .filter((e) => e.liveness && e.liveness !== "active")
+      .map((e) => ({ epic: e, age: ageDays(e.last_motion, now) }))
+      // Unknown age (no motion ever) sorts oldest-first.
+      .sort((a, b) => (b.age ?? Number.POSITIVE_INFINITY) - (a.age ?? Number.POSITIVE_INFINITY))
+      .slice(0, STALLED_CAP)
+      .map(({ epic, age }) => {
+        const tags = [age === null ? "no motion" : `stale-${age}d`];
+        if (ownerOf(epic) === "unowned") tags.push("unowned");
+        const liveness = String(epic.liveness ?? "quiet");
+        return {
+          glyph: (liveness === "quiet" ? "neutral" : "warn") as Tone,
+          chip: { label: liveness.toUpperCase() },
+          text: epic.title || "—",
+          ...(epic.web_url ? { href: epic.web_url } : {}),
+          trailing: tags.join(", "),
+        };
+      })
+  );
 }
 
 /**

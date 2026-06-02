@@ -34,16 +34,28 @@ function runActivity(args: string[], timeoutMs = 180_000): { json?: unknown; err
   }
 }
 
-// The CLI defaults silently truncate what the board then summarizes: `epic list`
-// returns the 50 newest-motion rows (dropping the stalest — exactly what the
-// Stalled section needs), and `mr` caps 20/project and omits drafts. Raise the
-// caps and include drafts so the pulse, KPIs, and Stalled section see the full set.
+// Scope to the Venus release via the CLI's own filters (`--label Venus` for
+// epics, `--milestone Venus` fuzzy for MRs) — no hardcoded service list. Raise
+// the row caps and include drafts: the defaults (50 newest-motion epics, 20
+// MRs/project, drafts off) silently truncate before the board summarizes.
 const EPIC_LIMIT = 500;
 const MR_LIMIT = 1000;
+const VENUS = "Venus";
 
-const epicsRes = runActivity(["epic", "list", "--output", "json", "--limit", String(EPIC_LIMIT)]);
+const epicsRes = runActivity([
+  "epic",
+  "list",
+  "--label",
+  VENUS,
+  "--output",
+  "json",
+  "--limit",
+  String(EPIC_LIMIT),
+]);
 const mrsRes = runActivity([
   "mr",
+  "--milestone",
+  VENUS,
   "--output",
   "json",
   "--include-draft",

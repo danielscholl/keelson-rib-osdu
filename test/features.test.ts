@@ -104,4 +104,12 @@ describe("buildFeaturesBoard edge cases", () => {
     expect(canvasViewSchema.safeParse(empty).success).toBe(true);
     expect(empty.sections.map((s) => s.kind)).toEqual(["stats"]);
   });
+
+  test("a no-motion epic is flagged 'no motion', not stale-0d", () => {
+    const b = buildFeaturesBoard([{ title: "Dormant", liveness: "dead", assignees: [] }], [], NOW);
+    const rows = b.sections.find((s) => s.kind === "rows");
+    expect(rows?.kind).toBe("rows");
+    if (rows?.kind !== "rows") return;
+    expect(rows.items[0]?.trailing).toBe("no motion, unowned");
+  });
 });
