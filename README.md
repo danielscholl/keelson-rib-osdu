@@ -9,8 +9,9 @@ knowledge lives here, and the rib ships **zero React** into the trusted SPA.
 > Flux **topology graph** plus three composite **boards**: **Quality** (`osdu-quality release
 > --output json`), **Features** (`osdu-activity epic list` / `mr --output json`), and
 > **Security** (`osdu-quality release` + GitLab/OSV CVE detail). The generic `board` view they
-> render through landed in the Keelson base (gap G1). Still ahead: the **Cluster ICC** and the
-> composed top-level **CIMPL** surface.
+> render through landed in the Keelson base (gap G1), as did the top-level **surface** (gap G4) —
+> so the rib now composes the three lane boards into one **CIMPL** nav tab. Still ahead: the
+> **Cluster ICC** and the remaining surface regions (cluster header, waiting-on-you, events feed).
 > See **[docs/PRD.md](docs/PRD.md)** for what the rib delivers and
 > **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for how it works + the Keelson base gaps
 > it depends on. No resident sidecar; all data is one-shot CLI invocations.
@@ -62,8 +63,9 @@ pure builder (no domain logic in rib glue, no analyzer reimplemented):
   fix versions. Each source degrades independently — counts-based sections still render when
   GitLab/OSV are unreachable.
 - **`src/index.ts`** — the `Rib`: four `views` descriptors, four contributed workflows that
-  publish to them (each `validate`d fail-closed through `canvasViewSchema`), and an
-  `authStatus` probe for the kubectl context.
+  publish to them (each `validate`d fail-closed through `canvasViewSchema`), a **`CIMPL`
+  surface** that lays the three lane boards out side by side, and an `authStatus` probe for the
+  kubectl context.
 
 No data is produced in rib code — the UI's data comes from running a workflow. The
 `osdu-quality` and `osdu-activity` CLIs must be on `PATH` (e.g. `~/.local/bin`) and
@@ -106,11 +108,12 @@ dev loop above needs no registry.
 
 ## Roadmap
 
-The generic `board` view kind (gap **G1**, with cell tone **G0** and card link/copy **G2**) has
-landed in the Keelson base, and **Quality**, **Features**, and **Security** now render as boards.
-Still ahead: the **Release Train** as a board, then composing the lane boards into a top-level
-**CIMPL** surface (gap **G4** — a primary nav tab of region-bound boards), and finally the **Cluster
-ICC** (which also needs the rib-action round-trip, gap **G3**). Each lane wraps an existing OSDU/CIMPL
+The generic `board` view kind (gap **G1**, with cell tone **G0** and card link/copy **G2**) and the
+top-level **surface** (gap **G4** — a primary nav tab of region-bound boards) have landed in the
+Keelson base; **Quality**, **Features**, and **Security** render as boards and now compose into one
+**CIMPL** surface. Still ahead: the **Release Train**, **Waiting on You**, and **Current Events**
+boards (which fill out the surface's banner/footer regions), and the **Cluster ICC** (which also
+needs the rib-action round-trip, gap **G3**). Each lane wraps an existing OSDU/CIMPL
 CLI (`osdu-quality`, `osdu-activity`, `cimpl info`) plus public CVE lookups (GitLab/OSV) — no
 reimplemented analyzers, no resident sidecar.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the gap taxonomy.
