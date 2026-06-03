@@ -5,12 +5,14 @@ import { currentContext } from "./kubectl.ts";
 const TOPOLOGY_KEY = "rib:osdu:topology";
 const QUALITY_KEY = "rib:osdu:quality";
 const FEATURES_KEY = "rib:osdu:features";
+const SECURITY_KEY = "rib:osdu:security";
 
 // Absolute paths to the deterministic collectors, resolved at module load so a
 // workflow node runs the right file regardless of the run's cwd.
 const TOPOLOGY_COLLECTOR = new URL("../bin/collect-topology.ts", import.meta.url).pathname;
 const QUALITY_COLLECTOR = new URL("../bin/collect-quality.ts", import.meta.url).pathname;
 const FEATURES_COLLECTOR = new URL("../bin/collect-features.ts", import.meta.url).pathname;
+const SECURITY_COLLECTOR = new URL("../bin/collect-security.ts", import.meta.url).pathname;
 
 // Validate through the canvas view union (not a bare member schema) so the
 // producer-side guard enforces node-id / column-key uniqueness — the same
@@ -33,6 +35,7 @@ const rib: Rib = {
     { key: TOPOLOGY_KEY, canvasKind: "view", title: "Cluster Topology" },
     { key: QUALITY_KEY, canvasKind: "view", title: "Quality" },
     { key: FEATURES_KEY, canvasKind: "view", title: "Features" },
+    { key: SECURITY_KEY, canvasKind: "view", title: "Security" },
   ],
 
   // The producers: deterministic workflows whose node prints a view payload,
@@ -87,6 +90,22 @@ const rib: Rib = {
       },
       bindSnapshotKey: FEATURES_KEY,
       validate: expectView(FEATURES_KEY, "board"),
+    },
+    {
+      definition: {
+        name: "osdu-security",
+        description:
+          'Use when: reviewing platform security posture. Triggers: "show security", "how are vulnerabilities", "critical CVEs", "aged criticals", "quick wins". Does: runs the osdu-quality release CLI plus GitLab/OSV CVE lookups and publishes a security board — a crit/high/med service pulse, KPI tiles (Critical / High / Medium / Vuln MRs), low-security-rating cards, top-offender severity bars, aged-critical CVE cards, and dependency-bump quick wins — to the Security canvas. NOT for: patching or merging dependency MRs.',
+        nodes: [
+          {
+            id: "collect",
+            bash: `bun ${SECURITY_COLLECTOR}`,
+            output_schema: { type: "object", required: ["view", "sections"] },
+          },
+        ],
+      },
+      bindSnapshotKey: SECURITY_KEY,
+      validate: expectView(SECURITY_KEY, "board"),
     },
   ],
 

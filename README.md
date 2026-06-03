@@ -5,11 +5,12 @@ a discovery-based extension that contributes deterministic workflows whose struc
 output drives live canvas views. The harness stays domain-free; all OSDU/cluster
 knowledge lives here, and the rib ships **zero React** into the trusted SPA.
 
-> Status: **early / under active design.** Three views work end-to-end today — a kubectl
-> Flux **topology graph** plus two composite **boards**: **Quality** (`osdu-quality release
-> --output json`) and **Features** (`osdu-activity epic list` / `mr --output json`). The
-> generic `board` view they render through landed in the Keelson base (gap G1). Still ahead:
-> the **Security** lane, the **Cluster ICC**, and the composed top-level **CIMPL** surface.
+> Status: **early / under active design.** Four views work end-to-end today — a kubectl
+> Flux **topology graph** plus three composite **boards**: **Quality** (`osdu-quality release
+> --output json`), **Features** (`osdu-activity epic list` / `mr --output json`), and
+> **Security** (`osdu-quality release` + GitLab/OSV CVE detail). The generic `board` view they
+> render through landed in the Keelson base (gap G1). Still ahead: the **Cluster ICC** and the
+> composed top-level **CIMPL** surface.
 > See **[docs/PRD.md](docs/PRD.md)** for what the rib delivers and
 > **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for how it works + the Keelson base gaps
 > it depends on. No resident sidecar; all data is one-shot CLI invocations.
@@ -27,6 +28,7 @@ structured output, which the rib binding publishes (fail-closed: `canvasViewSche
 osdu-topology   →  bash: bun bin/collect-topology.ts   →  graph view  →  rib:osdu:topology  →  "Cluster Topology"
 osdu-quality    →  bash: bun bin/collect-quality.ts    →  board view  →  rib:osdu:quality   →  "Quality"
 osdu-features   →  bash: bun bin/collect-features.ts   →  board view  →  rib:osdu:features  →  "Features"
+osdu-security   →  bash: bun bin/collect-security.ts   →  board view  →  rib:osdu:security  →  "Security"
 ```
 
 Each collector is a thin Bun script that shells a domain CLI and shapes its output with a
@@ -51,7 +53,15 @@ pure builder (no domain logic in rib glue, no analyzer reimplemented):
   note). `bin/collect-features.ts` shells `osdu-activity epic list` + `mr --output json`
   (sanitizing the epic CLI's unescaped control characters before parsing); degrades to a valid
   empty board when a CLI is missing or errors.
-- **`src/index.ts`** — the `Rib`: three `views` descriptors, three contributed workflows that
+- **`src/security.ts`** — pure `buildSecurityBoard({ report, vulns, fixes, mrs, now })`: a
+  Security **board** — a crit/high/med service pulse, KPI tiles (Critical / High / Medium /
+  Vuln MRs), low-security-rating cards, top-offender severity **bars** (`crit · high`), aged-
+  critical CVE cards (`>30d`), and dependency-bump quick wins. Counts/ratings come from the
+  `osdu-quality release` report; CVE detail comes from `bin/collect-security.ts`, which also
+  shells `glab api graphql` (group `vulnerabilities`) for per-CVE rows and queries OSV.dev for
+  fix versions. Each source degrades independently — counts-based sections still render when
+  GitLab/OSV are unreachable.
+- **`src/index.ts`** — the `Rib`: four `views` descriptors, four contributed workflows that
   publish to them (each `validate`d fail-closed through `canvasViewSchema`), and an
   `authStatus` probe for the kubectl context.
 
@@ -66,7 +76,7 @@ bun install
 bun link @keelson/shared        # resolves the contract from your local keelson checkout
                                 # (or rely on the symlink dev/link.ts manages)
 
-bun test            # pure builder coverage (topology + quality)
+bun test            # pure builder coverage (topology + quality + features + security)
 bun run typecheck
 bun run check       # biome lint + format
 
@@ -75,9 +85,9 @@ bun run link:keelson
 cd ../keelson && KEELSON_RIBS=osdu bun dev
 ```
 
-Then open `http://127.0.0.1:5173` → **Ribs** → run a workflow (from the Workflows surface
-or `keelson workflow run osdu-topology` / `osdu-quality` / `osdu-features`) → open **Cluster
-Topology**, **Quality**, or **Features**.
+Then open `http://127.0.0.1:5173` → **Ribs** → run a workflow (from the Workflows surface or
+`keelson workflow run osdu-topology` / `osdu-quality` / `osdu-features` / `osdu-security`) →
+open **Cluster Topology**, **Quality**, **Features**, or **Security**.
 
 Smoke-test the collectors directly:
 
@@ -85,6 +95,7 @@ Smoke-test the collectors directly:
 bun run collect:topology | jq .
 bun run collect:quality | jq .   # shells `osdu-quality release --output json`
 bun run collect:features | jq .  # shells `osdu-activity epic list` + `mr --output json`
+bun run collect:security | jq .  # `osdu-quality release` + `glab` group vulns + OSV fixes
 ```
 
 ## Distribution
@@ -96,11 +107,12 @@ dev loop above needs no registry.
 ## Roadmap
 
 The generic `board` view kind (gap **G1**, with cell tone **G0** and card link/copy **G2**) has
-landed in the Keelson base, and **Quality** and **Features** now render as boards. Still ahead: the
-**Security** lane and **Release Train** as boards, then composing the lane boards into a top-level
+landed in the Keelson base, and **Quality**, **Features**, and **Security** now render as boards.
+Still ahead: the **Release Train** as a board, then composing the lane boards into a top-level
 **CIMPL** surface (gap **G4** — a primary nav tab of region-bound boards), and finally the **Cluster
 ICC** (which also needs the rib-action round-trip, gap **G3**). Each lane wraps an existing OSDU/CIMPL
-CLI (`osdu-quality`, `osdu-activity`, `cimpl info`) — no reimplemented analyzers, no resident sidecar.
+CLI (`osdu-quality`, `osdu-activity`, `cimpl info`) plus public CVE lookups (GitLab/OSV) — no
+reimplemented analyzers, no resident sidecar.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the gap taxonomy.
 
 ## License

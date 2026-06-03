@@ -20,6 +20,7 @@
     "collect:topology": "bun bin/collect-topology.ts",
     "collect:quality": "bun bin/collect-quality.ts",
     "collect:features": "bun bin/collect-features.ts",
+    "collect:security": "bun bin/collect-security.ts",
     "link:keelson": "bun dev/link.ts"
   },
   "devDependencies": {
