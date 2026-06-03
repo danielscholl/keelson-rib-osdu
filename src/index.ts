@@ -38,6 +38,18 @@ const rib: Rib = {
     { key: SECURITY_KEY, canvasKind: "view", title: "Security" },
   ],
 
+  // Composes the lane boards into one CIMPL nav tab (the G4 surface); regions
+  // bind the same snapshot keys the views publish.
+  surfaces: [
+    {
+      id: "cimpl",
+      title: "CIMPL",
+      layout: {
+        rows: [{ columns: [{ key: QUALITY_KEY }, { key: FEATURES_KEY }, { key: SECURITY_KEY }] }],
+      },
+    },
+  ],
+
   // The producers: deterministic workflows whose node prints a view payload,
   // which the executor promotes to structured output and the rib binding
   // publishes (fail-closed via `validate`). No React, no hand-coded route —
