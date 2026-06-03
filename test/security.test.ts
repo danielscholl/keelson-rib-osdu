@@ -4,6 +4,7 @@ import type { ReleaseReport } from "../src/quality.ts";
 import {
   buildSecurityBoard,
   extractVulns,
+  osvFixKey,
   parseOsvFixed,
   type SecurityMr,
 } from "../src/security.ts";
@@ -13,7 +14,14 @@ import vulnNodes from "./fixtures/security-vulns.json";
 
 const NOW = new Date("2026-06-01T00:00:00Z");
 const vulns = extractVulns(vulnNodes);
-const fixes = new Map(Object.entries(osvFixes));
+// The fix map is keyed by (package, CVE) — mirror how the collector builds it
+// from the CVE-keyed fixture and each vuln's package.
+const rawFixes = osvFixes as Record<string, string>;
+const fixes = new Map<string, string>();
+for (const v of vulns) {
+  const fix = rawFixes[v.cve_id];
+  if (fix) fixes.set(osvFixKey(v.package_name, v.cve_id), fix);
+}
 const board = buildSecurityBoard({
   report: report as ReleaseReport,
   vulns,
@@ -228,21 +236,52 @@ describe("extractVulns", () => {
 });
 
 describe("parseOsvFixed", () => {
-  test("picks the highest published fixed version", () => {
+  test("picks the highest published fixed version for the matching package", () => {
     const body = {
       affected: [
-        { ranges: [{ events: [{ introduced: "0" }, { fixed: "1.2.0" }, { fixed: "1.10.0" }] }] },
+        {
+          package: { name: "golang.org/x/net" },
+          ranges: [{ events: [{ introduced: "0" }, { fixed: "1.2.0" }, { fixed: "1.10.0" }] }],
+        },
       ],
     };
-    expect(parseOsvFixed(body)).toBe("1.10.0");
+    expect(parseOsvFixed(body, "golang.org/x/net")).toBe("1.10.0");
+  });
+
+  test("ignores fixes for other packages in the same CVE", () => {
+    const body = {
+      affected: [
+        { package: { name: "other/pkg" }, ranges: [{ events: [{ fixed: "9.9.9" }] }] },
+        { package: { name: "golang.org/x/net" }, ranges: [{ events: [{ fixed: "1.10.0" }] }] },
+      ],
+    };
+    expect(parseOsvFixed(body, "golang.org/x/net")).toBe("1.10.0");
+    expect(parseOsvFixed(body, "unmatched/pkg")).toBe("");
+  });
+
+  test("matches Maven group:artifact (OSV) to group/artifact (GitLab)", () => {
+    const body = {
+      affected: [
+        {
+          package: { name: "org.apache.tomcat.embed:tomcat-embed-core" },
+          ranges: [{ events: [{ fixed: "10.1.34" }] }],
+        },
+      ],
+    };
+    expect(parseOsvFixed(body, "org.apache.tomcat.embed/tomcat-embed-core")).toBe("10.1.34");
   });
 
   test("rejects git-SHA fixed events and empty bodies", () => {
     const body = {
-      affected: [{ ranges: [{ events: [{ fixed: "abcdef1234567890abcdef1234567890" }] }] }],
+      affected: [
+        {
+          package: { name: "p" },
+          ranges: [{ events: [{ fixed: "abcdef1234567890abcdef1234567890" }] }],
+        },
+      ],
     };
-    expect(parseOsvFixed(body)).toBe("");
-    expect(parseOsvFixed({})).toBe("");
-    expect(parseOsvFixed(null)).toBe("");
+    expect(parseOsvFixed(body, "p")).toBe("");
+    expect(parseOsvFixed({}, "p")).toBe("");
+    expect(parseOsvFixed(null, "p")).toBe("");
   });
 });

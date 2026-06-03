@@ -15,6 +15,7 @@ import type { ReleaseReport } from "../src/quality.ts";
 import {
   buildSecurityBoard,
   extractVulns,
+  osvFixKey,
   parseOsvFixed,
   type SecurityInputs,
   type SecurityMr,
@@ -156,29 +157,44 @@ function collectMrs(timeoutMs = 180_000): SecurityMr[] {
 
 async function collectFixes(vulns: VulnRecord[]): Promise<Map<string, string>> {
   const fixes = new Map<string, string>();
-  let cves = [...new Set(vulns.map((v) => v.cve_id).filter(Boolean))];
+  // Distinct (package, CVE) pairs needing a fix; the OSV fix is package-specific
+  // (one CVE record can carry fixes for several packages), so we extract per
+  // pair. OSV is queried once per CVE and the body shared across its packages.
+  const pairs = [
+    ...new Map(
+      vulns
+        .filter((v) => v.cve_id && v.package_name)
+        .map((v) => [osvFixKey(v.package_name, v.cve_id), v]),
+    ).values(),
+  ];
+  let cves = [...new Set(pairs.map((v) => v.cve_id))];
   if (cves.length > MAX_OSV_LOOKUPS) {
     note(
       `osv: ${cves.length} CVEs exceeds the ${MAX_OSV_LOOKUPS} lookup cap — quick wins may underreport`,
     );
     cves = cves.slice(0, MAX_OSV_LOOKUPS);
   }
+  const bodies = new Map<string, unknown>();
   for (let i = 0; i < cves.length; i += OSV_BATCH) {
     const batch = cves.slice(i, i + OSV_BATCH);
     const results = await Promise.all(
-      batch.map(async (cve): Promise<[string, string]> => {
+      batch.map(async (cve): Promise<[string, unknown]> => {
         try {
           const r = await fetch(`https://api.osv.dev/v1/vulns/${encodeURIComponent(cve)}`, {
             signal: AbortSignal.timeout(OSV_TIMEOUT_MS),
           });
-          if (!r.ok) return [cve, ""];
-          return [cve, parseOsvFixed(await r.json())];
+          return [cve, r.ok ? await r.json() : null];
         } catch {
-          return [cve, ""];
+          return [cve, null];
         }
       }),
     );
-    for (const [cve, fix] of results) if (fix) fixes.set(cve, fix);
+    for (const [cve, body] of results) bodies.set(cve, body);
+  }
+  for (const v of pairs) {
+    if (!bodies.has(v.cve_id)) continue;
+    const fix = parseOsvFixed(bodies.get(v.cve_id), v.package_name);
+    if (fix) fixes.set(osvFixKey(v.package_name, v.cve_id), fix);
   }
   return fixes;
 }

@@ -373,7 +373,7 @@ function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardIt
   for (const [pkg, members] of groups) {
     let to = "";
     for (const m of members) {
-      const fix = fixes.get(m.cve_id);
+      const fix = fixes.get(osvFixKey(pkg, m.cve_id));
       if (fix && (!to || compareSemver(fix, to) > 0)) to = fix;
     }
     if (!to) continue;
@@ -390,7 +390,7 @@ function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardIt
     const highCves = new Set<string>();
     const medCves = new Set<string>();
     for (const m of members) {
-      if (!fixes.get(m.cve_id)) continue;
+      if (!fixes.get(osvFixKey(pkg, m.cve_id))) continue;
       if (m.severity === "critical") critCves.add(m.cve_id);
       else if (m.severity === "high") highCves.add(m.cve_id);
       else if (m.severity === "medium") medCves.add(m.cve_id);
@@ -400,7 +400,7 @@ function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardIt
     const scope = [...new Set(members.map((m) => serviceFromPath(m.project_path)).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b))
       .join(", ");
-    const url = members.find((m) => fixes.get(m.cve_id) && m.web_url)?.web_url;
+    const url = members.find((m) => fixes.get(osvFixKey(pkg, m.cve_id)) && m.web_url)?.web_url;
     rows.push({
       title: pkg,
       pill: { label: "QUICK WIN", tone: "ok" },
@@ -530,14 +530,33 @@ function dependencyOf(location: unknown): { name: string; version: string } {
   };
 }
 
-// OSV.dev `/v1/vulns/{id}` body → highest published fixed version, or "" when
-// no usable fix exists. Git-SHA "fixed" events are rejected (not installable).
+// Composite key for the OSV fix map: a CVE's fixed version is package-specific
+// (one OSV record can list fixes for several packages/ecosystems), so quick-win
+// lookups must be keyed by package, not CVE alone.
+export function osvFixKey(packageName: string, cveId: string): string {
+  return `${packageName} ${cveId}`;
+}
+
+// GitLab dependency-scanning names a Maven coordinate `group/artifact` while OSV
+// uses `group:artifact`; normalize the separator so the two match.
+function normalizePackageName(name: string): string {
+  return name.trim().toLowerCase().replaceAll(":", "/");
+}
+
+// OSV.dev `/v1/vulns/{id}` body → highest published fixed version for the given
+// package, or "" when no usable fix exists. Only `affected` entries whose
+// package matches `packageName` are considered — a CVE can carry fixes for
+// unrelated packages, and applying the wrong one would recommend a bogus bump.
+// Git-SHA "fixed" events are rejected (not installable).
 const VERSION_RE = /^v?\d+(?:\.\w+)*(?:[-+][\w.\-+]+)?$/;
-export function parseOsvFixed(body: unknown): string {
+export function parseOsvFixed(body: unknown, packageName: string): string {
   const affected = (body as { affected?: unknown })?.affected;
   if (!Array.isArray(affected)) return "";
+  const target = normalizePackageName(packageName);
   let best = "";
   for (const entry of affected) {
+    const name = (entry as { package?: { name?: unknown } })?.package?.name;
+    if (typeof name !== "string" || normalizePackageName(name) !== target) continue;
     const ranges = (entry as { ranges?: unknown })?.ranges;
     if (!Array.isArray(ranges)) continue;
     for (const range of ranges) {
