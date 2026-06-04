@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit",
     "check": "biome check .",
     "check:fix": "biome check --write .",
+    "collect:cluster": "bun bin/collect-cluster.ts",
     "collect:topology": "bun bin/collect-topology.ts",
     "collect:quality": "bun bin/collect-quality.ts",
     "collect:features": "bun bin/collect-features.ts",

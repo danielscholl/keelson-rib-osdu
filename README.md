@@ -5,14 +5,15 @@ a discovery-based extension that contributes deterministic workflows whose struc
 output drives live canvas views. The harness stays domain-free; all OSDU/cluster
 knowledge lives here, and the rib ships **zero React** into the trusted SPA.
 
-> Status: **early / under active design.** Four views work end-to-end today — a kubectl
-> Flux **topology graph** plus three composite **boards**: **Quality** (`osdu-quality release
-> --output json`), **Features** (`osdu-activity epic list` / `mr --output json`), and
-> **Security** (`osdu-quality release` + GitLab/OSV CVE detail). The generic `board` view they
-> render through landed in the Keelson base (gap G1), as did the top-level **surface** (gap G4) —
-> so the rib now composes the three lane boards into one **CIMPL** nav tab. Still ahead: the
-> **Cluster ICC** and the remaining surface regions (cluster header, waiting-on-you, events feed).
-> See **[docs/PRD.md](docs/PRD.md)** for what the rib delivers and
+> Status: **early / under active design.** Five views work end-to-end today — the **Cluster ICC**
+> (`cimpl info --json` + kubectl Flux/HelmRelease readiness), a kubectl Flux **topology graph**,
+> plus three composite **boards**: **Quality** (`osdu-quality release --output json`), **Features**
+> (`osdu-activity epic list` / `mr --output json`), and **Security** (`osdu-quality release` +
+> GitLab/OSV CVE detail). The generic `board` view they render through landed in the Keelson base
+> (gap G1), as did the top-level **surface** (gap G4) and in-board **actions** (gap G3) — so the rib
+> composes the lane boards into one **CIMPL** nav tab with the Cluster ICC as its collapsible header
+> (lifecycle + Reconcile/Suspend actions + access cards). Still ahead: the remaining surface regions
+> (waiting-on-you, release train, events feed). See **[docs/PRD.md](docs/PRD.md)** for what the rib delivers and
 > **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for how it works + the Keelson base gaps
 > it depends on. No resident sidecar; all data is one-shot CLI invocations.
 
@@ -26,15 +27,28 @@ structured output, which the rib binding publishes (fail-closed: `canvasViewSche
 `rib:osdu:*` snapshot key the view is bound to.
 
 ```
+osdu-cluster    →  bash: bun bin/collect-cluster.ts    →  board view  →  rib:osdu:cluster   →  "Cluster ICC"
 osdu-topology   →  bash: bun bin/collect-topology.ts   →  graph view  →  rib:osdu:topology  →  "Cluster Topology"
 osdu-quality    →  bash: bun bin/collect-quality.ts    →  board view  →  rib:osdu:quality   →  "Quality"
 osdu-features   →  bash: bun bin/collect-features.ts   →  board view  →  rib:osdu:features  →  "Features"
 osdu-security   →  bash: bun bin/collect-security.ts   →  board view  →  rib:osdu:security  →  "Security"
 ```
 
+The **Cluster ICC** also wires the in-board **actions** (gap G3): its Reconcile / Suspend buttons
+dispatch to the rib's `onAction`, which shells `cimpl reconcile [--suspend|--resume]`.
+
 Each collector is a thin Bun script that shells a domain CLI and shapes its output with a
 pure builder (no domain logic in rib glue, no analyzer reimplemented):
 
+- **`src/cluster.ts`** — pure `buildClusterBoard({ info, lifecycle })`: the Cluster ICC **board** —
+  a Flux/Services pulse, **lifecycle** rows (Context / Cluster reachable / Flux reconciled N/M /
+  Services ready N/M, each toned by health), an **actions** section (Reconcile · Suspend-or-Resume by
+  `suspended` state), and access **cards** — external **Endpoints** (portal `href`) + **Internal
+  services** (copyable `address` + `port-forward`). `bin/collect-cluster.ts` shells `cimpl info
+  --json` and reads kubectl `kustomizations`/`helmreleases` readiness; each source degrades
+  independently to a valid "cluster unreachable" board. Credentials (`--show-secrets`) are
+  intentionally not rendered — plaintext secrets in a persisted/screenshot-able board need a masked
+  card-field affordance first (deferred).
 - **`src/topology.ts`** — pure `buildTopologyGraph(kustomizations)`: one node per Flux
   Kustomization (health in the node `kind`: `ready` / `blocked` / `suspended` / `failed`
   / `unknown`), edges from `spec.dependsOn`, dependency-free nodes rooted under the cluster.
@@ -62,10 +76,11 @@ pure builder (no domain logic in rib glue, no analyzer reimplemented):
   shells `glab api graphql` (group `vulnerabilities`) for per-CVE rows and queries OSV.dev for
   fix versions. Each source degrades independently — counts-based sections still render when
   GitLab/OSV are unreachable.
-- **`src/index.ts`** — the `Rib`: four `views` descriptors, four contributed workflows that
+- **`src/index.ts`** — the `Rib`: five `views` descriptors, five contributed workflows that
   publish to them (each `validate`d fail-closed through `canvasViewSchema`), a **`CIMPL`
-  surface** that lays the three lane boards out side by side, and an `authStatus` probe for the
-  kubectl context.
+  surface** with the Cluster ICC as a collapsible header above the three lane columns, an
+  `onAction` handler (the ICC's Reconcile/Suspend/Resume → `cimpl`), and an `authStatus` probe
+  for the kubectl context.
 
 No data is produced in rib code — the UI's data comes from running a workflow. The
 `osdu-quality` and `osdu-activity` CLIs must be on `PATH` (e.g. `~/.local/bin`) and
@@ -87,13 +102,15 @@ bun run link:keelson
 cd ../keelson && KEELSON_RIBS=osdu bun dev
 ```
 
-Then open `http://127.0.0.1:5173` → **Ribs** → run a workflow (from the Workflows surface or
-`keelson workflow run osdu-topology` / `osdu-quality` / `osdu-features` / `osdu-security`) →
-open **Cluster Topology**, **Quality**, **Features**, or **Security**.
+Then open `http://127.0.0.1:5173` → the **CIMPL** tab (or **Ribs**) → run a workflow (from the
+Workflows surface or `keelson workflow run osdu-cluster` / `osdu-topology` / `osdu-quality` /
+`osdu-features` / `osdu-security`) → the **CIMPL** surface composes them, with the **Cluster ICC**
+as its collapsible header.
 
 Smoke-test the collectors directly:
 
 ```bash
+bun run collect:cluster | jq .   # shells `cimpl info --json` + kubectl flux/helm readiness
 bun run collect:topology | jq .
 bun run collect:quality | jq .   # shells `osdu-quality release --output json`
 bun run collect:features | jq .  # shells `osdu-activity epic list` + `mr --output json`
@@ -108,14 +125,15 @@ dev loop above needs no registry.
 
 ## Roadmap
 
-The generic `board` view kind (gap **G1**, with cell tone **G0** and card link/copy **G2**) and the
-top-level **surface** (gap **G4** — a primary nav tab of region-bound boards) have landed in the
-Keelson base; **Quality**, **Features**, and **Security** render as boards and now compose into one
-**CIMPL** surface. Still ahead: the **Release Train**, **Waiting on You**, and **Current Events**
-boards (which fill out the surface's banner/footer regions), and the **Cluster ICC** (which also
-needs the rib-action round-trip, gap **G3**). Each lane wraps an existing OSDU/CIMPL
-CLI (`osdu-quality`, `osdu-activity`, `cimpl info`) plus public CVE lookups (GitLab/OSV) — no
-reimplemented analyzers, no resident sidecar.
+The generic `board` view kind (gap **G1**, with cell tone **G0** and card link/copy **G2**), the
+top-level **surface** (gap **G4** — a primary nav tab of region-bound boards), and in-board
+**actions** (gap **G3** — buttons dispatched to the owning rib) have all landed in the Keelson base.
+**Quality**, **Features**, and **Security** render as boards composed into one **CIMPL** surface,
+with the **Cluster ICC** (lifecycle + Reconcile/Suspend actions + access cards) as its collapsible
+header. Still ahead: the **Release Train**, **Waiting on You**, and **Current Events** boards (which
+fill out the surface's banner/footer regions), and credential reveal on the ICC (needs a masked
+card-field affordance). Each lane wraps an existing OSDU/CIMPL CLI (`osdu-quality`, `osdu-activity`,
+`cimpl info`) plus public CVE lookups (GitLab/OSV) — no reimplemented analyzers, no resident sidecar.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the gap taxonomy.
 
 ## License

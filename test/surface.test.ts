@@ -11,6 +11,13 @@ describe("CIMPL surface", () => {
     expect(ribSurfaceDescriptorSchema.safeParse(surface).success).toBe(true);
   });
 
+  test("the Cluster ICC is the collapsible header region", () => {
+    const header = rib.surfaces?.[0]?.layout.header;
+    expect(header?.key).toBe("rib:osdu:cluster");
+    expect(header?.collapsible).toBe(true);
+    expect(header?.collapsed).toBe(true);
+  });
+
   test("the surface composes the three lane boards, all rib-namespaced", () => {
     const columns = rib.surfaces?.[0]?.layout.rows[0]?.columns ?? [];
     expect(columns.map((c) => c.key)).toEqual([

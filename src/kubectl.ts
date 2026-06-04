@@ -50,3 +50,37 @@ export function getKustomizations(namespace = "flux-system"): KustomizationsResu
     return { context, kustomizations: [], error: e instanceof Error ? e.message : "parse error" };
   }
 }
+
+interface ReadyLike {
+  spec?: { suspend?: boolean };
+  status?: { conditions?: { type?: string; status?: string }[] };
+}
+
+// A Flux resource is ready when not suspended and its `Ready` condition is True
+// — the same rule for Kustomizations and HelmReleases.
+function isReady(item: ReadyLike): boolean {
+  if (item.spec?.suspend === true) return false;
+  return item.status?.conditions?.some((c) => c.type === "Ready" && c.status === "True") ?? false;
+}
+
+export interface ReadinessResult {
+  ready: number;
+  total: number;
+  /** Present when collection degraded (no cluster, no kubectl, parse failure). */
+  error?: string;
+}
+
+/**
+ * Count ready/total for a Flux resource (e.g. kustomizations, helmreleases) on
+ * the active context. Never throws: degrades to `{ ready: 0, total: 0, error }`.
+ */
+export function getReadiness(resource: string, scopeArgs: string[] = ["-A"]): ReadinessResult {
+  const res = runKubectl(["get", resource, ...scopeArgs, "-o", "json"]);
+  if (!res.ok) return { ready: 0, total: 0, error: res.error };
+  try {
+    const items = (JSON.parse(res.stdout) as { items?: ReadyLike[] }).items ?? [];
+    return { ready: items.filter(isReady).length, total: items.length };
+  } catch (e) {
+    return { ready: 0, total: 0, error: e instanceof Error ? e.message : "parse error" };
+  }
+}
