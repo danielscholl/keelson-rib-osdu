@@ -106,6 +106,12 @@ describe("buildClusterBoard", () => {
     expect(rows.items[3]?.trailing).toBe("32/32 ready");
   });
 
+  test("lifecycle rows and access cards render boxed (status-list / pill styling)", () => {
+    const board = buildClusterBoard(healthy);
+    expect(rowsOf(board).boxed).toBe(true);
+    expect(accessSection(board).boxed).toBe(true);
+  });
+
   test("a running cluster offers Reconcile (non-destructive) + Suspend + a destructive Delete", () => {
     const actions = actionsOf(buildClusterBoard(healthy));
     const byType = Object.fromEntries(actions.items.map((a) => [a.type, a]));
@@ -133,11 +139,14 @@ describe("buildClusterBoard", () => {
     expect(byTitle.Airflow?.footnote).toBe("self-signed cert");
   });
 
-  test("ACCESS internal services render as cyan cards with a copyable address", () => {
+  test("ACCESS internal services render as cyan cards with no address pill", () => {
     const byTitle = accessByTitle(buildClusterBoard(healthy));
     expect(byTitle.PostgreSQL?.dot).toBe("neutral");
-    const address = byTitle.PostgreSQL?.fields?.find((f) => f.copyable);
-    expect(address?.value).toBe("postgresql-rw.platform:5432");
+    // An internal host:port isn't an accessible URL — no copyable address field;
+    // only credential (reveal) pills remain on the card.
+    const fields = byTitle.PostgreSQL?.fields ?? [];
+    expect(fields.some((f) => f.copyable)).toBe(false);
+    expect(fields.every((f) => f.copyAction)).toBe(true);
   });
 
   test("credentials join onto their service card as copy-on-reveal fields (never a password)", () => {
@@ -154,12 +163,18 @@ describe("buildClusterBoard", () => {
       type: "reveal-credential",
       payload: { service: "Keycloak Admin", context: "cimpl-stack-ms" },
     });
-    // Every credential field masks its value — the secret is fetched on copy.
+    // Credential fields show the username (or "password" when none) — never a
+    // mask and never the secret, which is fetched on copy via the action.
+    const credValues: string[] = [];
     for (const card of accessSection(buildClusterBoard(healthy)).items) {
       for (const field of card.fields ?? []) {
-        if (field.copyAction) expect(field.value).toBe("••••••");
+        if (field.copyAction) credValues.push(String(field.value));
       }
     }
+    expect(credValues).toContain("osdu");
+    expect(credValues).toContain("postgres");
+    expect(credValues).toContain("admin");
+    expect(credValues).not.toContain("••••••");
   });
 
   test("Redis instance variants collapse into one card with an instance count", () => {

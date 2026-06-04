@@ -152,10 +152,9 @@ function clusterStatus(
 function credentialField(cred: CimplCredential, stamp: ClusterStamp): FieldItem {
   const username = cred.username?.trim();
   return {
-    // The username is shown; the value is a mask, not the secret. The copy
-    // button reveals the password on demand and writes it to the clipboard.
-    label: username && username.length > 0 ? username : "password",
-    value: "••••••",
+    // The username is the visible text; the password is never in the payload.
+    // The copy button reveals it on demand and writes it to the clipboard.
+    value: username && username.length > 0 ? username : "password",
     // The cluster stamp rides along so onAction can refuse to reveal a secret
     // from a different cluster than the board was built against.
     copyAction: { type: "reveal-credential", payload: { service: cred.service, ...stamp } },
@@ -189,15 +188,15 @@ function buildAccessCards(info: CimplInfo, stamp: ClusterStamp): CardItem[] {
     groups.set(key, members);
   }
   for (const [base, members] of groups) {
-    const fields: FieldItem[] = [];
-    const address = members[0]?.address;
-    if (address) fields.push({ label: "address", value: address, copyable: true });
+    // No address pill: an internal host:port isn't an accessible URL, so an
+    // internal service surfaces only its credentials (joined below) — or just
+    // its name/dot when it has none.
     cards.push({
       norm: norm(base),
       title: base,
       dot: "neutral",
       ...(members.length > 1 ? { footnote: `${members.length} instances` } : {}),
-      fields,
+      fields: [],
     });
   }
 
@@ -246,6 +245,7 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
   const lifecycleRows: LeafSection = {
     kind: "rows",
     title: "Lifecycle",
+    boxed: true,
     items: [
       { glyph: context ? "ok" : "warn", text: "Context", trailing: context ?? "none" },
       {
@@ -304,7 +304,7 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
 
   const access = info ? buildAccessCards(info, stamp) : [];
   if (access.length > 0) {
-    sections.push({ kind: "cards", title: "Access", items: access });
+    sections.push({ kind: "cards", title: "Access", boxed: true, items: access });
   }
 
   return {

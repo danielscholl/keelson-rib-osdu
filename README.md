@@ -48,8 +48,9 @@ pure builder (no domain logic in rib glue, no analyzer reimplemented):
   body (lifecycle rows: Context / Cluster reachable / Flux reconciled N/M / Services ready N/M, each
   toned by health; actions: Reconcile · Suspend-or-Resume · a destructive Delete), and a unified
   **ACCESS** card grid — external endpoints (green status dot, portal `href` → ↗) + internal services
-  (cyan dot, copyable `address`, instance variants collapsed) with **credentials** joined onto the
-  matching card as copy-on-reveal fields. `bin/collect-cluster.ts` shells `cimpl info --json
+  (cyan dot, instance variants collapsed) with **credentials** joined onto the matching card as
+  boxed copy-on-reveal pills (the username shows; the password is fetched on copy). An internal
+  `host:port` isn't an accessible URL, so no address pill is shown. `bin/collect-cluster.ts` shells `cimpl info --json
   --show-secrets` and reads kubectl `kustomizations`/`helmreleases` readiness; each source degrades
   independently to a valid "cluster unreachable" board. `--show-secrets` is used only to enumerate
   which services have credentials — passwords are stripped in the collector and never enter the board;
