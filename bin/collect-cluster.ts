@@ -9,6 +9,13 @@
 import { buildClusterBoard, type CimplInfo, type ClusterLifecycle } from "../src/cluster.ts";
 import { currentContext, getReadiness } from "../src/kubectl.ts";
 
+// Parse from the first JSON delimiter so a leading warning/preamble on stdout
+// (cimpl can emit one even on success) doesn't discard otherwise-valid JSON.
+function parseJsonLoose(text: string): unknown {
+  const start = text.search(/[{[]/);
+  return JSON.parse(start > 0 ? text.slice(start) : text);
+}
+
 function runCimplInfo(timeoutMs = 30_000): { info?: CimplInfo; error?: string } {
   try {
     const proc = Bun.spawnSync(["cimpl", "info", "--json"], {
@@ -20,7 +27,7 @@ function runCimplInfo(timeoutMs = 30_000): { info?: CimplInfo; error?: string } 
       const stderr = proc.stderr.toString().trim().split("\n").pop() ?? "";
       return { error: stderr.length > 0 ? stderr : `cimpl exited ${proc.exitCode}` };
     }
-    return { info: JSON.parse(proc.stdout.toString()) as CimplInfo };
+    return { info: parseJsonLoose(proc.stdout.toString()) as CimplInfo };
   } catch (e) {
     // CLI missing, not on PATH, timed out, or unparseable — degrade, don't throw.
     return { error: e instanceof Error ? e.message : String(e) };

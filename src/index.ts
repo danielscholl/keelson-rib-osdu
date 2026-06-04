@@ -152,24 +152,16 @@ const rib: Rib = {
     },
   ],
 
-  // Cluster ICC actions: dispatch a lifecycle verb to the `cimpl` CLI. Synchronous
-  // spawn (the verb is short) — the board reflects the new state on the next
-  // workflow run / region refresh.
-  onAction: async (action) => {
+  // Cluster ICC actions: dispatch a lifecycle verb to the `cimpl` CLI via the
+  // async exec surface, so a slow/unreachable cluster can't block the server
+  // event loop. The board reflects the new state on the next osdu-cluster run.
+  onAction: async (action, ctx) => {
     const args = CLUSTER_ACTION_ARGS[action.type];
     if (!args) return { ok: false, error: `unknown action '${action.type}'` };
-    try {
-      const proc = Bun.spawnSync(["cimpl", ...args], {
-        stdout: "pipe",
-        stderr: "pipe",
-        timeout: 120_000,
-      });
-      if (proc.exitCode === 0) return { ok: true, data: { ran: `cimpl ${args.join(" ")}` } };
-      const stderr = proc.stderr.toString().trim().split("\n").pop() ?? "";
-      return { ok: false, error: stderr.length > 0 ? stderr : `cimpl exited ${proc.exitCode}` };
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
+    const res = await ctx.getExec().runText("cimpl", args, { timeoutMs: 120_000 });
+    return res.ok
+      ? { ok: true, data: { ran: `cimpl ${args.join(" ")}` } }
+      : { ok: false, error: res.error };
   },
 
   authStatus: () => {
