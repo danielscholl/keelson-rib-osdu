@@ -1,6 +1,11 @@
 import type { CanvasView, Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
 import { canvasViewSchema } from "@keelson/shared";
-import { contextActionError, hasRealSecret } from "./cluster.ts";
+import {
+  type CimplInfo,
+  contextActionError,
+  hasRealSecret,
+  looksLikeCimplCluster,
+} from "./cluster.ts";
 import { currentContext } from "./kubectl.ts";
 
 const CLUSTER_KEY = "rib:osdu:cluster";
@@ -79,6 +84,26 @@ async function revealCredential(action: RibAction, ctx: RibContext): Promise<Rib
 
 function asMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+// Freshly confirm the current context is a live CIMPL deployment before Delete.
+// Returns an error string to refuse with, or null when teardown may proceed.
+async function verifyDeletableCimpl(ctx: RibContext): Promise<string | null> {
+  const res = await ctx.getExec().runText("cimpl", ["info", "--json"], { timeoutMs: 60_000 });
+  if (!res.ok) {
+    return "refusing Delete: could not confirm the current context is a CIMPL deployment";
+  }
+  let info: CimplInfo;
+  try {
+    const start = res.data.search(/[{[]/);
+    info = JSON.parse(start > 0 ? res.data.slice(start) : res.data) as CimplInfo;
+  } catch (e) {
+    return `refusing Delete: could not parse cimpl info (${asMessage(e)})`;
+  }
+  if (!looksLikeCimplCluster(info)) {
+    return `refusing Delete: the current context (${currentContext() ?? "none"}) does not look like a live CIMPL deployment — refresh and retry`;
+  }
+  return null;
 }
 
 const rib: Rib = {
@@ -212,6 +237,14 @@ const rib: Rib = {
     if (action.type === "reveal-credential") return revealCredential(action, ctx);
     const args = CLUSTER_ACTION_ARGS[action.type];
     if (!args) return { ok: false, error: `unknown action '${action.type}'` };
+    // Re-verify identity before the irreversible teardown: a context can match
+    // yet not be a live CIMPL deployment (e.g. cimpl info degraded at collect
+    // time over a reachable non-CIMPL cluster). `cimpl down` would otherwise
+    // remove fixed namespaces from whatever cluster is current.
+    if (action.type === "delete") {
+      const denial = await verifyDeletableCimpl(ctx);
+      if (denial) return { ok: false, error: denial };
+    }
     // Teardown waits on Flux pruning + namespace termination — minutes, not the
     // ~2 min a reconcile/suspend needs. A too-short timeout would abort a delete
     // mid-flight and leave the cluster half-removed.
