@@ -249,6 +249,30 @@ describe("buildClusterBoard", () => {
     expect(redis?.footnote).toBe("3 instances");
   });
 
+  test("Kibana picks up the Elasticsearch '(actual)' credential under password drift", () => {
+    // cimpl emits the usable secret as "Elasticsearch (actual)" and filters out
+    // the "(OSDU cfg)" MISMATCH row — Kibana must still surface a reveal pill.
+    const drift: ClusterInput = {
+      ...healthy,
+      info: {
+        ...healthy.info,
+        credentials: [
+          ...(healthy.info?.credentials ?? []).filter((c) => c.service !== "Elasticsearch"),
+          { service: "Elasticsearch (actual)", username: "elastic" },
+        ],
+      },
+    };
+    const kibanaCred = (accessByTitle(buildClusterBoard(drift)).Kibana?.fields ?? []).find(
+      (f) => f.copyAction,
+    );
+    expect(kibanaCred?.value).toBe("elastic");
+    // The payload keeps cimpl's exact service name so the reveal round-trips.
+    expect(kibanaCred?.copyAction?.payload).toEqual({
+      service: "Elasticsearch (actual)",
+      context: "cimpl-stack-ms",
+    });
+  });
+
   test("Redis carries its (usernameless) credential as a reveal pill", () => {
     const redis = accessByTitle(buildClusterBoard(healthy)).Redis;
     const cred = (redis?.fields ?? []).find((f) => f.copyAction);

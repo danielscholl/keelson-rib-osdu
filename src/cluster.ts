@@ -188,6 +188,18 @@ const ACCESS_SERVICES: readonly AccessService[] = [
   { title: "Redis", portal: false, creds: ["Redis"], instances: true },
 ];
 
+// When a credential drifts from what OSDU is configured with, cimpl emits the
+// usable secret under an "(actual)" suffix (e.g. "Elasticsearch (actual)")
+// beside a "(OSDU cfg)" MISMATCH row the collector filters out. So a lookup
+// falls back to "<name> (actual)" when the bare name isn't present — otherwise
+// the only usable secret would be dropped in the drift case.
+function findCredential(
+  credentials: Map<string, CimplCredential>,
+  name: string,
+): CimplCredential | undefined {
+  return credentials.get(matchKey(name)) ?? credentials.get(matchKey(`${name} (actual)`));
+}
+
 // Curated ACCESS grid: one card per known operator-facing service. A portal
 // shows a green dot + portal ↗ (from its cimpl endpoint URL); a service shows a
 // cyan dot and no link. Credentials join as boxed copy-on-reveal pills. A
@@ -208,7 +220,7 @@ function buildAccessCards(info: CimplInfo, stamp: ClusterStamp): CardItem[] {
 
     const fields: FieldItem[] = [];
     for (const name of svc.creds) {
-      const cred = credentials.get(matchKey(name));
+      const cred = findCredential(credentials, name);
       if (cred) fields.push(credentialField(cred, stamp));
     }
 
