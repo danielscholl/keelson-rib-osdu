@@ -16,7 +16,7 @@ import {
   hasRealSecret,
   parseCimplInfoJson,
 } from "../src/cluster.ts";
-import { currentContext, getReadiness } from "../src/kubectl.ts";
+import { clusterFingerprint, currentContext, getReadiness } from "../src/kubectl.ts";
 
 // Pick only the fields the board needs; drop each credential's `password` so a
 // plaintext secret never crosses into the published snapshot.
@@ -69,6 +69,7 @@ if (services.error) console.error(`[rib-osdu] services readiness degraded: ${ser
 
 const lifecycle: ClusterLifecycle = {
   context,
+  fingerprint: clusterFingerprint(),
   // Reachable if cimpl info OR any kubectl read succeeded; only treat the
   // cluster as unreachable when every probe failed. A live cluster whose Flux
   // CRDs/RBAC degraded still rendered its access data, so it isn't "down" — the

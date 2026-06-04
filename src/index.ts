@@ -1,7 +1,7 @@
 import type { CanvasView, Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
 import { canvasViewSchema } from "@keelson/shared";
-import { contextActionError, hasRealSecret, parseCimplInfoJson } from "./cluster.ts";
-import { currentContext } from "./kubectl.ts";
+import { actionGuardError, hasRealSecret, parseCimplInfoJson } from "./cluster.ts";
+import { clusterFingerprint, currentContext } from "./kubectl.ts";
 
 const CLUSTER_KEY = "rib:osdu:cluster";
 const TOPOLOGY_KEY = "rib:osdu:topology";
@@ -219,12 +219,12 @@ const rib: Rib = {
   // `reveal-credential` is a read that returns one password to the caller for an
   // on-demand clipboard copy — the secret never enters a snapshot.
   onAction: async (action, ctx) => {
-    // Context guard: cimpl acts on the live kubectl current-context, so every
-    // cluster action must name the context it was built against and still match
-    // it — otherwise a stale board could reveal/mutate the wrong cluster
-    // (especially Delete). A missing captured context is rejected too.
-    const expected = (action.payload as { context?: unknown } | undefined)?.context;
-    const guard = contextActionError(expected, currentContext());
+    // Identity guard: cimpl acts on the live kubectl current-context, so every
+    // cluster action must match the cluster it was built against (context name
+    // and, when captured, the stable fingerprint) — otherwise a stale board
+    // could reveal/mutate the wrong cluster (especially Delete).
+    const payload = action.payload as { context?: unknown; fingerprint?: unknown } | undefined;
+    const guard = actionGuardError(payload, currentContext(), clusterFingerprint());
     if (guard) return { ok: false, error: guard };
     if (action.type === "reveal-credential") return revealCredential(action, ctx);
     const args = CLUSTER_ACTION_ARGS[action.type];

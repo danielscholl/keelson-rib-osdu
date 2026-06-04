@@ -27,6 +27,21 @@ export function currentContext(): string | null {
   return ctx.length > 0 ? ctx : null;
 }
 
+// A stable per-cluster identity that survives nothing but the cluster's own
+// lifetime: the kube-system namespace UID is created with the cluster and is
+// reassigned when it's recreated. Used to bind a board's destructive actions to
+// the exact cluster they were built against — a context name can be reused
+// (`cimpl down && cimpl up`), a UID cannot. Null when unreadable.
+export function clusterFingerprint(): string | null {
+  const res = runKubectl(
+    ["get", "namespace", "kube-system", "-o", "jsonpath={.metadata.uid}"],
+    5_000,
+  );
+  if (!res.ok) return null;
+  const uid = res.stdout.trim();
+  return uid.length > 0 ? uid : null;
+}
+
 export interface KustomizationsResult {
   context: string | null;
   kustomizations: FluxKustomization[];

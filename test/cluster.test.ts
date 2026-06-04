@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { canvasViewSchema } from "@keelson/shared";
 import {
+  actionGuardError,
   buildClusterBoard,
   type ClusterInput,
-  contextActionError,
   hasRealSecret,
   parseCimplInfoJson,
 } from "../src/cluster.ts";
@@ -202,20 +202,47 @@ describe("buildClusterBoard", () => {
     expect(parseCimplInfoJson('{"suspended":true}')).toEqual({ suspended: true });
   });
 
-  test("contextActionError proceeds only when the captured context matches the live one", () => {
-    expect(contextActionError("ctx-a", "ctx-a")).toBeNull();
-    expect(contextActionError("ctx-a", "ctx-b")).toMatch(/context changed/);
-    expect(contextActionError("ctx-a", null)).toMatch(/context changed/);
+  test("actionGuardError proceeds only when context and fingerprint both match", () => {
+    // Context-only stamp (no fingerprint captured) falls back to name matching.
+    expect(actionGuardError({ context: "ctx-a" }, "ctx-a", "uid-1")).toBeNull();
+    expect(actionGuardError({ context: "ctx-a" }, "ctx-b", "uid-1")).toMatch(/context changed/);
+    expect(actionGuardError({ context: "ctx-a" }, null, null)).toMatch(/context changed/);
     // A stale board built with no captured context must not act on whatever is
     // current now — including the payload-less actions above.
-    expect(contextActionError(undefined, "ctx-a")).toMatch(/no cluster context/);
-    expect(contextActionError("", "ctx-a")).toMatch(/no cluster context/);
+    expect(actionGuardError(undefined, "ctx-a", "uid-1")).toMatch(/no cluster context/);
+    expect(actionGuardError({ context: "" }, "ctx-a", "uid-1")).toMatch(/no cluster context/);
+    // Same context name, different cluster (recreated) → refuse on fingerprint.
+    expect(
+      actionGuardError({ context: "ctx-a", fingerprint: "uid-1" }, "ctx-a", "uid-1"),
+    ).toBeNull();
+    expect(actionGuardError({ context: "ctx-a", fingerprint: "uid-1" }, "ctx-a", "uid-2")).toMatch(
+      /recreated/,
+    );
   });
 
-  test("hasRealSecret rejects cimpl's n/a placeholders, empty, and non-strings", () => {
+  test("a captured fingerprint rides along in action and credential payloads", () => {
+    const board = buildClusterBoard({
+      ...healthy,
+      lifecycle: { ...healthy.lifecycle, fingerprint: "uid-1" },
+    });
+    for (const action of actionsOf(board).items) {
+      expect(action.payload).toEqual({ context: "cimpl-stack-ms", fingerprint: "uid-1" });
+    }
+    const cred = (accessByTitle(board).Keycloak?.fields ?? []).find((f) => f.copyAction);
+    expect(cred?.copyAction?.payload).toEqual({
+      service: "Keycloak Admin",
+      context: "cimpl-stack-ms",
+      fingerprint: "uid-1",
+    });
+  });
+
+  test("hasRealSecret rejects cimpl placeholders, advisories, empty, and non-strings", () => {
     expect(hasRealSecret("s3cr3t")).toBe(true);
     expect(hasRealSecret("n/a")).toBe(false);
     expect(hasRealSecret("[dim]n/a[/dim]")).toBe(false);
+    // Credential-mismatch advisory — would not authenticate if copied.
+    expect(hasRealSecret("[warning]hunter2 (MISMATCH)[/warning]")).toBe(false);
+    expect(hasRealSecret("hunter2 (MISMATCH)")).toBe(false);
     expect(hasRealSecret("")).toBe(false);
     expect(hasRealSecret(undefined)).toBe(false);
     expect(hasRealSecret(null)).toBe(false);

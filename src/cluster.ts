@@ -27,10 +27,20 @@ export interface CimplInfo {
 
 export interface ClusterLifecycle {
   context: string | null;
+  // Stable per-cluster id (kube-system UID) captured at collection time, so a
+  // destructive action can be refused if the cluster was recreated under the
+  // same context name. Optional/null when unreadable.
+  fingerprint?: string | null;
   reachable: boolean;
   flux: { ready: number; total: number };
   services: { ready: number; total: number };
 }
+
+// The cluster-identity stamp every action carries in its payload, so onAction
+// can refuse a stale board (context renamed, or recreated under the same name →
+// a new fingerprint). Context is required by the guard; fingerprint is matched
+// when present.
+export type ClusterStamp = { context?: string; fingerprint?: string };
 
 export interface ClusterInput {
   info?: CimplInfo;
@@ -50,13 +60,20 @@ function countTone(ready: number, total: number): Tone {
   return ready === total ? "ok" : "warn";
 }
 
-// cimpl reports a missing/unreadable secret as a placeholder containing "n/a"
-// (sometimes with rich markup). Such rows must not produce a copy affordance —
-// there is nothing to copy — and the reveal handler must reject them too.
+// cimpl returns an advisory string rather than a usable secret in two cases: a
+// missing value ("n/a", sometimes as `[dim]n/a[/dim]`) and a credential mismatch
+// (`[warning]<value> (MISMATCH)[/warning]`). Neither will authenticate, so such
+// rows must not produce a copy affordance and the reveal handler must reject
+// them — copying them would write a broken value to the clipboard.
 export function hasRealSecret(password: unknown): boolean {
   if (typeof password !== "string") return false;
-  const p = password.trim().toLowerCase();
-  return p.length > 0 && !p.includes("n/a");
+  const trimmed = password.trim();
+  if (trimmed.length === 0) return false;
+  const lower = trimmed.toLowerCase();
+  if (lower.includes("n/a") || lower.includes("(mismatch)")) return false;
+  // Any Rich markup tag (`[warning]`, `[dim]`, …) marks an advisory, not a value.
+  if (/\[\/?[a-z][a-z0-9 ]*\]/i.test(trimmed)) return false;
+  return true;
 }
 
 // Parse a `cimpl info --json` document, tolerating a Rich/log preamble before
@@ -69,16 +86,32 @@ export function parseCimplInfoJson(text: string): unknown {
 }
 
 // cimpl always acts on the live kubectl current-context, so every cluster action
-// must name the context it was built against AND still match it. Returns an
-// error string to reject with, or null when it's safe to proceed. A missing
-// captured context is rejected too: a stale board (collected with no context,
-// then a context selected) must not reveal/mutate whatever is current now.
-export function contextActionError(payloadContext: unknown, current: string | null): string | null {
-  if (typeof payloadContext !== "string" || payloadContext.length === 0) {
+// must name the cluster it was built against AND still match it. Returns an
+// error string to reject with, or null when it's safe to proceed:
+//   - a missing captured context is rejected (a stale board collected with no
+//     context must not act on whatever is current now);
+//   - a context-name change is rejected (drift);
+//   - a fingerprint change is rejected when one was captured — guards the
+//     context-name-reuse case (`cimpl down && cimpl up` → same name, new uid).
+export function actionGuardError(
+  payload: { context?: unknown; fingerprint?: unknown } | undefined,
+  liveContext: string | null,
+  liveFingerprint: string | null,
+): string | null {
+  const expectedContext = payload?.context;
+  if (typeof expectedContext !== "string" || expectedContext.length === 0) {
     return "no cluster context captured for this action — refresh and retry";
   }
-  if (payloadContext !== current) {
-    return `cluster context changed since this view loaded (was ${payloadContext}, now ${current ?? "none"}) — refresh and retry`;
+  if (expectedContext !== liveContext) {
+    return `cluster context changed since this view loaded (was ${expectedContext}, now ${liveContext ?? "none"}) — refresh and retry`;
+  }
+  const expectedFingerprint = payload?.fingerprint;
+  if (
+    typeof expectedFingerprint === "string" &&
+    expectedFingerprint.length > 0 &&
+    expectedFingerprint !== liveFingerprint
+  ) {
+    return `this cluster was recreated since the view loaded (context ${expectedContext}) — refresh and retry`;
   }
   return null;
 }
@@ -116,19 +149,16 @@ function clusterStatus(
   return allReady ? { label: "✓ Healthy", tone: "ok" } : { label: "⚠ Degraded", tone: "warn" };
 }
 
-function credentialField(cred: CimplCredential, context: string | null): FieldItem {
+function credentialField(cred: CimplCredential, stamp: ClusterStamp): FieldItem {
   const username = cred.username?.trim();
   return {
     // The username is shown; the value is a mask, not the secret. The copy
     // button reveals the password on demand and writes it to the clipboard.
     label: username && username.length > 0 ? username : "password",
     value: "••••••",
-    // `context` rides along so onAction can refuse to reveal a secret from a
-    // different cluster than the board was built against (context drift).
-    copyAction: {
-      type: "reveal-credential",
-      payload: context ? { service: cred.service, context } : { service: cred.service },
-    },
+    // The cluster stamp rides along so onAction can refuse to reveal a secret
+    // from a different cluster than the board was built against.
+    copyAction: { type: "reveal-credential", payload: { service: cred.service, ...stamp } },
   };
 }
 
@@ -136,7 +166,7 @@ function credentialField(cred: CimplCredential, context: string | null): FieldIt
 // services (cyan dot, collapsed by base name), with credentials joined onto the
 // matching card by normalized service name (exact, then prefix). Unmatched
 // credentials become their own cyan card so none are dropped.
-function buildAccessCards(info: CimplInfo, context: string | null): CardItem[] {
+function buildAccessCards(info: CimplInfo, stamp: ClusterStamp): CardItem[] {
   type JoinCard = CardItem & { norm: string };
   const cards: JoinCard[] = [];
 
@@ -178,13 +208,13 @@ function buildAccessCards(info: CimplInfo, context: string | null): CardItem[] {
       cards.find((c) => c.norm.length > 0 && cn.startsWith(c.norm));
     if (target) {
       if (!target.fields) target.fields = [];
-      target.fields.push(credentialField(cred, context));
+      target.fields.push(credentialField(cred, stamp));
     } else {
       cards.push({
         norm: cn,
         title: cred.service,
         dot: "neutral",
-        fields: [credentialField(cred, context)],
+        fields: [credentialField(cred, stamp)],
       });
     }
   }
@@ -205,6 +235,13 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
   const { info, lifecycle } = input;
   const { context, reachable, flux, services } = lifecycle;
   const suspended = info?.suspended === true;
+
+  // Cluster-identity stamp carried by every action so onAction can reject a
+  // stale board. Context is the guard's required key; fingerprint is added when
+  // captured (it catches a recreate under the same context name).
+  const stamp: ClusterStamp = {};
+  if (context) stamp.context = context;
+  if (lifecycle.fingerprint) stamp.fingerprint = lifecycle.fingerprint;
 
   const lifecycleRows: LeafSection = {
     kind: "rows",
@@ -229,10 +266,10 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
     ],
   };
 
-  // Each action carries the context it was built against so onAction can refuse
-  // to mutate a different cluster if the kubectl context drifts (it acts on
-  // current-context). Omitted when there's no context to protect.
-  const actionPayload = context ? { context } : undefined;
+  // Each action carries the cluster stamp so onAction can refuse to act on a
+  // different cluster than the board was built against. Omitted when there's no
+  // context to protect (the guard rejects payload-less actions anyway).
+  const actionPayload = stamp.context ? stamp : undefined;
   const withPayload = <T extends { type: string }>(item: T) =>
     actionPayload ? { ...item, payload: actionPayload } : item;
   const actions: LeafSection = {
@@ -265,7 +302,7 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
     },
   ];
 
-  const access = info ? buildAccessCards(info, context) : [];
+  const access = info ? buildAccessCards(info, stamp) : [];
   if (access.length > 0) {
     sections.push({ kind: "cards", title: "Access", items: access });
   }
