@@ -192,6 +192,18 @@ describe("buildClusterBoard", () => {
     expect(byTitle.Airflow?.href).toBe("https://airflow.example.test");
   });
 
+  test("a portal with no endpoint (gateway not configured) is warn, not ok, and keeps its credential", () => {
+    const noGateway: ClusterInput = {
+      ...healthy,
+      info: { ...healthy.info, endpoints: [] },
+    };
+    const kc = accessByTitle(buildClusterBoard(noGateway)).Keycloak;
+    expect(kc?.dot).toBe("warn");
+    expect(kc?.href).toBeUndefined();
+    // The credential is still surfaced even though the browser URL is gone.
+    expect((kc?.fields ?? []).some((f) => f.copyAction)).toBe(true);
+  });
+
   test("SeaweedFS is a cyan service card with no portal link", () => {
     const swfs = accessByTitle(buildClusterBoard(healthy)).SeaweedFS;
     expect(swfs?.dot).toBe("neutral");

@@ -230,7 +230,14 @@ function buildAccessCards(info: CimplInfo, stamp: ClusterStamp): CardItem[] {
       internal.some((s) => matchKey(s.name).startsWith(base));
     if (!present) continue;
 
-    const card: CardItem = { title: svc.title, dot: svc.portal ? "ok" : "neutral" };
+    // A portal is "ok" (green + ↗) only when it has a browser URL; a portal
+    // that exists but has no endpoint (gateway/ingress not configured yet) is
+    // "warn" — present, with its credential, but not openable — never green.
+    // Cluster-local services are always the neutral (cyan) tone.
+    const card: CardItem = {
+      title: svc.title,
+      dot: svc.portal ? (endpoint?.url ? "ok" : "warn") : "neutral",
+    };
     if (endpoint?.url) card.href = endpoint.url;
     if (svc.instances) {
       const count = internal.filter((s) => matchKey(baseName(s.name)) === base).length;
