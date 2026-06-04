@@ -50,6 +50,15 @@ function countTone(ready: number, total: number): Tone {
   return ready === total ? "ok" : "warn";
 }
 
+// cimpl reports a missing/unreadable secret as a placeholder containing "n/a"
+// (sometimes with rich markup). Such rows must not produce a copy affordance —
+// there is nothing to copy — and the reveal handler must reject them too.
+export function hasRealSecret(password: unknown): boolean {
+  if (typeof password !== "string") return false;
+  const p = password.trim().toLowerCase();
+  return p.length > 0 && !p.includes("n/a");
+}
+
 // Normalize a service name to a join key: drop parenthetical qualifiers
 // ("PostgreSQL (superuser)" → postgresql) and non-alphanumerics, lowercase.
 function norm(name: string): string {

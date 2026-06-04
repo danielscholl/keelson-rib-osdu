@@ -1,5 +1,6 @@
 import type { CanvasView, Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
 import { canvasViewSchema } from "@keelson/shared";
+import { hasRealSecret } from "./cluster.ts";
 import { currentContext } from "./kubectl.ts";
 
 const CLUSTER_KEY = "rib:osdu:cluster";
@@ -70,7 +71,7 @@ async function revealCredential(action: RibAction, ctx: RibContext): Promise<Rib
   }
 
   const cred = creds.find((c) => c.service === service);
-  if (!cred || typeof cred.password !== "string" || cred.password.length === 0) {
+  if (!cred || !hasRealSecret(cred.password)) {
     return { ok: false, error: `no credential for '${service}'` };
   }
   return { ok: true, data: cred.password };
@@ -204,7 +205,11 @@ const rib: Rib = {
     if (action.type === "reveal-credential") return revealCredential(action, ctx);
     const args = CLUSTER_ACTION_ARGS[action.type];
     if (!args) return { ok: false, error: `unknown action '${action.type}'` };
-    const res = await ctx.getExec().runText("cimpl", args, { timeoutMs: 120_000 });
+    // Teardown waits on Flux pruning + namespace termination — minutes, not the
+    // ~2 min a reconcile/suspend needs. A too-short timeout would abort a delete
+    // mid-flight and leave the cluster half-removed.
+    const timeoutMs = action.type === "delete" ? 600_000 : 120_000;
+    const res = await ctx.getExec().runText("cimpl", args, { timeoutMs });
     return res.ok
       ? { ok: true, data: { ran: `cimpl ${args.join(" ")}` } }
       : { ok: false, error: res.error };

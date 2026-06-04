@@ -9,7 +9,12 @@
  * the board — the reveal-credential action re-fetches a single password on copy.
  * Each source degrades independently to a valid "cluster unreachable" board.
  */
-import { buildClusterBoard, type CimplInfo, type ClusterLifecycle } from "../src/cluster.ts";
+import {
+  buildClusterBoard,
+  type CimplInfo,
+  type ClusterLifecycle,
+  hasRealSecret,
+} from "../src/cluster.ts";
 import { currentContext, getReadiness } from "../src/kubectl.ts";
 
 // Parse from the first JSON delimiter so a leading warning/preamble on stdout
@@ -28,13 +33,16 @@ function sanitizeInfo(raw: unknown): CimplInfo {
     endpoints: obj.endpoints as CimplInfo["endpoints"],
     internal_services: obj.internal_services as CimplInfo["internal_services"],
     suspended: obj.suspended === true,
-    credentials: creds.map((c) => {
-      const cred = (c ?? {}) as Record<string, unknown>;
-      return {
-        service: String(cred.service ?? ""),
-        username: typeof cred.username === "string" ? cred.username : undefined,
-      };
-    }),
+    // Keep only credentials that actually have a secret (cimpl emits "n/a"
+    // placeholders during partial deployments) and a service name — a copy
+    // affordance for a nonexistent secret would copy the placeholder.
+    credentials: creds
+      .map((c) => (c ?? {}) as Record<string, unknown>)
+      .filter((c) => String(c.service ?? "").trim().length > 0 && hasRealSecret(c.password))
+      .map((c) => ({
+        service: String(c.service),
+        username: typeof c.username === "string" ? c.username : undefined,
+      })),
   };
 }
 

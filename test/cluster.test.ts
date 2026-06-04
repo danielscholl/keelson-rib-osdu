@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { canvasViewSchema } from "@keelson/shared";
-import { buildClusterBoard, type ClusterInput } from "../src/cluster.ts";
+import { buildClusterBoard, type ClusterInput, hasRealSecret } from "../src/cluster.ts";
 
 // Fixture credentials carry service + username ONLY — never a password. The
 // password is fetched on demand by the reveal-credential action and must never
@@ -165,6 +165,15 @@ describe("buildClusterBoard", () => {
     const card = accessByTitle(buildClusterBoard(healthy))["OIDC Client"];
     expect(card?.dot).toBe("neutral");
     expect(card?.fields?.[0]?.copyAction?.payload).toEqual({ service: "OIDC Client" });
+  });
+
+  test("hasRealSecret rejects cimpl's n/a placeholders, empty, and non-strings", () => {
+    expect(hasRealSecret("s3cr3t")).toBe(true);
+    expect(hasRealSecret("n/a")).toBe(false);
+    expect(hasRealSecret("[dim]n/a[/dim]")).toBe(false);
+    expect(hasRealSecret("")).toBe(false);
+    expect(hasRealSecret(undefined)).toBe(false);
+    expect(hasRealSecret(null)).toBe(false);
   });
 
   test("an unreachable cluster still yields a valid board (degrades, never crashes)", () => {
