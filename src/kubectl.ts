@@ -27,6 +27,21 @@ export function currentContext(): string | null {
   return ctx.length > 0 ? ctx : null;
 }
 
+// A stable per-cluster identity that survives nothing but the cluster's own
+// lifetime: the kube-system namespace UID is created with the cluster and is
+// reassigned when it's recreated. Used to bind a board's destructive actions to
+// the exact cluster they were built against — a context name can be reused
+// (`cimpl down && cimpl up`), a UID cannot. Null when unreadable.
+export function clusterFingerprint(): string | null {
+  const res = runKubectl(
+    ["get", "namespace", "kube-system", "-o", "jsonpath={.metadata.uid}"],
+    5_000,
+  );
+  if (!res.ok) return null;
+  const uid = res.stdout.trim();
+  return uid.length > 0 ? uid : null;
+}
+
 export interface KustomizationsResult {
   context: string | null;
   kustomizations: FluxKustomization[];
@@ -48,5 +63,39 @@ export function getKustomizations(namespace = "flux-system"): KustomizationsResu
     return { context, kustomizations: parsed.items ?? [] };
   } catch (e) {
     return { context, kustomizations: [], error: e instanceof Error ? e.message : "parse error" };
+  }
+}
+
+interface ReadyLike {
+  spec?: { suspend?: boolean };
+  status?: { conditions?: { type?: string; status?: string }[] };
+}
+
+// A Flux resource is ready when not suspended and its `Ready` condition is True
+// — the same rule for Kustomizations and HelmReleases.
+function isReady(item: ReadyLike): boolean {
+  if (item.spec?.suspend === true) return false;
+  return item.status?.conditions?.some((c) => c.type === "Ready" && c.status === "True") ?? false;
+}
+
+export interface ReadinessResult {
+  ready: number;
+  total: number;
+  /** Present when collection degraded (no cluster, no kubectl, parse failure). */
+  error?: string;
+}
+
+/**
+ * Count ready/total for a Flux resource (e.g. kustomizations, helmreleases) on
+ * the active context. Never throws: degrades to `{ ready: 0, total: 0, error }`.
+ */
+export function getReadiness(resource: string, scopeArgs: string[] = ["-A"]): ReadinessResult {
+  const res = runKubectl(["get", resource, ...scopeArgs, "-o", "json"]);
+  if (!res.ok) return { ready: 0, total: 0, error: res.error };
+  try {
+    const items = (JSON.parse(res.stdout) as { items?: ReadyLike[] }).items ?? [];
+    return { ready: items.filter(isReady).length, total: items.length };
+  } catch (e) {
+    return { ready: 0, total: 0, error: e instanceof Error ? e.message : "parse error" };
   }
 }
