@@ -1,11 +1,6 @@
 import type { CanvasView, Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
 import { canvasViewSchema } from "@keelson/shared";
-import {
-  type CimplInfo,
-  contextActionError,
-  hasRealSecret,
-  looksLikeCimplCluster,
-} from "./cluster.ts";
+import { contextActionError, hasRealSecret, parseCimplInfoJson } from "./cluster.ts";
 import { currentContext } from "./kubectl.ts";
 
 const CLUSTER_KEY = "rib:osdu:cluster";
@@ -65,11 +60,7 @@ async function revealCredential(action: RibAction, ctx: RibContext): Promise<Rib
 
   let creds: CimplCredentialSecret[];
   try {
-    const text = res.data;
-    const start = text.search(/[{[]/);
-    const parsed = JSON.parse(start > 0 ? text.slice(start) : text) as {
-      credentials?: CimplCredentialSecret[];
-    };
+    const parsed = parseCimplInfoJson(res.data) as { credentials?: CimplCredentialSecret[] };
     creds = parsed.credentials ?? [];
   } catch (e) {
     return { ok: false, error: `failed to parse cimpl output: ${asMessage(e)}` };
@@ -86,22 +77,23 @@ function asMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-// Freshly confirm the current context is a live CIMPL deployment before Delete.
-// Returns an error string to refuse with, or null when teardown may proceed.
+// Freshly confirm the current context is a CIMPL deployment before Delete.
+// `cimpl info` runs cimpl's own authoritative fingerprint (verify_cimpl_cluster:
+// the cimpl-stack-system GitRepository / cimpl-gateway-config) and exits
+// non-zero on a non-CIMPL context — but a full `cimpl down` does NOT, so gate
+// the irreversible teardown on a fresh successful info probe. Exit 0 is the
+// signal (a partially-installed CIMPL cluster with no endpoints still passes,
+// so cleanup of a broken cluster isn't blocked). Returns an error to refuse
+// with, or null when teardown may proceed.
 async function verifyDeletableCimpl(ctx: RibContext): Promise<string | null> {
   const res = await ctx.getExec().runText("cimpl", ["info", "--json"], { timeoutMs: 60_000 });
   if (!res.ok) {
-    return "refusing Delete: could not confirm the current context is a CIMPL deployment";
+    return `refusing Delete: the current context (${currentContext() ?? "none"}) is not a confirmed CIMPL deployment — refresh and retry`;
   }
-  let info: CimplInfo;
   try {
-    const start = res.data.search(/[{[]/);
-    info = JSON.parse(start > 0 ? res.data.slice(start) : res.data) as CimplInfo;
+    parseCimplInfoJson(res.data);
   } catch (e) {
     return `refusing Delete: could not parse cimpl info (${asMessage(e)})`;
-  }
-  if (!looksLikeCimplCluster(info)) {
-    return `refusing Delete: the current context (${currentContext() ?? "none"}) does not look like a live CIMPL deployment — refresh and retry`;
   }
   return null;
 }

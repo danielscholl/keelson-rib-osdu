@@ -14,15 +14,9 @@ import {
   type CimplInfo,
   type ClusterLifecycle,
   hasRealSecret,
+  parseCimplInfoJson,
 } from "../src/cluster.ts";
 import { currentContext, getReadiness } from "../src/kubectl.ts";
-
-// Parse from the first JSON delimiter so a leading warning/preamble on stdout
-// (cimpl can emit one even on success) doesn't discard otherwise-valid JSON.
-function parseJsonLoose(text: string): unknown {
-  const start = text.search(/[{[]/);
-  return JSON.parse(start > 0 ? text.slice(start) : text);
-}
 
 // Pick only the fields the board needs; drop each credential's `password` so a
 // plaintext secret never crosses into the published snapshot.
@@ -57,7 +51,7 @@ function runCimplInfo(timeoutMs = 30_000): { info?: CimplInfo; error?: string } 
       const stderr = proc.stderr.toString().trim().split("\n").pop() ?? "";
       return { error: stderr.length > 0 ? stderr : `cimpl exited ${proc.exitCode}` };
     }
-    return { info: sanitizeInfo(parseJsonLoose(proc.stdout.toString())) };
+    return { info: sanitizeInfo(parseCimplInfoJson(proc.stdout.toString())) };
   } catch (e) {
     // CLI missing, not on PATH, timed out, or unparseable — degrade, don't throw.
     return { error: e instanceof Error ? e.message : String(e) };
@@ -75,8 +69,11 @@ if (services.error) console.error(`[rib-osdu] services readiness degraded: ${ser
 
 const lifecycle: ClusterLifecycle = {
   context,
-  // Reachable if any kubectl read succeeded; both failing means no cluster.
-  reachable: !flux.error || !services.error,
+  // Reachable if cimpl info OR any kubectl read succeeded; only treat the
+  // cluster as unreachable when every probe failed. A live cluster whose Flux
+  // CRDs/RBAC degraded still rendered its access data, so it isn't "down" — the
+  // Flux/Services rows report their own degraded counts.
+  reachable: Boolean(info) || !flux.error || !services.error,
   flux: { ready: flux.ready, total: flux.total },
   services: { ready: services.ready, total: services.total },
 };

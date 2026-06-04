@@ -59,13 +59,13 @@ export function hasRealSecret(password: unknown): boolean {
   return p.length > 0 && !p.includes("n/a");
 }
 
-// A CIMPL deployment exposes endpoints and/or internal services; a bare or
-// non-CIMPL cluster returns neither. Used to re-verify identity before the
-// irreversible Delete so `cimpl down` can't tear down look-alike namespaces
-// (osdu / platform / istio-system / flux-system) on the wrong cluster.
-export function looksLikeCimplCluster(info: CimplInfo | undefined): boolean {
-  if (!info) return false;
-  return (info.endpoints?.length ?? 0) > 0 || (info.internal_services?.length ?? 0) > 0;
+// Parse a `cimpl info --json` document, tolerating a Rich/log preamble before
+// the JSON (cimpl can print `[warning]…[/warning]` to stdout). cimpl info
+// returns an object, so anchor on the first `{` — anchoring on `[` would start
+// at a Rich tag and lose the payload.
+export function parseCimplInfoJson(text: string): unknown {
+  const start = text.indexOf("{");
+  return JSON.parse(start >= 0 ? text.slice(start) : text);
 }
 
 // cimpl always acts on the live kubectl current-context, so every cluster action

@@ -5,7 +5,7 @@ import {
   type ClusterInput,
   contextActionError,
   hasRealSecret,
-  looksLikeCimplCluster,
+  parseCimplInfoJson,
 } from "../src/cluster.ts";
 
 // Fixture credentials carry service + username ONLY — never a password. The
@@ -196,12 +196,10 @@ describe("buildClusterBoard", () => {
     }
   });
 
-  test("looksLikeCimplCluster requires at least one endpoint or internal service", () => {
-    expect(looksLikeCimplCluster({ endpoints: [{ name: "Airflow" }] })).toBe(true);
-    expect(looksLikeCimplCluster({ internal_services: [{ name: "Redis" }] })).toBe(true);
-    expect(looksLikeCimplCluster({ endpoints: [], internal_services: [] })).toBe(false);
-    expect(looksLikeCimplCluster({})).toBe(false);
-    expect(looksLikeCimplCluster(undefined)).toBe(false);
+  test("parseCimplInfoJson skips a Rich/log preamble before the JSON object", () => {
+    const withPreamble = '[warning]Gateway domain not configured[/warning]\n{"suspended":false}';
+    expect(parseCimplInfoJson(withPreamble)).toEqual({ suspended: false });
+    expect(parseCimplInfoJson('{"suspended":true}')).toEqual({ suspended: true });
   });
 
   test("contextActionError proceeds only when the captured context matches the live one", () => {
