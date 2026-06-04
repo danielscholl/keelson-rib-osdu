@@ -12,7 +12,8 @@ knowledge lives here, and the rib ships **zero React** into the trusted SPA.
 > GitLab/OSV CVE detail). The generic `board` view they render through landed in the Keelson base
 > (gap G1), as did the top-level **surface** (gap G4) and in-board **actions** (gap G3) — so the rib
 > composes the lane boards into one **CIMPL** nav tab with the Cluster ICC as its collapsible header
-> (lifecycle + Reconcile/Suspend actions + access cards). Still ahead: the remaining surface regions
+> (a "✓ Healthy" pill, a two-column Lifecycle | Actions body, and a unified ACCESS grid with
+> copy-on-reveal credentials). Still ahead: the remaining surface regions
 > (waiting-on-you, release train, events feed). See **[docs/PRD.md](docs/PRD.md)** for what the rib delivers and
 > **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for how it works + the Keelson base gaps
 > it depends on. No resident sidecar; all data is one-shot CLI invocations.
@@ -34,21 +35,25 @@ osdu-features   →  bash: bun bin/collect-features.ts   →  board view  →  r
 osdu-security   →  bash: bun bin/collect-security.ts   →  board view  →  rib:osdu:security  →  "Security"
 ```
 
-The **Cluster ICC** also wires the in-board **actions** (gap G3): its Reconcile / Suspend buttons
-dispatch to the rib's `onAction`, which shells `cimpl reconcile [--suspend|--resume]`.
+The **Cluster ICC** also wires the in-board **actions** (gap G3): its Reconcile / Suspend / Delete
+buttons dispatch to the rib's `onAction` (`cimpl reconcile [--suspend|--resume]` / `cimpl down`), and
+each ACCESS credential's copy button dispatches a `reveal-credential` action that re-fetches one
+password on demand — the secret is written to the clipboard and never enters the board snapshot.
 
 Each collector is a thin Bun script that shells a domain CLI and shapes its output with a
 pure builder (no domain logic in rib glue, no analyzer reimplemented):
 
 - **`src/cluster.ts`** — pure `buildClusterBoard({ info, lifecycle })`: the Cluster ICC **board** —
-  a Flux/Services pulse, **lifecycle** rows (Context / Cluster reachable / Flux reconciled N/M /
-  Services ready N/M, each toned by health), an **actions** section (Reconcile · Suspend-or-Resume by
-  `suspended` state), and access **cards** — external **Endpoints** (portal `href`) + **Internal
-  services** (copyable `address` + `port-forward`). `bin/collect-cluster.ts` shells `cimpl info
-  --json` and reads kubectl `kustomizations`/`helmreleases` readiness; each source degrades
-  independently to a valid "cluster unreachable" board. Credentials (`--show-secrets`) are
-  intentionally not rendered — plaintext secrets in a persisted/screenshot-able board need a masked
-  card-field affordance first (deferred).
+  a "✓ Healthy" header **status** pill + Flux/Services pulse, a two-column **Lifecycle | Actions**
+  body (lifecycle rows: Context / Cluster reachable / Flux reconciled N/M / Services ready N/M, each
+  toned by health; actions: Reconcile · Suspend-or-Resume · a destructive Delete), and a unified
+  **ACCESS** card grid — external endpoints (green status dot, portal `href` → ↗) + internal services
+  (cyan dot, copyable `address`, instance variants collapsed) with **credentials** joined onto the
+  matching card as copy-on-reveal fields. `bin/collect-cluster.ts` shells `cimpl info --json
+  --show-secrets` and reads kubectl `kustomizations`/`helmreleases` readiness; each source degrades
+  independently to a valid "cluster unreachable" board. `--show-secrets` is used only to enumerate
+  which services have credentials — passwords are stripped in the collector and never enter the board;
+  a credential's password is re-fetched on copy via the `reveal-credential` action.
 - **`src/topology.ts`** — pure `buildTopologyGraph(kustomizations)`: one node per Flux
   Kustomization (health in the node `kind`: `ready` / `blocked` / `suspended` / `failed`
   / `unknown`), edges from `spec.dependsOn`, dependency-free nodes rooted under the cluster.
@@ -79,8 +84,9 @@ pure builder (no domain logic in rib glue, no analyzer reimplemented):
 - **`src/index.ts`** — the `Rib`: five `views` descriptors, five contributed workflows that
   publish to them (each `validate`d fail-closed through `canvasViewSchema`), a **`CIMPL`
   surface** with the Cluster ICC as a collapsible header above the three lane columns, an
-  `onAction` handler (the ICC's Reconcile/Suspend/Resume → `cimpl`), and an `authStatus` probe
-  for the kubectl context.
+  `onAction` handler (the ICC's Reconcile/Suspend/Resume/Delete → `cimpl`, plus `reveal-credential`
+  which returns one password to the caller for an on-demand clipboard copy), and an `authStatus`
+  probe for the kubectl context.
 
 No data is produced in rib code — the UI's data comes from running a workflow. The
 `osdu-quality` and `osdu-activity` CLIs must be on `PATH` (e.g. `~/.local/bin`) and
@@ -129,11 +135,12 @@ The generic `board` view kind (gap **G1**, with cell tone **G0** and card link/c
 top-level **surface** (gap **G4** — a primary nav tab of region-bound boards), and in-board
 **actions** (gap **G3** — buttons dispatched to the owning rib) have all landed in the Keelson base.
 **Quality**, **Features**, and **Security** render as boards composed into one **CIMPL** surface,
-with the **Cluster ICC** (lifecycle + Reconcile/Suspend actions + access cards) as its collapsible
-header. Still ahead: the **Release Train**, **Waiting on You**, and **Current Events** boards (which
-fill out the surface's banner/footer regions), and credential reveal on the ICC (needs a masked
-card-field affordance). Each lane wraps an existing OSDU/CIMPL CLI (`osdu-quality`, `osdu-activity`,
-`cimpl info`) plus public CVE lookups (GitLab/OSV) — no reimplemented analyzers, no resident sidecar.
+with the **Cluster ICC** (a "✓ Healthy" pill, a two-column Lifecycle | Actions body with
+Reconcile/Suspend/Delete, and a unified ACCESS grid with copy-on-reveal credentials) as its
+collapsible header. Still ahead: the **Release Train**, **Waiting on You**, and **Current Events**
+boards (which fill out the surface's banner/footer regions). Each lane wraps an existing OSDU/CIMPL
+CLI (`osdu-quality`, `osdu-activity`, `cimpl info`) plus public CVE lookups (GitLab/OSV) — no
+reimplemented analyzers, no resident sidecar.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the gap taxonomy.
 
 ## License

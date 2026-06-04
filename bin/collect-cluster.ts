@@ -1,10 +1,13 @@
 #!/usr/bin/env bun
 /**
  * Cluster ICC collector — the producer behind the `osdu-cluster` workflow.
- * Shells `cimpl info --json` (endpoints + internal services + suspended state)
- * and reads Flux/HelmRelease readiness via kubectl, shapes them into a canvas
- * board-view JSON object, and prints that (and nothing else) to stdout. Each
- * source degrades independently to a valid "cluster unreachable" board.
+ * Shells `cimpl info --json --show-secrets` (endpoints + internal services +
+ * credentials + suspended state) and reads Flux/HelmRelease readiness via
+ * kubectl, shapes them into a canvas board-view JSON object, and prints that
+ * (and nothing else) to stdout. `--show-secrets` is used ONLY to enumerate
+ * which services have credentials; passwords are stripped here and never reach
+ * the board — the reveal-credential action re-fetches a single password on copy.
+ * Each source degrades independently to a valid "cluster unreachable" board.
  */
 import { buildClusterBoard, type CimplInfo, type ClusterLifecycle } from "../src/cluster.ts";
 import { currentContext, getReadiness } from "../src/kubectl.ts";
@@ -16,9 +19,28 @@ function parseJsonLoose(text: string): unknown {
   return JSON.parse(start > 0 ? text.slice(start) : text);
 }
 
+// Pick only the fields the board needs; drop each credential's `password` so a
+// plaintext secret never crosses into the published snapshot.
+function sanitizeInfo(raw: unknown): CimplInfo {
+  const obj = (raw ?? {}) as Record<string, unknown>;
+  const creds = Array.isArray(obj.credentials) ? obj.credentials : [];
+  return {
+    endpoints: obj.endpoints as CimplInfo["endpoints"],
+    internal_services: obj.internal_services as CimplInfo["internal_services"],
+    suspended: obj.suspended === true,
+    credentials: creds.map((c) => {
+      const cred = (c ?? {}) as Record<string, unknown>;
+      return {
+        service: String(cred.service ?? ""),
+        username: typeof cred.username === "string" ? cred.username : undefined,
+      };
+    }),
+  };
+}
+
 function runCimplInfo(timeoutMs = 30_000): { info?: CimplInfo; error?: string } {
   try {
-    const proc = Bun.spawnSync(["cimpl", "info", "--json"], {
+    const proc = Bun.spawnSync(["cimpl", "info", "--json", "--show-secrets"], {
       stdout: "pipe",
       stderr: "pipe",
       timeout: timeoutMs,
@@ -27,7 +49,7 @@ function runCimplInfo(timeoutMs = 30_000): { info?: CimplInfo; error?: string } 
       const stderr = proc.stderr.toString().trim().split("\n").pop() ?? "";
       return { error: stderr.length > 0 ? stderr : `cimpl exited ${proc.exitCode}` };
     }
-    return { info: parseJsonLoose(proc.stdout.toString()) as CimplInfo };
+    return { info: sanitizeInfo(parseJsonLoose(proc.stdout.toString())) };
   } catch (e) {
     // CLI missing, not on PATH, timed out, or unparseable — degrade, don't throw.
     return { error: e instanceof Error ? e.message : String(e) };

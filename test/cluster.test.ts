@@ -2,19 +2,28 @@ import { describe, expect, test } from "bun:test";
 import { canvasViewSchema } from "@keelson/shared";
 import { buildClusterBoard, type ClusterInput } from "../src/cluster.ts";
 
+// Fixture credentials carry service + username ONLY — never a password. The
+// password is fetched on demand by the reveal-credential action and must never
+// appear in the board or a committed fixture.
 const healthy: ClusterInput = {
   info: {
     suspended: false,
     endpoints: [
       { name: "Airflow", url: "https://airflow.example.test", note: "self-signed cert" },
-      { name: "Gateway", url: "https://gw.example.test", note: "" },
+      { name: "Keycloak", url: "https://kc.example.test", note: "" },
     ],
     internal_services: [
-      {
-        name: "PostgreSQL",
-        address: "postgresql-rw.platform:5432",
-        port_forward: "kubectl cnpg psql postgresql -n platform",
-      },
+      { name: "PostgreSQL", address: "postgresql-rw.platform:5432", port_forward: "kubectl ..." },
+      { name: "Redis", address: "redis.platform:6379", port_forward: "kubectl ..." },
+      { name: "Redis (dataset)", address: "redis-dataset.osdu:6379", port_forward: "kubectl ..." },
+      { name: "Redis (indexer)", address: "redis-indexer.osdu:6379", port_forward: "kubectl ..." },
+    ],
+    credentials: [
+      { service: "PostgreSQL", username: "osdu" },
+      { service: "PostgreSQL (superuser)", username: "postgres" },
+      { service: "Keycloak Admin", username: "admin" },
+      { service: "Redis", username: "" },
+      { service: "OIDC Client", username: "datafier" },
     ],
   },
   lifecycle: {
@@ -25,52 +34,137 @@ const healthy: ClusterInput = {
   },
 };
 
-const sectionsByKind = (b: ReturnType<typeof buildClusterBoard>) =>
-  Object.fromEntries(b.sections.map((s) => [s.kind, s]));
+type Board = ReturnType<typeof buildClusterBoard>;
+
+function columnsSection(b: Board) {
+  const col = b.sections.find((s) => s.kind === "columns");
+  if (col?.kind !== "columns") throw new Error("expected a columns section");
+  return col;
+}
+
+function rowsOf(b: Board) {
+  for (const column of columnsSection(b).columns) {
+    for (const s of column.sections) if (s.kind === "rows") return s;
+  }
+  throw new Error("expected a rows section in the columns body");
+}
+
+function actionsOf(b: Board) {
+  for (const column of columnsSection(b).columns) {
+    for (const s of column.sections) if (s.kind === "actions") return s;
+  }
+  throw new Error("expected an actions section in the columns body");
+}
+
+function accessSection(b: Board) {
+  const cards = b.sections.find((s) => s.kind === "cards" && s.title === "Access");
+  if (cards?.kind !== "cards") throw new Error("expected an Access cards section");
+  return cards;
+}
+
+function accessByTitle(b: Board) {
+  return Object.fromEntries(accessSection(b).items.map((c) => [c.title, c]));
+}
 
 describe("buildClusterBoard", () => {
   test("emits a valid canvas board view", () => {
     expect(canvasViewSchema.safeParse(buildClusterBoard(healthy)).success).toBe(true);
   });
 
+  test("a healthy cluster shows a ✓ Healthy header status pill + flux/service segments", () => {
+    const board = buildClusterBoard(healthy);
+    expect(board.header?.status).toEqual({ label: "✓ Healthy", tone: "ok" });
+    expect(board.header?.chip).toBe("cimpl-stack-ms");
+    expect(board.header?.segments?.map((s) => s.label)).toEqual(["Flux", "Services"]);
+  });
+
+  test("a partly-reconciled cluster reads as Degraded (warn)", () => {
+    const board = buildClusterBoard({
+      ...healthy,
+      lifecycle: { ...healthy.lifecycle, services: { ready: 30, total: 32 } },
+    });
+    expect(board.header?.status).toEqual({ label: "⚠ Degraded", tone: "warn" });
+  });
+
+  test("the body is a two-column Lifecycle | Actions layout", () => {
+    const col = columnsSection(buildClusterBoard(healthy));
+    expect(col.columns).toHaveLength(2);
+    expect(col.columns[0]?.sections[0]?.kind).toBe("rows");
+    expect(col.columns[1]?.sections[0]?.kind).toBe("actions");
+  });
+
   test("lifecycle rows cover context / cluster / flux / services with reconciled counts", () => {
-    const rows = sectionsByKind(buildClusterBoard(healthy)).rows;
-    if (rows?.kind !== "rows") throw new Error("expected a rows section");
+    const rows = rowsOf(buildClusterBoard(healthy));
     expect(rows.items.map((r) => r.text)).toEqual(["Context", "Cluster", "Flux", "Services"]);
     expect(rows.items[2]?.trailing).toBe("29/29 reconciled");
     expect(rows.items[3]?.trailing).toBe("32/32 ready");
   });
 
-  test("a running cluster offers Reconcile + a destructive Suspend", () => {
-    const actions = sectionsByKind(buildClusterBoard(healthy)).actions;
-    if (actions?.kind !== "actions") throw new Error("expected an actions section");
+  test("a running cluster offers Reconcile (non-destructive) + Suspend + a destructive Delete", () => {
+    const actions = actionsOf(buildClusterBoard(healthy));
     const byType = Object.fromEntries(actions.items.map((a) => [a.type, a]));
-    expect(byType.reconcile?.label).toBe("Reconcile");
-    expect(byType.suspend?.destructive).toBe(true);
+    expect(byType.reconcile?.glyph).toBe("↻");
+    expect(byType.reconcile?.destructive).toBeUndefined();
+    expect(byType.suspend?.glyph).toBe("⏸");
+    expect(byType.suspend?.destructive).toBeUndefined();
+    expect(byType.delete?.destructive).toBe(true);
+    expect(byType.delete?.tone).toBe("error");
     expect(byType.resume).toBeUndefined();
   });
 
-  test("a suspended cluster offers Resume instead of Suspend", () => {
-    const board = buildClusterBoard({
-      ...healthy,
-      info: { ...healthy.info, suspended: true },
-    });
-    const actions = sectionsByKind(board).actions;
-    if (actions?.kind !== "actions") throw new Error("expected an actions section");
-    const types = actions.items.map((a) => a.type);
+  test("a suspended cluster offers Resume instead of Suspend, and still Delete", () => {
+    const board = buildClusterBoard({ ...healthy, info: { ...healthy.info, suspended: true } });
+    const types = actionsOf(board).items.map((a) => a.type);
     expect(types).toContain("resume");
     expect(types).not.toContain("suspend");
+    expect(types).toContain("delete");
   });
 
-  test("access cards expose endpoint links and copyable internal-service fields", () => {
-    const board = buildClusterBoard(healthy);
-    const cards = board.sections.filter((s) => s.kind === "cards");
-    const titles = cards.map((c) => (c.kind === "cards" ? c.title : undefined));
-    expect(titles).toContain("Endpoints");
-    expect(titles).toContain("Internal services");
-    const internal = cards.find((c) => c.kind === "cards" && c.title === "Internal services");
-    if (internal?.kind !== "cards") throw new Error("expected internal cards");
-    expect(internal.items[0]?.fields?.every((f) => f.copyable)).toBe(true);
+  test("ACCESS endpoints render as green cards with a portal link", () => {
+    const byTitle = accessByTitle(buildClusterBoard(healthy));
+    expect(byTitle.Airflow?.dot).toBe("ok");
+    expect(byTitle.Airflow?.href).toBe("https://airflow.example.test");
+    expect(byTitle.Airflow?.footnote).toBe("self-signed cert");
+  });
+
+  test("ACCESS internal services render as cyan cards with a copyable address", () => {
+    const byTitle = accessByTitle(buildClusterBoard(healthy));
+    expect(byTitle.PostgreSQL?.dot).toBe("neutral");
+    const address = byTitle.PostgreSQL?.fields?.find((f) => f.copyable);
+    expect(address?.value).toBe("postgresql-rw.platform:5432");
+  });
+
+  test("credentials join onto their service card as copy-on-reveal fields (never a password)", () => {
+    const byTitle = accessByTitle(buildClusterBoard(healthy));
+    // Two PostgreSQL credentials on one card (osdu + superuser).
+    const pgCreds = (byTitle.PostgreSQL?.fields ?? []).filter((f) => f.copyAction);
+    expect(pgCreds.map((f) => f.copyAction?.payload)).toEqual([
+      { service: "PostgreSQL" },
+      { service: "PostgreSQL (superuser)" },
+    ]);
+    // Prefix match: "Keycloak Admin" credential lands on the "Keycloak" endpoint.
+    const kcCred = (byTitle.Keycloak?.fields ?? []).find((f) => f.copyAction);
+    expect(kcCred?.copyAction).toEqual({
+      type: "reveal-credential",
+      payload: { service: "Keycloak Admin" },
+    });
+    // Every credential field masks its value — the secret is fetched on copy.
+    for (const card of accessSection(buildClusterBoard(healthy)).items) {
+      for (const field of card.fields ?? []) {
+        if (field.copyAction) expect(field.value).toBe("••••••");
+      }
+    }
+  });
+
+  test("Redis instance variants collapse into one card with an instance count", () => {
+    const redis = accessByTitle(buildClusterBoard(healthy)).Redis;
+    expect(redis?.footnote).toBe("3 instances");
+  });
+
+  test("an unmatched credential becomes its own card", () => {
+    const card = accessByTitle(buildClusterBoard(healthy))["OIDC Client"];
+    expect(card?.dot).toBe("neutral");
+    expect(card?.fields?.[0]?.copyAction?.payload).toEqual({ service: "OIDC Client" });
   });
 
   test("an unreachable cluster still yields a valid board (degrades, never crashes)", () => {
@@ -83,9 +177,8 @@ describe("buildClusterBoard", () => {
       },
     });
     expect(canvasViewSchema.safeParse(board).success).toBe(true);
-    const rows = sectionsByKind(board).rows;
-    if (rows?.kind !== "rows") throw new Error("expected a rows section");
-    expect(rows.items[1]?.trailing).toBe("unreachable");
+    expect(board.header?.status).toEqual({ label: "✕ Unreachable", tone: "error" });
+    expect(rowsOf(board).items[1]?.trailing).toBe("unreachable");
     // No access cards when cimpl info is absent.
     expect(board.sections.some((s) => s.kind === "cards")).toBe(false);
   });

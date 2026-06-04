@@ -1,4 +1,4 @@
-import type { CanvasView, Rib } from "@keelson/shared";
+import type { CanvasView, Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
 import { canvasViewSchema } from "@keelson/shared";
 import { currentContext } from "./kubectl.ts";
 
@@ -17,13 +17,14 @@ const FEATURES_COLLECTOR = new URL("../bin/collect-features.ts", import.meta.url
 const SECURITY_COLLECTOR = new URL("../bin/collect-security.ts", import.meta.url).pathname;
 
 // cimpl lifecycle verbs the ICC actions dispatch to (POST /api/ribs/osdu/action
-// → onAction). Reconcile/Suspend/Resume are reversible; Delete + Create are
-// intentionally omitted (irreversible teardown of the live cluster — needs a
-// stronger guard than a single confirm).
+// → onAction). Reconcile/Suspend/Resume are reversible; Delete tears down the
+// active context's cluster and is guarded behind the SPA's destructive confirm.
+// `reveal-credential` is handled separately (it reads, not mutates).
 const CLUSTER_ACTION_ARGS: Record<string, string[]> = {
   reconcile: ["reconcile"],
   suspend: ["reconcile", "--suspend"],
   resume: ["reconcile", "--resume"],
+  delete: ["down", "--provider", "current-context"],
 };
 
 // Validate through the canvas view union (not a bare member schema) so the
@@ -35,6 +36,48 @@ function expectView(key: string, kind: CanvasView["view"]) {
     if (view.view !== kind) throw new Error(`${key} expects a ${kind} view`);
     return view;
   };
+}
+
+interface CimplCredentialSecret {
+  service?: string;
+  password?: string;
+}
+
+// Re-fetch one credential's password on demand for a clipboard copy. The secret
+// is returned straight to the caller (loopback) and is never written to a
+// snapshot or persisted. Uses runText + loose parse because `cimpl info` can
+// print a preamble before its JSON.
+async function revealCredential(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
+  const payload = (action.payload ?? {}) as { service?: unknown };
+  const service = typeof payload.service === "string" ? payload.service : "";
+  if (!service) return { ok: false, error: "reveal-credential requires payload.service" };
+
+  const res = await ctx
+    .getExec()
+    .runText("cimpl", ["info", "--json", "--show-secrets"], { timeoutMs: 60_000 });
+  if (!res.ok) return { ok: false, error: res.error };
+
+  let creds: CimplCredentialSecret[];
+  try {
+    const text = res.data;
+    const start = text.search(/[{[]/);
+    const parsed = JSON.parse(start > 0 ? text.slice(start) : text) as {
+      credentials?: CimplCredentialSecret[];
+    };
+    creds = parsed.credentials ?? [];
+  } catch (e) {
+    return { ok: false, error: `failed to parse cimpl output: ${asMessage(e)}` };
+  }
+
+  const cred = creds.find((c) => c.service === service);
+  if (!cred || typeof cred.password !== "string" || cred.password.length === 0) {
+    return { ok: false, error: `no credential for '${service}'` };
+  }
+  return { ok: true, data: cred.password };
+}
+
+function asMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 const rib: Rib = {
@@ -155,7 +198,10 @@ const rib: Rib = {
   // Cluster ICC actions: dispatch a lifecycle verb to the `cimpl` CLI via the
   // async exec surface, so a slow/unreachable cluster can't block the server
   // event loop. The board reflects the new state on the next osdu-cluster run.
+  // `reveal-credential` is a read that returns one password to the caller for an
+  // on-demand clipboard copy — the secret never enters a snapshot.
   onAction: async (action, ctx) => {
+    if (action.type === "reveal-credential") return revealCredential(action, ctx);
     const args = CLUSTER_ACTION_ARGS[action.type];
     if (!args) return { ok: false, error: `unknown action '${action.type}'` };
     const res = await ctx.getExec().runText("cimpl", args, { timeoutMs: 120_000 });
