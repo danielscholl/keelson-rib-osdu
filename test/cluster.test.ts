@@ -11,25 +11,47 @@ import {
 // Fixture credentials carry service + username ONLY — never a password. The
 // password is fetched on demand by the reveal-credential action and must never
 // appear in the board or a committed fixture.
+// Mirrors the raw `cimpl info` shape: the gateway, an Elasticsearch endpoint,
+// the MinIO S3 API, SeaweedFS variants, per-namespace Redis, and an OIDC client
+// secret all appear here — the ICC must curate them down to the eight
+// operator-facing services. Credentials carry service + username ONLY (never a
+// password — that's fetched on demand by reveal-credential).
 const healthy: ClusterInput = {
   info: {
     suspended: false,
     endpoints: [
-      { name: "Airflow", url: "https://airflow.example.test", note: "self-signed cert" },
+      { name: "Gateway (HTTPS)", url: "https://gw.example.test", note: "self-signed cert" },
+      { name: "Airflow", url: "https://airflow.example.test", note: "" },
+      { name: "Elasticsearch", url: "https://es.example.test", note: "" },
       { name: "Keycloak", url: "https://kc.example.test", note: "" },
+      { name: "Kibana", url: "https://kibana.example.test", note: "" },
+      { name: "Minio", url: "https://minio.example.test", note: "" },
+      { name: "Minio-api", url: "https://minio-api.example.test", note: "" },
+      { name: "Rabbitmq", url: "https://rabbitmq.example.test", note: "" },
+      { name: "Seaweedfs-s3", url: "https://swfs.example.test", note: "" },
     ],
     internal_services: [
       { name: "PostgreSQL", address: "postgresql-rw.platform:5432", port_forward: "kubectl ..." },
       { name: "Redis", address: "redis.platform:6379", port_forward: "kubectl ..." },
+      { name: "SeaweedFS S3", address: "seaweedfs-s3.platform:8333", port_forward: "kubectl ..." },
+      {
+        name: "SeaweedFS Admin",
+        address: "seaweedfs-master.platform:9333",
+        port_forward: "kubectl ...",
+      },
       { name: "Redis (dataset)", address: "redis-dataset.osdu:6379", port_forward: "kubectl ..." },
       { name: "Redis (indexer)", address: "redis-indexer.osdu:6379", port_forward: "kubectl ..." },
     ],
     credentials: [
       { service: "PostgreSQL", username: "osdu" },
       { service: "PostgreSQL (superuser)", username: "postgres" },
+      { service: "Elasticsearch", username: "elastic" },
       { service: "Keycloak Admin", username: "admin" },
+      { service: "RabbitMQ", username: "osdu" },
+      { service: "MinIO", username: "osdu" },
       { service: "Redis", username: "" },
       { service: "OIDC Client", username: "datafier" },
+      { service: "Airflow", username: "admin" },
     ],
   },
   lifecycle: {
@@ -132,11 +154,48 @@ describe("buildClusterBoard", () => {
     expect(types).toContain("delete");
   });
 
-  test("ACCESS endpoints render as green cards with a portal link", () => {
+  test("ACCESS is curated to the eight operator-facing services, in order", () => {
+    const titles = accessSection(buildClusterBoard(healthy)).items.map((c) => c.title);
+    expect(titles).toEqual([
+      "Airflow",
+      "Keycloak",
+      "Kibana",
+      "MinIO",
+      "RabbitMQ",
+      "SeaweedFS",
+      "PostgreSQL",
+      "Redis",
+    ]);
+  });
+
+  test("ACCESS drops the gateway, API-only endpoints, variants, and the OIDC client", () => {
+    const titles = accessSection(buildClusterBoard(healthy)).items.map((c) => c.title);
+    for (const dropped of [
+      "Gateway (HTTPS)",
+      "Elasticsearch",
+      "Minio-api",
+      "Seaweedfs-s3",
+      "SeaweedFS S3",
+      "SeaweedFS Admin",
+      "OIDC Client",
+    ]) {
+      expect(titles).not.toContain(dropped);
+    }
+  });
+
+  test("ACCESS portals render as green cards with a portal link", () => {
     const byTitle = accessByTitle(buildClusterBoard(healthy));
-    expect(byTitle.Airflow?.dot).toBe("ok");
+    for (const ui of ["Airflow", "Keycloak", "Kibana", "MinIO", "RabbitMQ"]) {
+      expect(byTitle[ui]?.dot).toBe("ok");
+      expect(byTitle[ui]?.href).toBeTruthy();
+    }
     expect(byTitle.Airflow?.href).toBe("https://airflow.example.test");
-    expect(byTitle.Airflow?.footnote).toBe("self-signed cert");
+  });
+
+  test("SeaweedFS is a cyan service card with no portal link", () => {
+    const swfs = accessByTitle(buildClusterBoard(healthy)).SeaweedFS;
+    expect(swfs?.dot).toBe("neutral");
+    expect(swfs?.href).toBeUndefined();
   });
 
   test("ACCESS internal services render as cyan cards with no address pill", () => {
@@ -157,11 +216,18 @@ describe("buildClusterBoard", () => {
       { service: "PostgreSQL", context: "cimpl-stack-ms" },
       { service: "PostgreSQL (superuser)", context: "cimpl-stack-ms" },
     ]);
-    // Prefix match: "Keycloak Admin" credential lands on the "Keycloak" endpoint.
+    // Curated join: the "Keycloak Admin" credential lands on the Keycloak card.
     const kcCred = (byTitle.Keycloak?.fields ?? []).find((f) => f.copyAction);
     expect(kcCred?.copyAction).toEqual({
       type: "reveal-credential",
       payload: { service: "Keycloak Admin", context: "cimpl-stack-ms" },
+    });
+    // Cross-service join: Kibana fronts Elasticsearch, so the elastic credential
+    // lands on the Kibana card (there is no separate Elasticsearch card).
+    const kibanaCred = (byTitle.Kibana?.fields ?? []).find((f) => f.copyAction);
+    expect(kibanaCred?.copyAction?.payload).toEqual({
+      service: "Elasticsearch",
+      context: "cimpl-stack-ms",
     });
     // Credential fields show the username (or "password" when none) — never a
     // mask and never the secret, which is fetched on copy via the action.
@@ -174,6 +240,7 @@ describe("buildClusterBoard", () => {
     expect(credValues).toContain("osdu");
     expect(credValues).toContain("postgres");
     expect(credValues).toContain("admin");
+    expect(credValues).toContain("elastic");
     expect(credValues).not.toContain("••••••");
   });
 
@@ -182,13 +249,11 @@ describe("buildClusterBoard", () => {
     expect(redis?.footnote).toBe("3 instances");
   });
 
-  test("an unmatched credential becomes its own card", () => {
-    const card = accessByTitle(buildClusterBoard(healthy))["OIDC Client"];
-    expect(card?.dot).toBe("neutral");
-    expect(card?.fields?.[0]?.copyAction?.payload).toEqual({
-      service: "OIDC Client",
-      context: "cimpl-stack-ms",
-    });
+  test("Redis carries its (usernameless) credential as a reveal pill", () => {
+    const redis = accessByTitle(buildClusterBoard(healthy)).Redis;
+    const cred = (redis?.fields ?? []).find((f) => f.copyAction);
+    expect(cred?.value).toBe("password");
+    expect(cred?.copyAction?.payload).toEqual({ service: "Redis", context: "cimpl-stack-ms" });
   });
 
   test("actions carry the board's context so onAction can guard against drift", () => {

@@ -116,13 +116,12 @@ export function actionGuardError(
   return null;
 }
 
-// Normalize a service name to a join key: drop parenthetical qualifiers
-// ("PostgreSQL (superuser)" → postgresql) and non-alphanumerics, lowercase.
-function norm(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/\([^)]*\)/g, "")
-    .replace(/[^a-z0-9]/g, "");
+// Exact match key: lowercase, strip every non-alphanumeric, so cimpl's casing
+// quirks compare cleanly ("MinIO"/"Minio", "RabbitMQ"/"Rabbitmq") while
+// parenthetical qualifiers stay distinct ("PostgreSQL" vs "PostgreSQL
+// (superuser)" → postgresql vs postgresqlsuperuser).
+function matchKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 // "Redis (dataset)" → "Redis" — the base used to collapse instance variants.
@@ -161,67 +160,74 @@ function credentialField(cred: CimplCredential, stamp: ClusterStamp): FieldItem 
   };
 }
 
-// Unified ACCESS grid: external endpoints (green dot, portal ↗) + internal
-// services (cyan dot, collapsed by base name), with credentials joined onto the
-// matching card by normalized service name (exact, then prefix). Unmatched
-// credentials become their own cyan card so none are dropped.
+// The operator-facing services the ACCESS grid surfaces, in display order.
+// cimpl info enumerates every Kubernetes service (the gateway, API-only
+// endpoints like minio-api, the per-namespace Redis variants, an OIDC client
+// secret); the ICC curates that down to the services an operator interacts
+// with. `portal` → a browser UI (green dot + ↗ from its endpoint URL);
+// otherwise a cluster-local service (cyan dot, no link). `creds` lists the
+// cimpl credential `service` names to join, in order — Kibana intentionally
+// carries the Elasticsearch credential (Kibana fronts Elasticsearch, so there
+// is no separate Elasticsearch card).
+interface AccessService {
+  title: string;
+  portal: boolean;
+  endpoint?: string;
+  creds: string[];
+  instances?: boolean;
+}
+
+const ACCESS_SERVICES: readonly AccessService[] = [
+  { title: "Airflow", portal: true, endpoint: "Airflow", creds: ["Airflow"] },
+  { title: "Keycloak", portal: true, endpoint: "Keycloak", creds: ["Keycloak Admin"] },
+  { title: "Kibana", portal: true, endpoint: "Kibana", creds: ["Elasticsearch"] },
+  { title: "MinIO", portal: true, endpoint: "Minio", creds: ["MinIO"] },
+  { title: "RabbitMQ", portal: true, endpoint: "Rabbitmq", creds: ["RabbitMQ"] },
+  { title: "SeaweedFS", portal: false, creds: ["SeaweedFS"] },
+  { title: "PostgreSQL", portal: false, creds: ["PostgreSQL", "PostgreSQL (superuser)"] },
+  { title: "Redis", portal: false, creds: ["Redis"], instances: true },
+];
+
+// Curated ACCESS grid: one card per known operator-facing service. A portal
+// shows a green dot + portal ↗ (from its cimpl endpoint URL); a service shows a
+// cyan dot and no link. Credentials join as boxed copy-on-reveal pills. A
+// service the cluster doesn't expose at all (no endpoint, no credential, no
+// backing internal service) is skipped, so a partial stack shows no phantom
+// cards.
 function buildAccessCards(info: CimplInfo, stamp: ClusterStamp): CardItem[] {
-  type JoinCard = CardItem & { norm: string };
-  const cards: JoinCard[] = [];
+  const endpoints = new Map<string, CimplEndpoint>();
+  for (const e of info.endpoints ?? []) endpoints.set(matchKey(e.name), e);
+  const credentials = new Map<string, CimplCredential>();
+  for (const c of info.credentials ?? []) credentials.set(matchKey(c.service), c);
+  const internal = info.internal_services ?? [];
 
-  for (const e of info.endpoints ?? []) {
-    cards.push({
-      norm: norm(e.name),
-      title: e.name,
-      dot: "ok",
-      ...(e.url ? { href: e.url } : {}),
-      ...(e.note && e.note.trim().length > 0 ? { footnote: e.note } : {}),
-      fields: [],
-    });
-  }
+  const cards: CardItem[] = [];
+  for (const svc of ACCESS_SERVICES) {
+    const base = matchKey(svc.title);
+    const endpoint = svc.portal ? endpoints.get(base) : undefined;
 
-  const groups = new Map<string, CimplInternalService[]>();
-  for (const s of info.internal_services ?? []) {
-    const key = baseName(s.name);
-    const members = groups.get(key) ?? [];
-    members.push(s);
-    groups.set(key, members);
-  }
-  for (const [base, members] of groups) {
-    // No address pill: an internal host:port isn't an accessible URL, so an
-    // internal service surfaces only its credentials (joined below) — or just
-    // its name/dot when it has none.
-    cards.push({
-      norm: norm(base),
-      title: base,
-      dot: "neutral",
-      ...(members.length > 1 ? { footnote: `${members.length} instances` } : {}),
-      fields: [],
-    });
-  }
-
-  for (const cred of info.credentials ?? []) {
-    const cn = norm(cred.service);
-    const target =
-      cards.find((c) => c.norm === cn) ??
-      cards.find((c) => c.norm.length > 0 && cn.startsWith(c.norm));
-    if (target) {
-      if (!target.fields) target.fields = [];
-      target.fields.push(credentialField(cred, stamp));
-    } else {
-      cards.push({
-        norm: cn,
-        title: cred.service,
-        dot: "neutral",
-        fields: [credentialField(cred, stamp)],
-      });
+    const fields: FieldItem[] = [];
+    for (const name of svc.creds) {
+      const cred = credentials.get(matchKey(name));
+      if (cred) fields.push(credentialField(cred, stamp));
     }
-  }
 
-  return cards.map(({ norm: _norm, fields, ...rest }) => ({
-    ...rest,
-    ...(fields && fields.length > 0 ? { fields } : {}),
-  }));
+    const present =
+      Boolean(endpoint) ||
+      fields.length > 0 ||
+      internal.some((s) => matchKey(s.name).startsWith(base));
+    if (!present) continue;
+
+    const card: CardItem = { title: svc.title, dot: svc.portal ? "ok" : "neutral" };
+    if (endpoint?.url) card.href = endpoint.url;
+    if (svc.instances) {
+      const count = internal.filter((s) => matchKey(baseName(s.name)) === base).length;
+      if (count > 1) card.footnote = `${count} instances`;
+    }
+    if (fields.length > 0) card.fields = fields;
+    cards.push(card);
+  }
+  return cards;
 }
 
 /**
