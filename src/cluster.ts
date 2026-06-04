@@ -59,6 +59,21 @@ export function hasRealSecret(password: unknown): boolean {
   return p.length > 0 && !p.includes("n/a");
 }
 
+// cimpl always acts on the live kubectl current-context, so every cluster action
+// must name the context it was built against AND still match it. Returns an
+// error string to reject with, or null when it's safe to proceed. A missing
+// captured context is rejected too: a stale board (collected with no context,
+// then a context selected) must not reveal/mutate whatever is current now.
+export function contextActionError(payloadContext: unknown, current: string | null): string | null {
+  if (typeof payloadContext !== "string" || payloadContext.length === 0) {
+    return "no cluster context captured for this action — refresh and retry";
+  }
+  if (payloadContext !== current) {
+    return `cluster context changed since this view loaded (was ${payloadContext}, now ${current ?? "none"}) — refresh and retry`;
+  }
+  return null;
+}
+
 // Normalize a service name to a join key: drop parenthetical qualifiers
 // ("PostgreSQL (superuser)" → postgresql) and non-alphanumerics, lowercase.
 function norm(name: string): string {

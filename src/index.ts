@@ -1,6 +1,6 @@
 import type { CanvasView, Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
 import { canvasViewSchema } from "@keelson/shared";
-import { hasRealSecret } from "./cluster.ts";
+import { contextActionError, hasRealSecret } from "./cluster.ts";
 import { currentContext } from "./kubectl.ts";
 
 const CLUSTER_KEY = "rib:osdu:cluster";
@@ -202,17 +202,13 @@ const rib: Rib = {
   // `reveal-credential` is a read that returns one password to the caller for an
   // on-demand clipboard copy — the secret never enters a snapshot.
   onAction: async (action, ctx) => {
-    // Context-drift guard: cimpl acts on the current kubectl context, but the
-    // board was built against the context in the action payload. If the operator
-    // switched contexts since the view loaded, refuse rather than reveal/mutate
-    // the wrong cluster (especially Delete).
+    // Context guard: cimpl acts on the live kubectl current-context, so every
+    // cluster action must name the context it was built against and still match
+    // it — otherwise a stale board could reveal/mutate the wrong cluster
+    // (especially Delete). A missing captured context is rejected too.
     const expected = (action.payload as { context?: unknown } | undefined)?.context;
-    if (typeof expected === "string" && expected !== currentContext()) {
-      return {
-        ok: false,
-        error: `cluster context changed since this view loaded (was ${expected}, now ${currentContext() ?? "none"}) — refresh and retry`,
-      };
-    }
+    const guard = contextActionError(expected, currentContext());
+    if (guard) return { ok: false, error: guard };
     if (action.type === "reveal-credential") return revealCredential(action, ctx);
     const args = CLUSTER_ACTION_ARGS[action.type];
     if (!args) return { ok: false, error: `unknown action '${action.type}'` };

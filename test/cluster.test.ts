@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { canvasViewSchema } from "@keelson/shared";
-import { buildClusterBoard, type ClusterInput, hasRealSecret } from "../src/cluster.ts";
+import {
+  buildClusterBoard,
+  type ClusterInput,
+  contextActionError,
+  hasRealSecret,
+} from "../src/cluster.ts";
 
 // Fixture credentials carry service + username ONLY — never a password. The
 // password is fetched on demand by the reveal-credential action and must never
@@ -188,6 +193,16 @@ describe("buildClusterBoard", () => {
     for (const action of actionsOf(board).items) {
       expect(action.payload).toBeUndefined();
     }
+  });
+
+  test("contextActionError proceeds only when the captured context matches the live one", () => {
+    expect(contextActionError("ctx-a", "ctx-a")).toBeNull();
+    expect(contextActionError("ctx-a", "ctx-b")).toMatch(/context changed/);
+    expect(contextActionError("ctx-a", null)).toMatch(/context changed/);
+    // A stale board built with no captured context must not act on whatever is
+    // current now — including the payload-less actions above.
+    expect(contextActionError(undefined, "ctx-a")).toMatch(/no cluster context/);
+    expect(contextActionError("", "ctx-a")).toMatch(/no cluster context/);
   });
 
   test("hasRealSecret rejects cimpl's n/a placeholders, empty, and non-strings", () => {
