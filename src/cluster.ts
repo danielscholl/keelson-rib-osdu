@@ -92,14 +92,19 @@ function clusterStatus(
   return allReady ? { label: "✓ Healthy", tone: "ok" } : { label: "⚠ Degraded", tone: "warn" };
 }
 
-function credentialField(cred: CimplCredential): FieldItem {
+function credentialField(cred: CimplCredential, context: string | null): FieldItem {
   const username = cred.username?.trim();
   return {
     // The username is shown; the value is a mask, not the secret. The copy
     // button reveals the password on demand and writes it to the clipboard.
     label: username && username.length > 0 ? username : "password",
     value: "••••••",
-    copyAction: { type: "reveal-credential", payload: { service: cred.service } },
+    // `context` rides along so onAction can refuse to reveal a secret from a
+    // different cluster than the board was built against (context drift).
+    copyAction: {
+      type: "reveal-credential",
+      payload: context ? { service: cred.service, context } : { service: cred.service },
+    },
   };
 }
 
@@ -107,7 +112,7 @@ function credentialField(cred: CimplCredential): FieldItem {
 // services (cyan dot, collapsed by base name), with credentials joined onto the
 // matching card by normalized service name (exact, then prefix). Unmatched
 // credentials become their own cyan card so none are dropped.
-function buildAccessCards(info: CimplInfo): CardItem[] {
+function buildAccessCards(info: CimplInfo, context: string | null): CardItem[] {
   type JoinCard = CardItem & { norm: string };
   const cards: JoinCard[] = [];
 
@@ -149,13 +154,13 @@ function buildAccessCards(info: CimplInfo): CardItem[] {
       cards.find((c) => c.norm.length > 0 && cn.startsWith(c.norm));
     if (target) {
       if (!target.fields) target.fields = [];
-      target.fields.push(credentialField(cred));
+      target.fields.push(credentialField(cred, context));
     } else {
       cards.push({
         norm: cn,
         title: cred.service,
         dot: "neutral",
-        fields: [credentialField(cred)],
+        fields: [credentialField(cred, context)],
       });
     }
   }
@@ -200,15 +205,29 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
     ],
   };
 
+  // Each action carries the context it was built against so onAction can refuse
+  // to mutate a different cluster if the kubectl context drifts (it acts on
+  // current-context). Omitted when there's no context to protect.
+  const actionPayload = context ? { context } : undefined;
+  const withPayload = <T extends { type: string }>(item: T) =>
+    actionPayload ? { ...item, payload: actionPayload } : item;
   const actions: LeafSection = {
     kind: "actions",
     title: "Actions",
     items: [
-      { type: "reconcile", label: "Reconcile", glyph: "↻" },
-      suspended
-        ? { type: "resume", label: "Resume", glyph: "▶" }
-        : { type: "suspend", label: "Suspend", glyph: "⏸" },
-      { type: "delete", label: "Delete", glyph: "✕", tone: "error", destructive: true },
+      withPayload({ type: "reconcile", label: "Reconcile", glyph: "↻" }),
+      withPayload(
+        suspended
+          ? { type: "resume", label: "Resume", glyph: "▶" }
+          : { type: "suspend", label: "Suspend", glyph: "⏸" },
+      ),
+      withPayload({
+        type: "delete",
+        label: "Delete",
+        glyph: "✕",
+        tone: "error" as const,
+        destructive: true,
+      }),
     ],
   };
 
@@ -222,7 +241,7 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
     },
   ];
 
-  const access = info ? buildAccessCards(info) : [];
+  const access = info ? buildAccessCards(info, context) : [];
   if (access.length > 0) {
     sections.push({ kind: "cards", title: "Access", items: access });
   }

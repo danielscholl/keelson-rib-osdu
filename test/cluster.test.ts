@@ -139,14 +139,14 @@ describe("buildClusterBoard", () => {
     // Two PostgreSQL credentials on one card (osdu + superuser).
     const pgCreds = (byTitle.PostgreSQL?.fields ?? []).filter((f) => f.copyAction);
     expect(pgCreds.map((f) => f.copyAction?.payload)).toEqual([
-      { service: "PostgreSQL" },
-      { service: "PostgreSQL (superuser)" },
+      { service: "PostgreSQL", context: "cimpl-stack-ms" },
+      { service: "PostgreSQL (superuser)", context: "cimpl-stack-ms" },
     ]);
     // Prefix match: "Keycloak Admin" credential lands on the "Keycloak" endpoint.
     const kcCred = (byTitle.Keycloak?.fields ?? []).find((f) => f.copyAction);
     expect(kcCred?.copyAction).toEqual({
       type: "reveal-credential",
-      payload: { service: "Keycloak Admin" },
+      payload: { service: "Keycloak Admin", context: "cimpl-stack-ms" },
     });
     // Every credential field masks its value — the secret is fetched on copy.
     for (const card of accessSection(buildClusterBoard(healthy)).items) {
@@ -164,7 +164,30 @@ describe("buildClusterBoard", () => {
   test("an unmatched credential becomes its own card", () => {
     const card = accessByTitle(buildClusterBoard(healthy))["OIDC Client"];
     expect(card?.dot).toBe("neutral");
-    expect(card?.fields?.[0]?.copyAction?.payload).toEqual({ service: "OIDC Client" });
+    expect(card?.fields?.[0]?.copyAction?.payload).toEqual({
+      service: "OIDC Client",
+      context: "cimpl-stack-ms",
+    });
+  });
+
+  test("actions carry the board's context so onAction can guard against drift", () => {
+    for (const action of actionsOf(buildClusterBoard(healthy)).items) {
+      expect(action.payload).toEqual({ context: "cimpl-stack-ms" });
+    }
+  });
+
+  test("with no context, actions carry no payload (nothing to guard)", () => {
+    const board = buildClusterBoard({
+      lifecycle: {
+        context: null,
+        reachable: false,
+        flux: { ready: 0, total: 0 },
+        services: { ready: 0, total: 0 },
+      },
+    });
+    for (const action of actionsOf(board).items) {
+      expect(action.payload).toBeUndefined();
+    }
   });
 
   test("hasRealSecret rejects cimpl's n/a placeholders, empty, and non-strings", () => {
