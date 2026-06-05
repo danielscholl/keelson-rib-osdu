@@ -46,10 +46,15 @@ pure builder (no domain logic in rib glue, no analyzer reimplemented):
 - **`src/cluster.ts`** — pure `buildClusterBoard({ info, lifecycle })`: the Cluster ICC **board** —
   a "✓ Healthy" header **status** pill + Flux/Services pulse, a two-column **Lifecycle | Actions**
   body (lifecycle rows: Context / Cluster reachable / Flux reconciled N/M / Services ready N/M, each
-  toned by health; actions: Reconcile · Suspend-or-Resume · a destructive Delete), and a unified
-  **ACCESS** card grid — external endpoints (green status dot, portal `href` → ↗) + internal services
-  (cyan dot, copyable `address`, instance variants collapsed) with **credentials** joined onto the
-  matching card as copy-on-reveal fields. `bin/collect-cluster.ts` shells `cimpl info --json
+  toned by health; actions: Reconcile · Suspend-or-Resume · a destructive Delete), and a curated
+  **ACCESS** card grid. `cimpl info` enumerates every Kubernetes service (the gateway, API-only
+  endpoints, per-namespace Redis variants, an OIDC client secret); `ACCESS_SERVICES` curates that to
+  the eight operator-facing services — browser portals (Airflow, Keycloak, Kibana, MinIO, RabbitMQ)
+  get a green dot + portal `href` → ↗; cluster-local services (SeaweedFS, PostgreSQL, Redis) get a
+  cyan dot and no link. **Credentials** join onto the matching card as boxed copy-on-reveal pills
+  (the username shows; the password is fetched on copy) — Kibana carries the Elasticsearch credential
+  (it fronts Elasticsearch, so there is no separate card). An internal `host:port` isn't an accessible
+  URL, so no address pill is shown. `bin/collect-cluster.ts` shells `cimpl info --json
   --show-secrets` and reads kubectl `kustomizations`/`helmreleases` readiness; each source degrades
   independently to a valid "cluster unreachable" board. `--show-secrets` is used only to enumerate
   which services have credentials — passwords are stripped in the collector and never enter the board;
