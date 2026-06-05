@@ -18,22 +18,30 @@ describe("CIMPL surface", () => {
     expect(header?.collapsed).toBe(true);
   });
 
-  test("the surface composes the three lane boards, all rib-namespaced", () => {
+  test("the surface composes the three lane boards in Features·Quality·Security order", () => {
     const columns = rib.surfaces?.[0]?.layout.rows[0]?.columns ?? [];
     expect(columns.map((c) => c.key)).toEqual([
-      "rib:osdu:quality",
       "rib:osdu:features",
+      "rib:osdu:quality",
       "rib:osdu:security",
     ]);
     expect(columns.every((c) => c.key.startsWith("rib:osdu:"))).toBe(true);
+  });
+
+  test("each lane carries a static identity (title + toned glyph)", () => {
+    const columns = rib.surfaces?.[0]?.layout.rows[0]?.columns ?? [];
+    expect(columns.map((c) => c.title)).toEqual(["Features", "Quality", "Security"]);
+    expect(columns.map((c) => c.glyph?.tone)).toEqual(["brand", "info", "caution"]);
+    expect(columns.every((c) => typeof c.glyph?.char === "string")).toBe(true);
+    expect(rib.surfaces?.[0]?.layout.header?.title).toBe("Cluster ICC");
   });
 
   test("each region names the workflow its refresh re-runs", () => {
     const layout = rib.surfaces?.[0]?.layout;
     expect(layout?.header?.workflow).toBe("osdu-cluster");
     expect(layout?.rows[0]?.columns.map((c) => c.workflow)).toEqual([
-      "osdu-quality",
       "osdu-features",
+      "osdu-quality",
       "osdu-security",
     ]);
   });

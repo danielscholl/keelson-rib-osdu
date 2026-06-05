@@ -120,13 +120,34 @@ const rib: Rib = {
       id: "cimpl",
       title: "CIMPL",
       layout: {
-        header: { key: CLUSTER_KEY, collapsible: true, collapsed: true, workflow: "osdu-cluster" },
+        header: {
+          key: CLUSTER_KEY,
+          collapsible: true,
+          collapsed: true,
+          workflow: "osdu-cluster",
+          title: "Cluster ICC",
+        },
         rows: [
           {
             columns: [
-              { key: QUALITY_KEY, workflow: "osdu-quality" },
-              { key: FEATURES_KEY, workflow: "osdu-features" },
-              { key: SECURITY_KEY, workflow: "osdu-security" },
+              {
+                key: FEATURES_KEY,
+                workflow: "osdu-features",
+                title: "Features",
+                glyph: { char: "◆", tone: "brand" },
+              },
+              {
+                key: QUALITY_KEY,
+                workflow: "osdu-quality",
+                title: "Quality",
+                glyph: { char: "⬢", tone: "info" },
+              },
+              {
+                key: SECURITY_KEY,
+                workflow: "osdu-security",
+                title: "Security",
+                glyph: { char: "▲", tone: "caution" },
+              },
             ],
           },
         ],

@@ -27,7 +27,7 @@ export interface MrRow {
   detailed_merge_status?: string | null;
 }
 
-export type Tone = "ok" | "warn" | "error" | "neutral";
+export type Tone = "ok" | "warn" | "error" | "neutral" | "info" | "caution" | "brand";
 
 // Thresholds mirror cimpl-agent's Features composer: a merge request is stale
 // after 7 days, the velocity window is the trailing 7 days, and the lane shows
@@ -102,8 +102,8 @@ function pulse(epics: EpicRow[]): { label: string; n: number; tone: Tone }[] {
   }
   return [
     { label: "active", n: active, tone: "ok" },
-    { label: "quiet", n: quiet, tone: "neutral" },
-    { label: "stalled", n: stalled, tone: "warn" },
+    { label: "quiet", n: quiet, tone: "info" },
+    { label: "stalled", n: stalled, tone: "caution" },
   ];
 }
 
