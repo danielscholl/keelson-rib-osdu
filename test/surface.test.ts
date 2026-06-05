@@ -27,4 +27,26 @@ describe("CIMPL surface", () => {
     ]);
     expect(columns.every((c) => c.key.startsWith("rib:osdu:"))).toBe(true);
   });
+
+  test("each region names the workflow its refresh re-runs", () => {
+    const layout = rib.surfaces?.[0]?.layout;
+    expect(layout?.header?.workflow).toBe("osdu-cluster");
+    expect(layout?.rows[0]?.columns.map((c) => c.workflow)).toEqual([
+      "osdu-quality",
+      "osdu-features",
+      "osdu-security",
+    ]);
+  });
+
+  test("every region's refresh workflow is one the rib actually contributes", () => {
+    const ctx = {} as Parameters<NonNullable<typeof rib.contributeWorkflows>>[0];
+    const contributed = new Set(
+      (rib.contributeWorkflows?.(ctx) ?? []).map((c) => (c.definition as { name: string }).name),
+    );
+    const layout = rib.surfaces?.[0]?.layout;
+    const regions = [layout?.header, ...(layout?.rows.flatMap((r) => r.columns) ?? [])];
+    for (const region of regions) {
+      if (region?.workflow) expect(contributed.has(region.workflow)).toBe(true);
+    }
+  });
 });
