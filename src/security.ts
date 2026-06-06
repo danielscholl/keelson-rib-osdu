@@ -129,8 +129,8 @@ function buildPulse(services: ServiceReport[]): Segment[] {
   }
   return [
     { label: "Crit", n: critical, tone: "error" },
-    { label: "High", n: high, tone: "warn" },
-    { label: "Med", n: med, tone: "neutral" },
+    { label: "High", n: high, tone: "caution" },
+    { label: "Med", n: med, tone: "warn" },
     { label: "Clear", n: clean, tone: "ok" },
   ];
 }
@@ -477,7 +477,6 @@ export function buildSecurityBoard(inputs: SecurityInputs): CanvasBoardView {
     view: "board",
     title: `Security · ${report.release ?? "current"}`,
     header: {
-      ...(report.branch ? { chip: report.branch } : {}),
       segments: buildPulse(services),
     },
     sections,

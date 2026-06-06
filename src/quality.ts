@@ -33,7 +33,7 @@ export interface ReleaseReport {
   services?: ServiceReport[];
 }
 
-export type Tone = "ok" | "warn" | "error" | "neutral";
+export type Tone = "ok" | "warn" | "error" | "neutral" | "info" | "caution" | "brand";
 type Scalar = string | number | boolean | null;
 type Cell = Scalar | { value: Scalar; tone?: Tone };
 
@@ -210,7 +210,6 @@ export function buildQualityBoard(report: ReleaseReport): CanvasBoardView {
     view: "board",
     title: `Quality · ${report.release ?? "current"}`,
     header: {
-      chip: report.branch ?? undefined,
       segments: [
         { label: "Good", n: good, tone: "ok" },
         { label: "Poor", n: poor, tone: "warn" },
