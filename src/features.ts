@@ -27,7 +27,7 @@ export interface MrRow {
   detailed_merge_status?: string | null;
 }
 
-export type Tone = "ok" | "warn" | "error" | "neutral" | "info" | "caution" | "brand";
+export type Tone = "ok" | "warn" | "error" | "neutral" | "info" | "caution" | "brand" | "accent";
 
 // Thresholds mirror cimpl-agent's Features composer: a merge request is stale
 // after 7 days, the velocity window is the trailing 7 days, and the lane shows
@@ -146,13 +146,52 @@ function buildKpis(mrs: MrRow[], now: Date): StatItem[] {
   ];
 }
 
+type Field = { value: string; tone?: Tone };
 type CardItem = {
   title: string;
   pill: { label: string; tone: Tone };
   href?: string;
   bar?: { value: number; total: number };
-  fields: { value: string }[];
+  fields: Field[];
+  reason?: { label: string; text: string };
 };
+
+// Owner reads accent (mono, @-prefixed); an unowned epic reads caution so the
+// gap is visible at a glance.
+function ownerField(epic: EpicRow): Field {
+  const owner = ownerOf(epic);
+  return owner === "unowned"
+    ? { value: "unowned", tone: "caution" }
+    : { value: `@${owner}`, tone: "accent" };
+}
+
+function livenessTone(liveness: string): Tone {
+  if (liveness === "stale") return "caution";
+  if (liveness === "dead") return "error";
+  return "info"; // quiet (and any other non-active liveness)
+}
+
+// The four-field meta row shared by movers and stalled cards:
+// pct · scope · velocity · owner.
+function metaFields(
+  epic: EpicRow,
+  scope: { pct: number | null; label: string },
+  now: Date,
+): Field[] {
+  return [
+    { value: scope.pct === null ? "—" : `${scope.pct}%` },
+    { value: scope.label },
+    { value: velocityLabel(epic, now) },
+    ownerField(epic),
+  ];
+}
+
+function epicBar(epic: EpicRow): { value: number; total: number } | null {
+  const total = num(epic.total_issue_count) ?? 0;
+  if (total <= 0) return null;
+  return { value: Math.max(0, total - (num(epic.open_issue_count) ?? 0)), total };
+}
+
 function buildMovers(epics: EpicRow[], now: Date): CardItem[] {
   return epics
     .filter((e) => e.liveness === "active")
@@ -160,50 +199,39 @@ function buildMovers(epics: EpicRow[], now: Date): CardItem[] {
     .sort((a, b) => (b.scope.pct ?? -1) - (a.scope.pct ?? -1) || b.motion - a.motion)
     .slice(0, MOVERS_CAP)
     .map(({ epic, scope }) => {
-      const total = num(epic.total_issue_count) ?? 0;
-      const closed = Math.max(0, total - (num(epic.open_issue_count) ?? 0));
+      const bar = epicBar(epic);
       return {
         title: epic.title || "—",
         pill: { label: "ACTIVE", tone: "ok" as Tone },
         ...(epic.web_url ? { href: epic.web_url } : {}),
-        ...(total > 0 ? { bar: { value: closed, total } } : {}),
-        fields: [
-          { value: scope.pct === null ? "—" : `${scope.pct}%` },
-          { value: scope.label },
-          { value: velocityLabel(epic, now) },
-          { value: ownerOf(epic) },
-        ],
+        ...(bar ? { bar } : {}),
+        fields: metaFields(epic, scope, now),
       };
     });
 }
 
-type RowItem = {
-  glyph: Tone;
-  chip: { label: string };
-  text: string;
-  href?: string;
-  trailing: string;
-};
-function buildStalled(epics: EpicRow[], now: Date): RowItem[] {
+function buildStalled(epics: EpicRow[], now: Date): CardItem[] {
   return (
     epics
       // Anything not "active" (including a missing liveness) is non-active, so the
-      // rows stay consistent with the pulse, which counts the same set as stalled.
+      // cards stay consistent with the pulse, which counts the same set as stalled.
       .filter((e) => e.liveness !== "active")
-      .map((e) => ({ epic: e, age: ageDays(e.last_motion, now) }))
+      .map((e) => ({ epic: e, scope: scopeOf(e), age: ageDays(e.last_motion, now) }))
       // Unknown age (no motion ever) sorts oldest-first.
       .sort((a, b) => (b.age ?? Number.POSITIVE_INFINITY) - (a.age ?? Number.POSITIVE_INFINITY))
       .slice(0, STALLED_CAP)
-      .map(({ epic, age }) => {
+      .map(({ epic, scope, age }) => {
         const tags = [age === null ? "no motion" : `stale-${age}d`];
         if (ownerOf(epic) === "unowned") tags.push("unowned");
         const liveness = (typeof epic.liveness === "string" && epic.liveness) || "quiet";
+        const bar = epicBar(epic);
         return {
-          glyph: (liveness === "quiet" ? "neutral" : "warn") as Tone,
-          chip: { label: liveness.toUpperCase() },
-          text: epic.title || "—",
+          title: epic.title || "—",
+          pill: { label: liveness.toUpperCase(), tone: livenessTone(liveness) },
           ...(epic.web_url ? { href: epic.web_url } : {}),
-          trailing: tags.join(", "),
+          ...(bar ? { bar } : {}),
+          fields: metaFields(epic, scope, now),
+          reason: { label: "why flagged:", text: tags.join(", ") },
         };
       })
   );
@@ -212,15 +240,16 @@ function buildStalled(epics: EpicRow[], now: Date): RowItem[] {
 /**
  * Shape `osdu-activity` epic + merge-request JSON into a Features board — a
  * VENUS active/quiet pulse, four MR KPI tiles, "Movers" cards (active epics
- * with a progress bar), and "Stalled" rows (quiet/stale epics with a why-flagged
- * footnote). `now` is injected so age math is deterministic in tests.
+ * with a progress bar), and "Stalled" cards (quiet/stale epics carrying a
+ * why-flagged reason line). `now` is injected so age math is deterministic in tests.
  */
 export function buildFeaturesBoard(epics: EpicRow[], mrs: MrRow[], now: Date): CanvasBoardView {
   const movers = buildMovers(epics, now);
   const stalled = buildStalled(epics, now);
   const sections: CanvasBoardView["sections"] = [{ kind: "stats", items: buildKpis(mrs, now) }];
   if (movers.length > 0) sections.push({ kind: "cards", title: "Movers · active", items: movers });
-  if (stalled.length > 0) sections.push({ kind: "rows", title: "Stalled · quiet", items: stalled });
+  if (stalled.length > 0)
+    sections.push({ kind: "cards", title: "Stalled · quiet", items: stalled });
   return {
     view: "board",
     title: "Features · Venus",

@@ -10,8 +10,12 @@ const mrs = extractMrs(mrsRaw);
 const board = buildFeaturesBoard(epics, mrs, NOW);
 
 const statsSection = board.sections.find((s) => s.kind === "stats");
-const moversSection = board.sections.find((s) => s.kind === "cards");
-const stalledSection = board.sections.find((s) => s.kind === "rows");
+const moversSection = board.sections.find(
+  (s) => s.kind === "cards" && s.title === "Movers · active",
+);
+const stalledSection = board.sections.find(
+  (s) => s.kind === "cards" && s.title === "Stalled · quiet",
+);
 
 const kpi = (label: string) =>
   statsSection?.kind === "stats" ? statsSection.items.find((i) => i.label === label) : undefined;
@@ -64,8 +68,10 @@ describe("buildFeaturesBoard", () => {
       "80%",
       "8 of 10 tasks",
       "2 MRs/7d",
-      "alice",
+      "@alice",
     ]);
+    // The owner reads accent; an unowned epic reads caution.
+    expect(first?.fields?.at(-1)).toEqual({ value: "@alice", tone: "accent" });
 
     // No issues → MR-fallback scope, no progress bar, unowned.
     const second = moversSection.items[1];
@@ -77,24 +83,23 @@ describe("buildFeaturesBoard", () => {
       "1 MR/7d",
       "unowned",
     ]);
+    expect(second?.fields?.at(-1)).toEqual({ value: "unowned", tone: "caution" });
   });
 
-  test("Stalled are non-active epics, oldest first, with a why-flagged trailing", () => {
-    expect(stalledSection?.kind).toBe("rows");
-    if (stalledSection?.kind !== "rows") return;
+  test("Stalled are non-active epic cards, oldest first, with a liveness pill + reason", () => {
+    expect(stalledSection?.kind).toBe("cards");
+    if (stalledSection?.kind !== "cards") return;
     expect(stalledSection.items).toHaveLength(2);
 
     const oldest = stalledSection.items[0];
-    expect(oldest?.text).toBe("Deprecated CRS Migration");
-    expect(oldest?.chip).toEqual({ label: "STALE" });
-    expect(oldest?.glyph).toBe("warn");
-    expect(oldest?.trailing).toBe("stale-120d");
+    expect(oldest?.title).toBe("Deprecated CRS Migration");
+    expect(oldest?.pill).toEqual({ label: "STALE", tone: "caution" });
+    expect(oldest?.reason).toEqual({ label: "why flagged:", text: "stale-120d" });
 
     const next = stalledSection.items[1];
-    expect(next?.text).toBe("Legacy Ingestion Cleanup");
-    expect(next?.chip).toEqual({ label: "QUIET" });
-    expect(next?.glyph).toBe("neutral");
-    expect(next?.trailing).toBe("stale-61d, unowned");
+    expect(next?.title).toBe("Legacy Ingestion Cleanup");
+    expect(next?.pill).toEqual({ label: "QUIET", tone: "info" });
+    expect(next?.reason).toEqual({ label: "why flagged:", text: "stale-61d, unowned" });
   });
 });
 
@@ -107,20 +112,21 @@ describe("buildFeaturesBoard edge cases", () => {
 
   test("a no-motion epic is flagged 'no motion', not stale-0d", () => {
     const b = buildFeaturesBoard([{ title: "Dormant", liveness: "dead", assignees: [] }], [], NOW);
-    const rows = b.sections.find((s) => s.kind === "rows");
-    expect(rows?.kind).toBe("rows");
-    if (rows?.kind !== "rows") return;
-    expect(rows.items[0]?.trailing).toBe("no motion, unowned");
+    const stalled = b.sections.find((s) => s.kind === "cards" && s.title === "Stalled · quiet");
+    expect(stalled?.kind).toBe("cards");
+    if (stalled?.kind !== "cards") return;
+    expect(stalled.items[0]?.pill).toEqual({ label: "DEAD", tone: "error" });
+    expect(stalled.items[0]?.reason).toEqual({ label: "why flagged:", text: "no motion, unowned" });
   });
 
-  test("missing liveness is non-active in both the pulse and the Stalled rows", () => {
+  test("missing liveness is non-active in both the pulse and the Stalled cards", () => {
     const b = buildFeaturesBoard([{ title: "No liveness", assignees: ["x"] }], [], NOW);
     expect(b.header?.segments?.find((s) => s.label === "stalled")?.n).toBe(1);
-    const rows = b.sections.find((s) => s.kind === "rows");
-    expect(rows?.kind).toBe("rows");
-    if (rows?.kind !== "rows") return;
-    expect(rows.items).toHaveLength(1);
-    expect(rows.items[0]?.chip).toEqual({ label: "QUIET" });
+    const stalled = b.sections.find((s) => s.kind === "cards" && s.title === "Stalled · quiet");
+    expect(stalled?.kind).toBe("cards");
+    if (stalled?.kind !== "cards") return;
+    expect(stalled.items).toHaveLength(1);
+    expect(stalled.items[0]?.pill).toEqual({ label: "QUIET", tone: "info" });
   });
 
   test("the draft sublabel pluralizes", () => {

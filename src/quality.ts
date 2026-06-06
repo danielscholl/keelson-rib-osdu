@@ -33,7 +33,7 @@ export interface ReleaseReport {
   services?: ServiceReport[];
 }
 
-export type Tone = "ok" | "warn" | "error" | "neutral" | "info" | "caution" | "brand";
+export type Tone = "ok" | "warn" | "error" | "neutral" | "info" | "caution" | "brand" | "accent";
 type Scalar = string | number | boolean | null;
 type Cell = Scalar | { value: Scalar; tone?: Tone };
 
