@@ -65,24 +65,41 @@ function num(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-// Sonar letter rating → tone, matching quality.ts (A ok, B/C warn, D/E error).
-function toneRating(rating: string | null | undefined): Tone {
-  if (!rating) return "neutral";
-  const r = rating.toUpperCase();
-  if (r === "A") return "ok";
-  if (r === "B" || r === "C") return "warn";
-  if (r === "D" || r === "E") return "error";
-  return "neutral";
+// Sonar letter → the 5-step grade ramp (A green · B cyan · C yellow · D orange ·
+// E red), distinct from toneRating's 3-step health bucket. Unknown reads neutral.
+function gradeTone(rating: string | null | undefined): Tone {
+  switch ((rating ?? "").toUpperCase()) {
+    case "A":
+      return "ok";
+    case "B":
+      return "info";
+    case "C":
+      return "warn";
+    case "D":
+      return "caution";
+    case "E":
+      return "error";
+    default:
+      return "neutral";
+  }
+}
+
+// Stable per-name hue (djb2 → one of five ramp tones) so neighbouring service
+// chips stay visually distinct. Empty names read neutral.
+const HASH_TONES: Tone[] = ["accent", "info", "ok", "brand", "caution"];
+export function hashTone(name: string): Tone {
+  if (!name) return "neutral";
+  let h = 5381;
+  for (let i = 0; i < name.length; i++) {
+    h = ((h << 5) + h) ^ name.charCodeAt(i);
+  }
+  return HASH_TONES[Math.abs(h) % HASH_TONES.length] ?? "neutral";
 }
 
 function parseMs(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const t = Date.parse(iso);
   return Number.isFinite(t) ? t : null;
-}
-
-function humanizeDays(days: number): string {
-  return `${days} ${days === 1 ? "day" : "days"}`;
 }
 
 function serviceFromPath(projectPath: string | null | undefined): string {
@@ -226,25 +243,30 @@ function buildVulnMrTile(mrs: SecurityMr[]): StatItem {
 
 type CardItem = {
   title: string;
+  titleTone?: Tone;
+  mono?: boolean;
   pill?: { label: string; tone: Tone };
   href?: string;
   fields?: { label?: string; value: string; tone?: Tone; href?: string }[];
   footnote?: string;
 };
 
-// Services rated below A on Sonar security_rating, worst-first. The section is
-// "Low security rating", so A grades and unscanned services drop out.
-function buildLowRating(services: ServiceReport[]): CardItem[] {
-  const rank = (g: string) => "EDCBA".indexOf(g);
+type GridCell = { label: string; href?: string; badge: { text: string; tone?: Tone } };
+
+// Per-service SAST grade grid, worst-first (E→A); unscanned ("—") sorts last and
+// reads neutral. A compact at-a-glance matrix in place of one card per service.
+function buildSastGrid(services: ServiceReport[]): GridCell[] {
+  const rank = (g: string) => {
+    const i = "EDCBA".indexOf(g);
+    return i === -1 ? 5 : i; // unknown / unscanned sorts last
+  };
+  const name = (svc: ServiceReport) => svc.display_name || svc.name || "—";
   return services
     .map((svc) => ({ svc, rating: (svc.sonar?.security_rating ?? "").toUpperCase() }))
-    .filter((s) => s.rating === "B" || s.rating === "C" || s.rating === "D" || s.rating === "E")
-    .sort(
-      (a, b) => rank(a.rating) - rank(b.rating) || a.svc.name?.localeCompare(b.svc.name ?? "") || 0,
-    )
+    .sort((a, b) => rank(a.rating) - rank(b.rating) || name(a.svc).localeCompare(name(b.svc)))
     .map(({ svc, rating }) => ({
-      title: svc.display_name || svc.name || "—",
-      pill: { label: rating, tone: toneRating(rating) },
+      label: name(svc),
+      badge: { text: rating || "—", tone: gradeTone(rating) },
     }));
 }
 
@@ -282,15 +304,18 @@ function buildAgedCriticals(vulns: VulnRecord[], now: Date, agedDays: number): C
     .filter((x) => now.getTime() - x.detected > cutoff)
     .sort((a, b) => a.detected - b.detected)
     .slice(0, AGED_CRITICALS_CAP)
-    .map(({ v, detected }) => {
+    .map(({ v }) => {
       const pkg = v.current_version ? `${v.package_name} ${v.current_version}` : v.package_name;
-      const age = humanizeDays(Math.floor((now.getTime() - detected) / DAY_MS));
+      const svc = serviceFromPath(v.project_path);
+      // The CVE id reads as a red mono identifier; the service chip takes a
+      // hash-stable hue. Age lives in the section header, not per-row.
       return {
         title: v.cve_id,
-        pill: { label: serviceFromPath(v.project_path) || "—", tone: "neutral" as Tone },
+        titleTone: "error" as Tone,
+        mono: true,
+        pill: { label: svc || "—", tone: hashTone(svc) },
         ...(v.web_url ? { href: v.web_url } : {}),
         fields: [{ value: pkg || "—" }],
-        footnote: `aged ${age}`,
       };
     });
 }
@@ -430,8 +455,8 @@ export interface SecurityInputs {
 /**
  * Shape an `osdu-quality release` report (counts + Sonar) plus per-CVE GitLab
  * detail and OSV fix versions into a Security board — a severity pulse, KPI
- * tiles, low-rating cards, top-offender bars, aged-critical CVE cards, and
- * quick-win dependency bumps. Counts-based sections render from the report
+ * tiles, a SAST grade grid, inline top-offender bars, aged-critical CVE cards,
+ * and quick-win dependency bumps. Counts-based sections render from the report
  * alone; the CVE sections need the GitLab/OSV inputs and stay empty without
  * them. Always returns a schema-valid board.
  */
@@ -447,7 +472,7 @@ export function buildSecurityBoard(inputs: SecurityInputs): CanvasBoardView {
   const now = inputs.now ?? new Date();
   const agedDays = inputs.agedDays ?? DEFAULT_AGED_DAYS;
 
-  const lowRating = buildLowRating(services);
+  const sast = buildSastGrid(services);
   const offenders = buildOffenders(services);
   const aged = buildAgedCriticals(vulns, now, agedDays);
   const agedTotals = agedSummary(vulns, now, agedDays);
@@ -456,11 +481,16 @@ export function buildSecurityBoard(inputs: SecurityInputs): CanvasBoardView {
   const sections: CanvasBoardView["sections"] = [
     { kind: "stats", items: buildKpis(services, mrs) },
   ];
-  if (lowRating.length > 0) {
-    sections.push({ kind: "cards", title: "Low security rating", items: lowRating });
+  if (sast.length > 0) {
+    sections.push({ kind: "grid", title: "Low security rating", cells: sast });
   }
   if (offenders.length > 0) {
-    sections.push({ kind: "bars", title: "Top offenders · crit + high", items: offenders });
+    sections.push({
+      kind: "bars",
+      inline: true,
+      title: "Top offenders · crit + high",
+      items: offenders,
+    });
   }
   if (aged.length > 0) {
     sections.push({

@@ -4,6 +4,7 @@ import type { ReleaseReport } from "../src/quality.ts";
 import {
   buildSecurityBoard,
   extractVulns,
+  hashTone,
   osvFixKey,
   parseOsvFixed,
   type SecurityMr,
@@ -62,23 +63,31 @@ describe("buildSecurityBoard", () => {
     expect(byLabel("Vuln MRs")).toBeDefined();
   });
 
-  test("low security rating cards: non-A grades, worst-first", () => {
-    const cards = section("cards", "Low security rating");
-    expect(cards?.kind).toBe("cards");
-    if (cards?.kind !== "cards") return;
-    expect(cards.items.map((c) => [c.title, c.pill?.label])).toEqual([
+  test("SAST grade grid: all services worst-first, with grade-toned badges", () => {
+    const grid = section("grid", "Low security rating");
+    expect(grid?.kind).toBe("grid");
+    if (grid?.kind !== "grid") return;
+    expect(grid.cells.map((c) => [c.label, c.badge.text])).toEqual([
       ["Policy", "D"],
       ["Storage", "C"],
       ["Search", "B"],
+      ["Legal", "A"],
+      ["Partition", "A"],
+      ["Register", "A"],
     ]);
-    expect(cards.items[0]?.pill?.tone).toBe("error");
-    expect(cards.items[1]?.pill?.tone).toBe("warn");
+    // The 5-step grade ramp (A ok · B info · C warn · D caution), not the
+    // 3-step health bucket.
+    expect(grid.cells[0]?.badge.tone).toBe("caution"); // D
+    expect(grid.cells[1]?.badge.tone).toBe("warn"); // C
+    expect(grid.cells[2]?.badge.tone).toBe("info"); // B
+    expect(grid.cells[3]?.badge.tone).toBe("ok"); // A
   });
 
-  test("top-offender bars sorted by crit+high with a severity tail", () => {
+  test("top-offender bars sorted by crit+high with a severity tail, inline layout", () => {
     const bars = section("bars");
     expect(bars?.kind).toBe("bars");
     if (bars?.kind !== "bars") return;
+    expect(bars.inline).toBe(true);
     expect(bars.items.map((b) => b.label)).toEqual(["Storage", "Search", "Legal"]);
     const storageBar = bars.items[0];
     expect(storageBar?.value).toBe(43);
@@ -90,7 +99,7 @@ describe("buildSecurityBoard", () => {
     expect(legalBar?.trailing).toBe("0 crit · 1 high");
   });
 
-  test("aged criticals: critical, >30d, oldest first, with summary in title", () => {
+  test("aged criticals: red-mono CVE id, hash-toned svc chip, no per-row age", () => {
     const cards = section("cards", "Aged criticals");
     expect(cards?.kind).toBe("cards");
     if (cards?.kind !== "cards") return;
@@ -102,9 +111,14 @@ describe("buildSecurityBoard", () => {
       "CVE-2024-0007",
       "CVE-2024-0008",
     ]);
-    expect(cards.items[0]?.pill?.label).toBe("storage");
-    expect(cards.items[0]?.fields?.[0]?.value).toBe("golang.org/x/net 0.17.0");
-    expect(cards.items[0]?.footnote).toBe("aged 151 days");
+    const first = cards.items[0];
+    expect(first?.titleTone).toBe("error");
+    expect(first?.mono).toBe(true);
+    expect(first?.pill?.label).toBe("storage");
+    expect(first?.pill?.tone).toBe(hashTone("storage"));
+    expect(first?.fields?.[0]?.value).toBe("golang.org/x/net 0.17.0");
+    // Age lives in the section header, not per row.
+    expect(first?.footnote).toBeUndefined();
     // Non-core CVE (samples/java-service) is excluded despite being the oldest.
     expect(cards.items.some((c) => c.title === "CVE-2024-9999")).toBe(false);
   });
