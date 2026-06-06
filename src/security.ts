@@ -253,8 +253,9 @@ type CardItem = {
 
 type GridCell = { label: string; href?: string; badge: { text: string; tone?: Tone } };
 
-// Per-service SAST grade grid, worst-first (E→A); unscanned ("—") sorts last and
-// reads neutral. A compact at-a-glance matrix in place of one card per service.
+// "Low security rating" cells, worst-first (E→A). Confirmed-A services are
+// dropped — only below-A grades and unscanned ("—", a missing scan is itself a
+// gap) reach the grid, so the section reads as a problem list, not a full matrix.
 function buildSastGrid(services: ServiceReport[]): GridCell[] {
   const rank = (g: string) => {
     // A single-char guard: "".indexOf in any string is 0, so an empty rating
@@ -265,6 +266,7 @@ function buildSastGrid(services: ServiceReport[]): GridCell[] {
   const name = (svc: ServiceReport) => svc.display_name || svc.name || "—";
   return services
     .map((svc) => ({ svc, rating: (svc.sonar?.security_rating ?? "").toUpperCase() }))
+    .filter(({ rating }) => rating !== "A")
     .sort((a, b) => rank(a.rating) - rank(b.rating) || name(a.svc).localeCompare(name(b.svc)))
     .map(({ svc, rating }) => ({
       label: name(svc),
@@ -484,7 +486,7 @@ export function buildSecurityBoard(inputs: SecurityInputs): CanvasBoardView {
     { kind: "stats", items: buildKpis(services, mrs) },
   ];
   if (sast.length > 0) {
-    sections.push({ kind: "grid", title: "SAST security grades", cells: sast });
+    sections.push({ kind: "grid", title: "Low security rating", cells: sast });
   }
   if (offenders.length > 0) {
     sections.push({
