@@ -13,8 +13,8 @@
         "security_rating": "A",
         "maintainability_rating": "A"
       },
-      "unit": { "pass_rate": 100.0 },
-      "acceptance": { "pass_rate": 100.0 },
+      "unit": { "pass_rate": 100.0, "passed": 112, "failed": 0, "skipped": 0 },
+      "acceptance": { "pass_rate": 100.0, "passed": 11, "failed": 0, "skipped": 0 },
       "vulnerabilities": {
         "critical": 0,
         "high": 0,
@@ -34,8 +34,8 @@
         "security_rating": "A",
         "maintainability_rating": "A"
       },
-      "unit": { "pass_rate": 100.0 },
-      "acceptance": { "pass_rate": 0.0 },
+      "unit": { "pass_rate": 100.0, "passed": 80, "failed": 0, "skipped": 0 },
+      "acceptance": { "pass_rate": 0.0, "passed": 0, "failed": 5, "skipped": 2 },
       "vulnerabilities": { "critical": 10, "high": 33 }
     },
     {
@@ -47,8 +47,8 @@
         "security_rating": "A",
         "maintainability_rating": "A"
       },
-      "unit": { "pass_rate": 100.0 },
-      "acceptance": { "pass_rate": 100.0 },
+      "unit": { "pass_rate": 100.0, "passed": 90, "failed": 0, "skipped": 0 },
+      "acceptance": { "pass_rate": 100.0, "passed": 40, "failed": 0, "skipped": 0 },
       "vulnerabilities": { "critical": 6, "high": 17 }
     },
     {
@@ -60,8 +60,8 @@
         "security_rating": "A",
         "maintainability_rating": "A"
       },
-      "unit": { "pass_rate": 97.0 },
-      "acceptance": { "pass_rate": 80.7 },
+      "unit": { "pass_rate": 97.0, "passed": 97, "failed": 3, "skipped": 0 },
+      "acceptance": { "pass_rate": 80.7, "passed": 46, "failed": 11, "skipped": 0 },
       "vulnerabilities": { "critical": 0, "high": 1 }
     },
     {

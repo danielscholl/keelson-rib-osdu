@@ -196,7 +196,7 @@ const rib: Rib = {
       definition: {
         name: "osdu-quality",
         description:
-          'Use when: reviewing platform release quality. Triggers: "show quality", "how are the services", "sonar / test pass rates / CVEs". Does: runs the osdu-quality release CLI and publishes a quality board — a good/poor/fail pulse, KPI tiles, and a per-service table (acceptance/unit pass rates, coverage, Sonar R·S·M ratings, CVE counts) — to the Quality canvas. NOT for: changing pipelines or merging.',
+          'Use when: reviewing platform release quality. Triggers: "show quality", "how are the services", "sonar / test pass rates". Does: runs the osdu-quality release CLI and publishes a quality board — a good/poor/fail pulse, Pass/Flaky/Fail/Skip KPI tiles, a per-service Sonar table (acceptance/unit pass rates, coverage, R·S·M grades), and a test-performance block (passing/slipping/failing pulse, unit/acceptance bars, worst-acceptance table) — to the Quality canvas. NOT for: changing pipelines or merging.',
         nodes: [
           {
             id: "collect",

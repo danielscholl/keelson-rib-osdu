@@ -1,15 +1,27 @@
-import type { CanvasBoardView, CanvasTableView } from "@keelson/shared";
+import type {
+  CanvasBoardView,
+  CanvasCell,
+  CanvasCellBadge,
+  CanvasTableView,
+  CanvasTone,
+} from "@keelson/shared";
 
-// Shape of `osdu-quality release --output json`. Only the fields the table
-// reads are modeled; the CLI emits more (pipeline urls, ncloc, …).
+// Shape of `osdu-quality release --output json`. Only the fields the lane reads
+// are modeled; the CLI emits more (pipeline urls, allure links, ncloc, …).
 export interface SonarMetrics {
   coverage_pct?: number | null;
+  quality_gate?: string | null;
   reliability_rating?: string | null;
   security_rating?: string | null;
   maintainability_rating?: string | null;
 }
+// A per-stage test result — a pass rate plus the raw counts the KPI tiles, the
+// stage bars, and the worst-acceptance table sum over.
 export interface TestMetrics {
   pass_rate?: number | null;
+  passed?: number | null;
+  failed?: number | null;
+  skipped?: number | null;
 }
 export interface VulnCounts {
   critical?: number | null;
@@ -33,216 +45,314 @@ export interface ReleaseReport {
   services?: ServiceReport[];
 }
 
-export type Tone = "ok" | "warn" | "error" | "neutral" | "info" | "caution" | "brand" | "accent";
-type Scalar = string | number | boolean | null;
-type Cell = Scalar | { value: Scalar; tone?: Tone };
+export type Tone = CanvasTone;
+type Cell = CanvasCell;
 
-// Pass-rate thresholds mirror the osdu-quality release report (GREEN_AT=85,
-// YELLOW_AT=70); coverage uses a softer industry bar.
-const RATE_GREEN = 85;
-const RATE_YELLOW = 70;
-const COVERAGE_GREEN = 70;
-const COVERAGE_YELLOW = 50;
-
-const COLUMNS = [
-  { key: "service", label: "Service" },
-  { key: "accept", label: "Accept %" },
-  { key: "unit", label: "Unit %" },
-  { key: "coverage", label: "Cov %" },
-  { key: "reliability", label: "Reliability" },
-  { key: "security", label: "Security" },
-  { key: "maintainability", label: "Maintainability" },
-  { key: "cve", label: "CVE C/H" },
-];
+// Pass-rate / coverage tone thresholds mirror cimpl-agent's SonarTable (passCls
+// 95/80, covCls 80/50) so the lane's colours match the prototype.
+const PASS_GREEN = 95;
+const PASS_YELLOW = 80;
+const COV_GREEN = 80;
+const COV_YELLOW = 50;
+// Weakest-link service health (cimpl-agent ReleaseAnalyzer): grade A–E → 100…20,
+// an absent signal floors at 70 (concerning, not confirmed-broken), bucketed at
+// 80 (good) / 50 (fail). Drives the Good/Poor/Fail pulse and the worst-first sort.
+const HEALTH_GOOD = 80;
+const HEALTH_FAIL = 50;
+const NULL_FLOOR = 70;
+const SONAR_CAP = 10;
+const WORST_CAP = 10;
 
 function num(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
 
 function toneRate(value: number | null): Tone {
   if (value === null) return "neutral";
-  if (value >= RATE_GREEN) return "ok";
-  if (value >= RATE_YELLOW) return "warn";
+  if (value >= PASS_GREEN) return "ok";
+  if (value >= PASS_YELLOW) return "warn";
   return "error";
 }
-
 function toneCoverage(value: number | null): Tone {
   if (value === null) return "neutral";
-  if (value >= COVERAGE_GREEN) return "ok";
-  if (value >= COVERAGE_YELLOW) return "warn";
+  if (value >= COV_GREEN) return "ok";
+  if (value >= COV_YELLOW) return "warn";
   return "error";
 }
-
-function toneRating(rating: string | null | undefined): Tone {
-  if (!rating) return "neutral";
-  const r = rating.toUpperCase();
-  if (r === "A") return "ok";
-  if (r === "B" || r === "C") return "warn";
-  if (r === "D" || r === "E") return "error";
-  return "neutral";
-}
-
-// A bare scalar for an untoned cell; a {value, tone} object otherwise.
-function cell(value: Scalar, tone: Tone): Cell {
-  return tone === "neutral" ? value : { value, tone };
-}
-
-/**
- * Shape an `osdu-quality release` JSON report into a canvas table view. Mirrors
- * the CLI's columns; cells carry a generic `tone` so health reads as colour.
- * Rows are sorted worst-first: most error cells, then most warn cells, then
- * lowest acceptance pass-rate, then name.
- */
-export function buildQualityTable(report: ReleaseReport): CanvasTableView {
-  const services = report.services ?? [];
-  const scored = services.map((svc) => {
-    const sonar = svc.sonar ?? {};
-    const accept = num(svc.acceptance?.pass_rate);
-    const unit = num(svc.unit?.pass_rate);
-    const coverage = num(sonar.coverage_pct);
-    const reliability = sonar.reliability_rating ?? null;
-    const security = sonar.security_rating ?? null;
-    const maintainability = sonar.maintainability_rating ?? null;
-    const critical = num(svc.vulnerabilities?.critical);
-    const high = num(svc.vulnerabilities?.high);
-
-    let cveTone: Tone = "neutral";
-    if (svc.vulnerabilities) {
-      cveTone = (critical ?? 0) > 0 ? "error" : (high ?? 0) > 0 ? "warn" : "ok";
-    }
-
-    const tones = {
-      accept: toneRate(accept),
-      unit: toneRate(unit),
-      coverage: toneCoverage(coverage),
-      reliability: toneRating(reliability),
-      security: toneRating(security),
-      maintainability: toneRating(maintainability),
-      cve: cveTone,
-    };
-    const name = svc.display_name || svc.name || "—";
-    const row: Record<string, Cell> = {
-      service: name,
-      accept: cell(accept ?? "—", tones.accept),
-      unit: cell(unit ?? "—", tones.unit),
-      coverage: cell(coverage ?? "—", tones.coverage),
-      reliability: cell(reliability ?? "—", tones.reliability),
-      security: cell(security ?? "—", tones.security),
-      maintainability: cell(maintainability ?? "—", tones.maintainability),
-      cve: cell(svc.vulnerabilities ? `C${critical ?? 0} / H${high ?? 0}` : "—", tones.cve),
-    };
-    const toneList = Object.values(tones);
-    return {
-      row,
-      errors: toneList.filter((t) => t === "error").length,
-      warns: toneList.filter((t) => t === "warn").length,
-      accept: accept ?? -1,
-      name: name.toLowerCase(),
-    };
-  });
-
-  scored.sort(
-    (a, b) =>
-      b.errors - a.errors ||
-      b.warns - a.warns ||
-      a.accept - b.accept ||
-      a.name.localeCompare(b.name),
-  );
-
-  return {
-    view: "table",
-    columns: COLUMNS,
-    rows: scored.map((s) => s.row),
-    caption: `Quality · ${services.length} services · ${report.release ?? "current"}`,
-  };
-}
-
-// Worst tone across a service's signals — drives the good/poor/fail pulse.
-function serviceHealth(svc: ServiceReport): "ok" | "warn" | "error" {
-  const tones: Tone[] = [
-    toneRate(num(svc.acceptance?.pass_rate)),
-    toneRate(num(svc.unit?.pass_rate)),
-    toneCoverage(num(svc.sonar?.coverage_pct)),
-    toneRating(svc.sonar?.reliability_rating),
-    toneRating(svc.sonar?.security_rating),
-    toneRating(svc.sonar?.maintainability_rating),
-  ];
-  if (svc.vulnerabilities) {
-    const critical = num(svc.vulnerabilities.critical) ?? 0;
-    const high = num(svc.vulnerabilities.high) ?? 0;
-    tones.push(critical > 0 ? "error" : high > 0 ? "warn" : "ok");
+// 5-step grade ramp (A green · B cyan · C yellow · D orange · E red); unknown
+// reads neutral. Mirrors the Security lane's SAST grades.
+function gradeTone(rating: string): Tone {
+  switch (rating) {
+    case "A":
+      return "ok";
+    case "B":
+      return "info";
+    case "C":
+      return "warn";
+    case "D":
+      return "caution";
+    case "E":
+      return "error";
+    default:
+      return "neutral";
   }
-  if (tones.includes("error")) return "error";
-  if (tones.includes("warn")) return "warn";
-  return "ok";
+}
+function gradeBadge(rating: string | null | undefined): CanvasCellBadge {
+  const r = (rating ?? "").toUpperCase();
+  const text = r.length === 1 && "ABCDE".includes(r) ? r : "—";
+  return text === "—" ? { text } : { text, tone: gradeTone(text) };
 }
 
-function average(values: (number | null)[]): number | null {
-  const present = values.filter((v): v is number => v !== null);
-  if (present.length === 0) return null;
-  return Math.round((present.reduce((a, b) => a + b, 0) / present.length) * 10) / 10;
+const GRADE_SCORE: Record<string, number> = { A: 100, B: 80, C: 60, D: 40, E: 20 };
+function gradeScore(rating: string | null | undefined): number {
+  return GRADE_SCORE[(rating ?? "").toUpperCase()] ?? NULL_FLOOR;
+}
+// Weakest signal across grades + coverage + pass rates; an absent number floors
+// at NULL_FLOOR so an unscanned service reads "poor", not "fail".
+function serviceHealth(svc: ServiceReport): number {
+  const sonar = svc.sonar ?? {};
+  return Math.min(
+    gradeScore(sonar.reliability_rating),
+    gradeScore(sonar.security_rating),
+    gradeScore(sonar.maintainability_rating),
+    num(sonar.coverage_pct) ?? NULL_FLOOR,
+    num(svc.unit?.pass_rate) ?? NULL_FLOOR,
+    num(svc.acceptance?.pass_rate) ?? NULL_FLOOR,
+  );
 }
 
-/**
- * Shape an `osdu-quality release` report into a composite board — a good/poor/
- * fail pulse, KPI tiles, and the per-service table as a section. Reuses
- * {@link buildQualityTable} for the table block.
- */
-export function buildQualityBoard(report: ReleaseReport): CanvasBoardView {
-  const services = report.services ?? [];
+type Segment = { label: string; n: number; tone: Tone };
+function buildPulse(services: ServiceReport[]): Segment[] {
   let good = 0;
   let poor = 0;
   let fail = 0;
   for (const svc of services) {
-    const health = serviceHealth(svc);
-    if (health === "error") fail++;
-    else if (health === "warn") poor++;
-    else good++;
+    const h = serviceHealth(svc);
+    if (h >= HEALTH_GOOD) good += 1;
+    else if (h >= HEALTH_FAIL) poor += 1;
+    else fail += 1;
   }
+  return [
+    { label: "Good", n: good, tone: "ok" },
+    { label: "Poor", n: poor, tone: "warn" },
+    { label: "Fail", n: fail, tone: "error" },
+  ];
+}
 
-  const avgAccept = average(services.map((s) => num(s.acceptance?.pass_rate)));
-  const avgUnit = average(services.map((s) => num(s.unit?.pass_rate)));
-  const withCriticals = services.filter((s) => (num(s.vulnerabilities?.critical) ?? 0) > 0).length;
+// ---- KPI tiles: Pass / Flaky / Fail / Skip, summed across unit + acceptance ----
+type StatItem = { label: string; value: string | number; sub?: string; tone?: Tone };
+function stageCounts(m: TestMetrics | null | undefined): {
+  passed: number;
+  failed: number;
+  skipped: number;
+} {
+  return {
+    passed: num(m?.passed) ?? 0,
+    failed: num(m?.failed) ?? 0,
+    skipped: num(m?.skipped) ?? 0,
+  };
+}
+function buildKpis(services: ServiceReport[]): StatItem[] {
+  let passed = 0;
+  let failed = 0;
+  let skipped = 0;
+  for (const svc of services) {
+    for (const stage of [svc.unit, svc.acceptance]) {
+      const c = stageCounts(stage);
+      passed += c.passed;
+      failed += c.failed;
+      skipped += c.skipped;
+    }
+  }
+  const total = passed + failed + skipped;
+  const passPct = total > 0 ? round1((passed / total) * 100) : null;
+  const ofTotal = (n: number) => (total > 0 ? `${round1((n / total) * 100)}% of total` : "—");
+  return [
+    {
+      label: "Pass",
+      value: passPct === null ? "—" : `${passPct}%`,
+      sub: "CI tests",
+      tone: toneRate(passPct),
+    },
+    // `release` carries no flake signal — mirrors cimpl-agent's deferred Flaky tile.
+    { label: "Flaky", value: 0, sub: "no signal", tone: "neutral" },
+    { label: "Fail", value: failed, sub: ofTotal(failed), tone: failed > 0 ? "error" : "ok" },
+    {
+      label: "Skip",
+      value: skipped,
+      sub: ofTotal(skipped),
+      tone: skipped > 0 ? "warn" : "neutral",
+    },
+  ];
+}
 
-  const table = buildQualityTable(report);
+// ---- Sonar table: Service · Acc · Unit · Quality(coverage% + R/S/M grades) ----
+function pctCell(value: number | null): Cell {
+  return value === null ? "—" : { value: `${value.toFixed(1)}%`, tone: toneRate(value) };
+}
+function qualityCell(sonar: SonarMetrics | null | undefined): Cell {
+  const s = sonar ?? {};
+  const coverage = num(s.coverage_pct);
+  return {
+    value: coverage === null ? "—" : `${Math.round(coverage)}%`,
+    tone: toneCoverage(coverage),
+    badges: [
+      gradeBadge(s.reliability_rating),
+      gradeBadge(s.security_rating),
+      gradeBadge(s.maintainability_rating),
+    ],
+  };
+}
+const SONAR_COLUMNS = [
+  { key: "service", label: "Service" },
+  { key: "accept", label: "Acc" },
+  { key: "unit", label: "Unit" },
+  { key: "quality", label: "Quality" },
+];
+/**
+ * Shape an `osdu-quality release` report into the Sonar table — Service · Acc %
+ * · Unit % · a Quality cell packing coverage % beside R/S/M grade chips. Rows
+ * are worst-health first, capped to the lane's depth.
+ */
+export function buildQualityTable(report: ReleaseReport): CanvasTableView {
+  const services = report.services ?? [];
+  const rows = services
+    .map((svc) => ({
+      health: serviceHealth(svc),
+      name: (svc.display_name || svc.name || "—").toLowerCase(),
+      row: {
+        service: svc.display_name || svc.name || "—",
+        accept: pctCell(num(svc.acceptance?.pass_rate)),
+        unit: pctCell(num(svc.unit?.pass_rate)),
+        quality: qualityCell(svc.sonar),
+      } satisfies Record<string, Cell>,
+    }))
+    .sort((a, b) => a.health - b.health || a.name.localeCompare(b.name))
+    .slice(0, SONAR_CAP)
+    .map((s) => s.row);
+  return {
+    view: "table",
+    columns: SONAR_COLUMNS,
+    rows,
+    caption: `Quality · ${services.length} services · ${report.release ?? "current"}`,
+  };
+}
+
+// ---- Test performance: pulse + aggregate stage bars + worst-acceptance table ----
+function buildTestPulse(services: ServiceReport[]): Segment[] {
+  let passing = 0;
+  let slipping = 0;
+  let failing = 0;
+  for (const svc of services) {
+    const a = num(svc.acceptance?.pass_rate);
+    // An unmeasured service reads failing, mirroring cimpl-agent's bucket.
+    if (a === null) failing += 1;
+    else if (a >= PASS_GREEN) passing += 1;
+    else if (a >= PASS_YELLOW) slipping += 1;
+    else failing += 1;
+  }
+  return [
+    { label: "Passing", n: passing, tone: "ok" },
+    { label: "Slipping", n: slipping, tone: "warn" },
+    { label: "Failing", n: failing, tone: "error" },
+  ];
+}
+
+type BarItem = { label: string; value: number; total: number; tone?: Tone; trailing?: string };
+function stageBar(
+  label: string,
+  services: ServiceReport[],
+  pick: (s: ServiceReport) => TestMetrics | null | undefined,
+): BarItem | null {
+  let passed = 0;
+  let total = 0;
+  for (const svc of services) {
+    const c = stageCounts(pick(svc));
+    passed += c.passed;
+    total += c.passed + c.failed + c.skipped;
+  }
+  if (total <= 0) return null;
+  const pct = round1((passed / total) * 100);
+  return {
+    label,
+    value: passed,
+    total,
+    tone: toneRate(pct),
+    trailing: `${passed.toLocaleString()} / ${total.toLocaleString()} · ${pct.toFixed(1)}%`,
+  };
+}
+
+// A filled count chip — toned when non-zero, dim at zero (mirrors the prototype).
+function countCell(n: number, tone: Tone): Cell {
+  return { badges: [n > 0 ? { text: n.toLocaleString(), tone } : { text: n.toLocaleString() }] };
+}
+const WORST_COLUMNS = [
+  { key: "service", label: "Service" },
+  { key: "pct", label: "Pass %" },
+  { key: "passed", label: "Pass" },
+  { key: "skipped", label: "Skip" },
+  { key: "failed", label: "Fail" },
+];
+function buildWorstAcceptance(services: ServiceReport[]): CanvasTableView {
+  const rows = services
+    .map((svc) => {
+      const c = stageCounts(svc.acceptance);
+      const total = c.passed + c.failed + c.skipped;
+      const pct =
+        num(svc.acceptance?.pass_rate) ?? (total > 0 ? round1((c.passed / total) * 100) : null);
+      return { name: svc.display_name || svc.name || "—", ...c, total, pct };
+    })
+    .filter((r) => r.total > 0)
+    .sort(
+      (a, b) =>
+        (a.pct ?? Number.POSITIVE_INFINITY) - (b.pct ?? Number.POSITIVE_INFINITY) ||
+        a.name.localeCompare(b.name),
+    )
+    .slice(0, WORST_CAP)
+    .map(
+      (r) =>
+        ({
+          service: r.name,
+          pct: r.pct === null ? "—" : { value: `${Math.round(r.pct)}%`, tone: toneRate(r.pct) },
+          passed: countCell(r.passed, "ok"),
+          skipped: countCell(r.skipped, "warn"),
+          failed: countCell(r.failed, "error"),
+        }) satisfies Record<string, Cell>,
+    );
+  return { view: "table", columns: WORST_COLUMNS, rows };
+}
+
+/**
+ * Shape an `osdu-quality release` report into the Quality board — a Good/Poor/
+ * Fail pulse, Pass/Flaky/Fail/Skip KPI tiles, the Sonar table, and a Test
+ * Performance block (Passing/Slipping/Failing pulse, aggregate Unit/Acceptance
+ * bars, and a worst-acceptance table). Degrades to a valid empty board.
+ */
+export function buildQualityBoard(report: ReleaseReport): CanvasBoardView {
+  const services = report.services ?? [];
+  const sections: CanvasBoardView["sections"] = [{ kind: "stats", items: buildKpis(services) }];
+
+  if (services.length > 0) {
+    const sonar = buildQualityTable(report);
+    sections.push({ kind: "table", columns: sonar.columns, rows: sonar.rows });
+    sections.push({ kind: "segments", title: "Test performance", items: buildTestPulse(services) });
+    const bars = [
+      stageBar("Unit tests", services, (s) => s.unit),
+      stageBar("Acceptance tests", services, (s) => s.acceptance),
+    ].filter((b): b is BarItem => b !== null);
+    if (bars.length > 0) sections.push({ kind: "bars", items: bars });
+    const worst = buildWorstAcceptance(services);
+    if (worst.rows.length > 0)
+      sections.push({ kind: "table", columns: worst.columns, rows: worst.rows });
+  }
 
   return {
     view: "board",
     title: `Quality · ${report.release ?? "current"}`,
-    header: {
-      segments: [
-        { label: "Good", n: good, tone: "ok" },
-        { label: "Poor", n: poor, tone: "warn" },
-        { label: "Fail", n: fail, tone: "error" },
-      ],
-    },
-    sections: [
-      {
-        kind: "stats",
-        items: [
-          { label: "Services", value: services.length },
-          {
-            label: "Avg Accept",
-            value: avgAccept ?? "—",
-            sub: "pass rate",
-            tone: toneRate(avgAccept),
-          },
-          { label: "Avg Unit", value: avgUnit ?? "—", sub: "pass rate", tone: toneRate(avgUnit) },
-          {
-            label: "Critical CVEs",
-            value: withCriticals,
-            sub: "services",
-            tone: withCriticals > 0 ? "error" : "ok",
-          },
-        ],
-      },
-      {
-        kind: "table",
-        title: "Services · worst first",
-        columns: table.columns,
-        rows: table.rows,
-        caption: table.caption,
-      },
-    ],
+    header: { segments: buildPulse(services) },
+    sections,
   };
 }
