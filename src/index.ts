@@ -9,6 +9,7 @@ const QUALITY_KEY = "rib:osdu:quality";
 const FEATURES_KEY = "rib:osdu:features";
 const SECURITY_KEY = "rib:osdu:security";
 const EVENTS_KEY = "rib:osdu:events";
+const RELEASE_KEY = "rib:osdu:release";
 
 // Absolute paths to the deterministic collectors, resolved at module load so a
 // workflow node runs the right file regardless of the run's cwd.
@@ -18,6 +19,7 @@ const QUALITY_COLLECTOR = new URL("../bin/collect-quality.ts", import.meta.url).
 const FEATURES_COLLECTOR = new URL("../bin/collect-features.ts", import.meta.url).pathname;
 const SECURITY_COLLECTOR = new URL("../bin/collect-security.ts", import.meta.url).pathname;
 const EVENTS_COLLECTOR = new URL("../bin/collect-events.ts", import.meta.url).pathname;
+const RELEASE_COLLECTOR = new URL("../bin/collect-release.ts", import.meta.url).pathname;
 
 // cimpl lifecycle verbs the ICC actions dispatch to (POST /api/ribs/osdu/action
 // → onAction). Reconcile/Suspend/Resume are reversible; Delete tears down the
@@ -113,6 +115,7 @@ const rib: Rib = {
     { key: FEATURES_KEY, canvasKind: "view", title: "Features" },
     { key: SECURITY_KEY, canvasKind: "view", title: "Security" },
     { key: EVENTS_KEY, canvasKind: "view", title: "Current Events" },
+    { key: RELEASE_KEY, canvasKind: "view", title: "Release Train" },
   ],
 
   // Composes the lane boards into one CIMPL nav tab (the G4 surface); regions
@@ -129,6 +132,12 @@ const rib: Rib = {
           collapsed: true,
           workflow: "osdu-cluster",
           title: "Cluster ICC",
+        },
+        banner: {
+          key: RELEASE_KEY,
+          workflow: "osdu-release",
+          title: "Release Train",
+          glyph: { char: "⚑", tone: "accent" },
         },
         rows: [
           {
@@ -265,6 +274,22 @@ const rib: Rib = {
       },
       bindSnapshotKey: EVENTS_KEY,
       validate: expectView(EVENTS_KEY, "board"),
+    },
+    {
+      definition: {
+        name: "osdu-release",
+        description:
+          'Use when: tracking the active release — what is queued and what shipped. Triggers: "release train", "what is the release", "new MRs", "platform wins", "what merged this week". Does: shells the osdu-activity mr + epic CLIs and publishes a Release Train banner — the active milestone as the header chip, a New Merge Requests queue (recent open MRs), and Platform Wins (core services merged to main this week) — to the Release Train canvas. NOT for: merging MRs or changing the release.',
+        nodes: [
+          {
+            id: "collect",
+            bash: `bun ${RELEASE_COLLECTOR}`,
+            output_schema: { type: "object", required: ["view", "sections"] },
+          },
+        ],
+      },
+      bindSnapshotKey: RELEASE_KEY,
+      validate: expectView(RELEASE_KEY, "board"),
     },
   ],
 
