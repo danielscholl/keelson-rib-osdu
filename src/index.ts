@@ -8,6 +8,7 @@ const TOPOLOGY_KEY = "rib:osdu:topology";
 const QUALITY_KEY = "rib:osdu:quality";
 const FEATURES_KEY = "rib:osdu:features";
 const SECURITY_KEY = "rib:osdu:security";
+const EVENTS_KEY = "rib:osdu:events";
 
 // Absolute paths to the deterministic collectors, resolved at module load so a
 // workflow node runs the right file regardless of the run's cwd.
@@ -16,6 +17,7 @@ const TOPOLOGY_COLLECTOR = new URL("../bin/collect-topology.ts", import.meta.url
 const QUALITY_COLLECTOR = new URL("../bin/collect-quality.ts", import.meta.url).pathname;
 const FEATURES_COLLECTOR = new URL("../bin/collect-features.ts", import.meta.url).pathname;
 const SECURITY_COLLECTOR = new URL("../bin/collect-security.ts", import.meta.url).pathname;
+const EVENTS_COLLECTOR = new URL("../bin/collect-events.ts", import.meta.url).pathname;
 
 // cimpl lifecycle verbs the ICC actions dispatch to (POST /api/ribs/osdu/action
 // → onAction). Reconcile/Suspend/Resume are reversible; Delete tears down the
@@ -110,6 +112,7 @@ const rib: Rib = {
     { key: QUALITY_KEY, canvasKind: "view", title: "Quality" },
     { key: FEATURES_KEY, canvasKind: "view", title: "Features" },
     { key: SECURITY_KEY, canvasKind: "view", title: "Security" },
+    { key: EVENTS_KEY, canvasKind: "view", title: "Current Events" },
   ],
 
   // Composes the lane boards into one CIMPL nav tab (the G4 surface); regions
@@ -151,6 +154,12 @@ const rib: Rib = {
             ],
           },
         ],
+        footer: {
+          key: EVENTS_KEY,
+          collapsible: true,
+          workflow: "osdu-events",
+          title: "Current Events",
+        },
       },
     },
   ],
@@ -239,6 +248,22 @@ const rib: Rib = {
       },
       bindSnapshotKey: SECURITY_KEY,
       validate: expectView(SECURITY_KEY, "board"),
+    },
+    {
+      definition: {
+        name: "osdu-events",
+        description:
+          'Use when: catching up on recent platform + cluster motion. Triggers: "what just happened", "current events", "recent activity", "what changed". Does: shells the osdu-activity mr + epic CLIs and `kubectl get jobs` and publishes a Current Events feed — newest-first rows tagging each as PLATFORM (an opened or merged MR) or CLUSTER (a bootstrap/cron Job), with a relative-time stamp — to the Current Events canvas. NOT for: changing cluster state or merging MRs.',
+        nodes: [
+          {
+            id: "collect",
+            bash: `bun ${EVENTS_COLLECTOR}`,
+            output_schema: { type: "object", required: ["view", "sections"] },
+          },
+        ],
+      },
+      bindSnapshotKey: EVENTS_KEY,
+      validate: expectView(EVENTS_KEY, "board"),
     },
   ],
 
