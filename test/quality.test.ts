@@ -13,51 +13,56 @@ describe("buildQualityTable", () => {
     expect(canvasViewSchema.safeParse(table).success).toBe(true);
   });
 
-  test("mirrors the osdu-quality CLI columns", () => {
-    expect(table.columns.map((c) => c.key)).toEqual([
-      "service",
-      "accept",
-      "unit",
-      "coverage",
-      "reliability",
-      "security",
-      "maintainability",
-      "cve",
+  test("is the prototype's Service · Acc · Unit · Quality shape", () => {
+    expect(table.columns.map((c) => c.key)).toEqual(["service", "accept", "unit", "quality"]);
+  });
+
+  test("Acc / Unit cells are toned one-decimal pass rates", () => {
+    expect(rowByService("CRS Conversion")?.accept).toEqual({ value: "0.0%", tone: "error" });
+    expect(rowByService("Register")?.accept).toEqual({ value: "80.7%", tone: "warn" });
+    expect(rowByService("Partition")?.accept).toEqual({ value: "100.0%", tone: "ok" });
+    expect(rowByService("Register")?.unit).toEqual({ value: "97.0%", tone: "ok" });
+  });
+
+  test("Quality cell packs coverage % beside R/S/M grade badges", () => {
+    expect(rowByService("CRS Conversion")?.quality).toEqual({
+      value: "11%",
+      tone: "error",
+      badges: [
+        { text: "B", tone: "info" },
+        { text: "A", tone: "ok" },
+        { text: "A", tone: "ok" },
+      ],
+    });
+    // D rating rides the caution step; coverage 82.6 → ok.
+    expect(rowByService("Search")?.quality).toEqual({
+      value: "83%",
+      tone: "ok",
+      badges: [
+        { text: "D", tone: "caution" },
+        { text: "A", tone: "ok" },
+        { text: "A", tone: "ok" },
+      ],
+    });
+  });
+
+  test("a service with no sonar renders a dash value and dash grade badges", () => {
+    expect(rowByService("Wellbore Worker")?.quality).toEqual({
+      value: "—",
+      tone: "neutral",
+      badges: [{ text: "—" }, { text: "—" }, { text: "—" }],
+    });
+    expect(rowByService("Wellbore Worker")?.accept).toBe("—");
+  });
+
+  test("rows are worst-health first (weakest signal), then name", () => {
+    expect(table.rows.map((r) => r.service)).toEqual([
+      "CRS Conversion",
+      "Register",
+      "Search",
+      "Wellbore Worker",
+      "Partition",
     ]);
-  });
-
-  test("pass-rate and coverage tones use the CLI thresholds", () => {
-    expect(rowByService("CRS Conversion")?.accept).toEqual({ value: 0, tone: "error" });
-    expect(rowByService("CRS Conversion")?.coverage).toEqual({ value: 10.9, tone: "error" });
-    expect(rowByService("Register")?.accept).toEqual({ value: 80.7, tone: "warn" });
-    expect(rowByService("Register")?.coverage).toEqual({ value: 56.4, tone: "warn" });
-    expect(rowByService("Partition")?.accept).toEqual({ value: 100, tone: "ok" });
-  });
-
-  test("Sonar letter ratings: A -> ok, B/C -> warn, D/E -> error", () => {
-    expect(rowByService("Search")?.reliability).toEqual({ value: "D", tone: "error" });
-    expect(rowByService("CRS Conversion")?.reliability).toEqual({ value: "B", tone: "warn" });
-    expect(rowByService("Partition")?.security).toEqual({ value: "A", tone: "ok" });
-  });
-
-  test("CVE cell formats C/H and tones by critical-then-high", () => {
-    expect(rowByService("CRS Conversion")?.cve).toEqual({ value: "C10 / H33", tone: "error" });
-    expect(rowByService("Register")?.cve).toEqual({ value: "C0 / H1", tone: "warn" });
-    expect(rowByService("Partition")?.cve).toEqual({ value: "C0 / H0", tone: "ok" });
-  });
-
-  test("missing signals render as untoned dashes", () => {
-    const w = rowByService("Wellbore Worker");
-    expect(w?.accept).toBe("—");
-    expect(w?.reliability).toBe("—");
-    expect(w?.cve).toBe("—");
-  });
-
-  test("rows sorted worst-first", () => {
-    const order = table.rows.map((r) => r.service);
-    expect(order[0]).toBe("CRS Conversion");
-    expect(order[order.length - 1]).toBe("Partition");
-    expect(order.indexOf("Search")).toBeLessThan(order.indexOf("Register"));
   });
 
   test("caption carries service count and release", () => {
@@ -82,34 +87,177 @@ describe("buildQualityBoard", () => {
     expect(canvasViewSchema.safeParse(board).success).toBe(true);
   });
 
+  test("section order mirrors the prototype lane", () => {
+    expect(board.sections.map((s) => s.kind)).toEqual([
+      "stats",
+      "table",
+      "segments",
+      "bars",
+      "table",
+    ]);
+  });
+
   test("header pulse buckets every service into good/poor/fail", () => {
     const segs = board.header?.segments ?? [];
     expect(segs.map((s) => s.label)).toEqual(["Good", "Poor", "Fail"]);
-    expect(segs.reduce((sum, s) => sum + s.n, 0)).toBe(5);
+    expect(segs).toEqual([
+      { label: "Good", n: 1, tone: "ok" },
+      { label: "Poor", n: 1, tone: "warn" },
+      { label: "Fail", n: 3, tone: "error" },
+    ]);
   });
 
-  test("embeds the per-service table as a section", () => {
-    const tableSection = board.sections.find((s) => s.kind === "table");
-    expect(tableSection?.kind).toBe("table");
-    if (tableSection?.kind === "table") {
-      expect(tableSection.columns.map((c) => c.key)).toContain("service");
-      expect(tableSection.rows).toHaveLength(5);
-    }
-  });
-
-  test("stats include a services count and a critical-CVE tile", () => {
+  test("KPI tiles are Pass / Flaky / Fail / Skip summed across stages", () => {
     const stats = board.sections.find((s) => s.kind === "stats");
-    expect(stats?.kind).toBe("stats");
-    if (stats?.kind === "stats") {
-      const labels = stats.items.map((i) => i.label);
-      expect(labels).toContain("Services");
-      expect(labels).toContain("Critical CVEs");
-    }
+    if (stats?.kind !== "stats") throw new Error("no stats section");
+    expect(stats.items.map((i) => i.label)).toEqual(["Pass", "Flaky", "Fail", "Skip"]);
+    expect(stats.items[0]).toEqual({ label: "Pass", value: "95.8%", sub: "CI tests", tone: "ok" });
+    expect(stats.items[2]).toEqual({
+      label: "Fail",
+      value: 19,
+      sub: "3.8% of total",
+      tone: "error",
+    });
+    expect(stats.items[3]).toEqual({
+      label: "Skip",
+      value: 2,
+      sub: "0.4% of total",
+      tone: "warn",
+    });
+  });
+
+  test("test-performance pulse buckets services by acceptance pass rate", () => {
+    const seg = board.sections.find((s) => s.kind === "segments");
+    if (seg?.kind !== "segments") throw new Error("no segments section");
+    expect(seg.title).toBe("Test performance");
+    expect(seg.items).toEqual([
+      { label: "Passing", n: 2, tone: "ok" },
+      { label: "Slipping", n: 1, tone: "warn" },
+      { label: "Failing", n: 2, tone: "error" },
+    ]);
+  });
+
+  test("stage bars aggregate unit + acceptance counts with a toned pass rate", () => {
+    const bars = board.sections.find((s) => s.kind === "bars");
+    if (bars?.kind !== "bars") throw new Error("no bars section");
+    expect(bars.items).toEqual([
+      { label: "Unit tests", value: 379, total: 382, tone: "ok", trailing: "379 / 382 · 99.2%" },
+      {
+        label: "Acceptance tests",
+        value: 97,
+        total: 115,
+        tone: "warn",
+        trailing: "97 / 115 · 84.3%",
+      },
+    ]);
+  });
+
+  test("worst-acceptance table is worst-first with filled count badges", () => {
+    const tables = board.sections.filter((s) => s.kind === "table");
+    const worst = tables[tables.length - 1];
+    if (worst?.kind !== "table") throw new Error("no worst table");
+    expect(worst.columns.map((c) => c.key)).toEqual([
+      "service",
+      "pct",
+      "passed",
+      "skipped",
+      "failed",
+    ]);
+    expect(worst.rows.map((r) => r.service)).toEqual([
+      "CRS Conversion",
+      "Register",
+      "Partition",
+      "Search",
+    ]);
+    // A zero count stays a plain (dim) chip; non-zero counts are toned.
+    expect(worst.rows[0]).toEqual({
+      service: "CRS Conversion",
+      pct: { value: "0%", tone: "error" },
+      passed: { badges: [{ text: "0" }] },
+      skipped: { badges: [{ text: "2", tone: "warn" }] },
+      failed: { badges: [{ text: "5", tone: "error" }] },
+    });
   });
 });
 
 describe("buildQualityBoard edge cases", () => {
-  test("empty report still yields a valid board", () => {
-    expect(canvasViewSchema.safeParse(buildQualityBoard({ services: [] })).success).toBe(true);
+  test("empty report yields a valid board with only the KPI tiles", () => {
+    const empty = buildQualityBoard({ services: [] });
+    expect(canvasViewSchema.safeParse(empty).success).toBe(true);
+    expect(empty.sections.map((s) => s.kind)).toEqual(["stats"]);
+  });
+
+  // A stage with counts but no pass_rate must derive one rate the whole lane
+  // agrees on — the Sonar cell, the pulse, the worst table, and the bar.
+  test("a stage with counts but no pass_rate is derived consistently across views", () => {
+    const report: ReleaseReport = {
+      services: [
+        {
+          name: "x",
+          display_name: "X",
+          sonar: {
+            coverage_pct: 90,
+            reliability_rating: "A",
+            security_rating: "A",
+            maintainability_rating: "A",
+          },
+          unit: { passed: 10, failed: 0, skipped: 0 },
+          // 12 / (12 + 0 + 3) = 80% — the same total-tests denominator as the bar.
+          acceptance: { passed: 12, failed: 0, skipped: 3 },
+        },
+      ],
+    };
+    const t = buildQualityTable(report);
+    expect(t.rows[0]?.accept).toEqual({ value: "80.0%", tone: "warn" });
+    const b = buildQualityBoard(report);
+    const seg = b.sections.find((s) => s.kind === "segments");
+    if (seg?.kind !== "segments") throw new Error("no segments section");
+    // 80% → Slipping, never the Failing/unmeasured bucket.
+    expect(seg.items).toContainEqual({ label: "Slipping", n: 1, tone: "warn" });
+    const bars = b.sections.find((s) => s.kind === "bars");
+    if (bars?.kind !== "bars") throw new Error("no bars section");
+    // The bar reports the same 80% (12 / 15) as the table and pulse.
+    expect(bars.items).toContainEqual({
+      label: "Acceptance tests",
+      value: 12,
+      total: 15,
+      tone: "warn",
+      trailing: "12 / 15 · 80.0%",
+    });
+    const tables = b.sections.filter((s) => s.kind === "table");
+    const worst = tables[tables.length - 1];
+    if (worst?.kind !== "table") throw new Error("no worst table");
+    expect(worst.rows[0]?.pct).toEqual({ value: "80%", tone: "warn" });
+  });
+
+  // A pass-rate-only report (no raw counts) must not fabricate zeros in the
+  // count-derived sections — older/partial osdu-quality output looks like this.
+  test("a pass-rate-only stage (no counts) does not fabricate zero counts", () => {
+    const report: ReleaseReport = {
+      services: [
+        {
+          name: "y",
+          display_name: "Y",
+          sonar: {
+            coverage_pct: 90,
+            reliability_rating: "A",
+            security_rating: "A",
+            maintainability_rating: "A",
+          },
+          unit: { pass_rate: 100 },
+          acceptance: { pass_rate: 90 },
+        },
+      ],
+    };
+    const b = buildQualityBoard(report);
+    const stats = b.sections.find((s) => s.kind === "stats");
+    if (stats?.kind !== "stats") throw new Error("no stats section");
+    // Unknown counts read as a dash, not a fabricated 0.
+    expect(stats.items.find((i) => i.label === "Fail")?.value).toBe("—");
+    expect(stats.items.find((i) => i.label === "Skip")?.value).toBe("—");
+    // No count bars and no worst-acceptance table without real counts; the Sonar
+    // table still carries the rate from pass_rate.
+    expect(b.sections.map((s) => s.kind)).toEqual(["stats", "table", "segments"]);
+    expect(buildQualityTable(report).rows[0]?.accept).toEqual({ value: "90.0%", tone: "warn" });
   });
 });
