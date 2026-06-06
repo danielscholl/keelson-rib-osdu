@@ -246,6 +246,8 @@ describe("buildSecurityBoard edge cases", () => {
           { name: "rated-d", display_name: "Rated D", sonar: { security_rating: "D" } },
           { name: "unscanned-b" },
           { name: "rated-a", display_name: "Rated A", sonar: { security_rating: "A" } },
+          // A padded/lower-case grade still normalizes to A and is filtered out.
+          { name: "padded-a", display_name: "Padded A", sonar: { security_rating: " a " } },
         ],
       },
       now: NOW,

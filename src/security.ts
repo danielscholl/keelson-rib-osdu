@@ -265,7 +265,7 @@ function buildSastGrid(services: ServiceReport[]): GridCell[] {
   };
   const name = (svc: ServiceReport) => svc.display_name || svc.name || "—";
   return services
-    .map((svc) => ({ svc, rating: (svc.sonar?.security_rating ?? "").toUpperCase() }))
+    .map((svc) => ({ svc, rating: (svc.sonar?.security_rating ?? "").trim().toUpperCase() }))
     .filter(({ rating }) => rating !== "A")
     .sort((a, b) => rank(a.rating) - rank(b.rating) || name(a.svc).localeCompare(name(b.svc)))
     .map(({ svc, rating }) => ({
