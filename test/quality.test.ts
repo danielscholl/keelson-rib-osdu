@@ -229,4 +229,35 @@ describe("buildQualityBoard edge cases", () => {
     if (worst?.kind !== "table") throw new Error("no worst table");
     expect(worst.rows[0]?.pct).toEqual({ value: "80%", tone: "warn" });
   });
+
+  // A pass-rate-only report (no raw counts) must not fabricate zeros in the
+  // count-derived sections — older/partial osdu-quality output looks like this.
+  test("a pass-rate-only stage (no counts) does not fabricate zero counts", () => {
+    const report: ReleaseReport = {
+      services: [
+        {
+          name: "y",
+          display_name: "Y",
+          sonar: {
+            coverage_pct: 90,
+            reliability_rating: "A",
+            security_rating: "A",
+            maintainability_rating: "A",
+          },
+          unit: { pass_rate: 100 },
+          acceptance: { pass_rate: 90 },
+        },
+      ],
+    };
+    const b = buildQualityBoard(report);
+    const stats = b.sections.find((s) => s.kind === "stats");
+    if (stats?.kind !== "stats") throw new Error("no stats section");
+    // Unknown counts read as a dash, not a fabricated 0.
+    expect(stats.items.find((i) => i.label === "Fail")?.value).toBe("—");
+    expect(stats.items.find((i) => i.label === "Skip")?.value).toBe("—");
+    // No count bars and no worst-acceptance table without real counts; the Sonar
+    // table still carries the rate from pass_rate.
+    expect(b.sections.map((s) => s.kind)).toEqual(["stats", "table", "segments"]);
+    expect(buildQualityTable(report).rows[0]?.accept).toEqual({ value: "90.0%", tone: "warn" });
+  });
 });

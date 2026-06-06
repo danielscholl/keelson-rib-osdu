@@ -91,6 +91,12 @@ function stageRate(m: TestMetrics | null | undefined): number | null {
   const total = c.passed + c.failed + c.skipped;
   return total > 0 ? round1((c.passed / total) * 100) : null;
 }
+// Whether a stage carries any raw count. Distinguishes a real zero from
+// "unknown" so the count-derived sections (KPI Fail/Skip, bars, worst table)
+// don't fabricate zeros for a pass-rate-only / partial report.
+function hasCounts(m: TestMetrics | null | undefined): boolean {
+  return num(m?.passed) !== null || num(m?.failed) !== null || num(m?.skipped) !== null;
+}
 
 function toneRate(value: number | null): Tone {
   if (value === null) return "neutral";
@@ -190,12 +196,18 @@ function buildKpis(services: ServiceReport[]): StatItem[] {
     },
     // `release` carries no flake signal — mirrors cimpl-agent's deferred Flaky tile.
     { label: "Flaky", value: 0, sub: "no signal", tone: "neutral" },
-    { label: "Fail", value: failed, sub: ofTotal(failed), tone: failed > 0 ? "error" : "ok" },
+    // With no counts at all, Fail/Skip are unknown (not zero) — show a dash.
+    {
+      label: "Fail",
+      value: total > 0 ? failed : "—",
+      sub: ofTotal(failed),
+      tone: total > 0 && failed > 0 ? "error" : total > 0 ? "ok" : "neutral",
+    },
     {
       label: "Skip",
-      value: skipped,
+      value: total > 0 ? skipped : "—",
       sub: ofTotal(skipped),
-      tone: skipped > 0 ? "warn" : "neutral",
+      tone: total > 0 && skipped > 0 ? "warn" : "neutral",
     },
   ];
 }
@@ -311,10 +323,13 @@ function buildWorstAcceptance(services: ServiceReport[]): CanvasTableView {
   const rows = services
     .map((svc) => ({
       name: svc.display_name || svc.name || "—",
+      present: hasCounts(svc.acceptance),
       ...stageCounts(svc.acceptance),
       pct: stageRate(svc.acceptance),
     }))
-    .filter((r) => r.pct !== null)
+    // A pass-rate-only stage has no counts to break down — the Sonar table
+    // already shows its rate, so it doesn't belong in the count table.
+    .filter((r) => r.present && r.pct !== null)
     .sort(
       (a, b) =>
         (a.pct ?? Number.POSITIVE_INFINITY) - (b.pct ?? Number.POSITIVE_INFINITY) ||
