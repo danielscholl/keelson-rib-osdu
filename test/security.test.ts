@@ -63,24 +63,35 @@ describe("buildSecurityBoard", () => {
     expect(byLabel("Vuln MRs")).toBeDefined();
   });
 
-  test("SAST grade grid: all services worst-first, with grade-toned badges", () => {
-    const grid = section("grid", "SAST security grades");
+  test("Low security rating: below-A grades worst-first, A filtered out", () => {
+    const grid = section("grid", "Low security rating");
     expect(grid?.kind).toBe("grid");
     if (grid?.kind !== "grid") return;
+    // Confirmed-A services (Legal, Partition, Register) drop out; only the
+    // below-A grades remain, worst-first.
     expect(grid.cells.map((c) => [c.label, c.badge.text])).toEqual([
       ["Policy", "D"],
       ["Storage", "C"],
       ["Search", "B"],
-      ["Legal", "A"],
-      ["Partition", "A"],
-      ["Register", "A"],
     ]);
-    // The 5-step grade ramp (A ok · B info · C warn · D caution), not the
-    // 3-step health bucket.
+    // The 5-step grade ramp (B info · C warn · D caution), not the 3-step
+    // health bucket.
     expect(grid.cells[0]?.badge.tone).toBe("caution"); // D
     expect(grid.cells[1]?.badge.tone).toBe("warn"); // C
     expect(grid.cells[2]?.badge.tone).toBe("info"); // B
-    expect(grid.cells[3]?.badge.tone).toBe("ok"); // A
+  });
+
+  test("Low security rating collapses when every service is rated A", () => {
+    const b = buildSecurityBoard({
+      report: {
+        services: [
+          { name: "a1", display_name: "A1", sonar: { security_rating: "A" } },
+          { name: "a2", display_name: "A2", sonar: { security_rating: "A" } },
+        ],
+      },
+      now: NOW,
+    });
+    expect(b.sections.some((s) => (s.title ?? "").includes("Low security rating"))).toBe(false);
   });
 
   test("top-offender bars sorted by crit+high with a severity tail, inline layout", () => {
@@ -227,7 +238,7 @@ describe("buildSecurityBoard edge cases", () => {
     expect(canvasViewSchema.safeParse(buildSecurityBoard({ report: {} })).success).toBe(true);
   });
 
-  test("SAST grid sorts unscanned services last, not as worst", () => {
+  test("Low security rating keeps unscanned (last) and drops A grades", () => {
     const b = buildSecurityBoard({
       report: {
         services: [
@@ -235,6 +246,8 @@ describe("buildSecurityBoard edge cases", () => {
           { name: "rated-d", display_name: "Rated D", sonar: { security_rating: "D" } },
           { name: "unscanned-b" },
           { name: "rated-a", display_name: "Rated A", sonar: { security_rating: "A" } },
+          // A padded/lower-case grade still normalizes to A and is filtered out.
+          { name: "padded-a", display_name: "Padded A", sonar: { security_rating: " a " } },
         ],
       },
       now: NOW,
@@ -242,14 +255,10 @@ describe("buildSecurityBoard edge cases", () => {
     const grid = b.sections.find((s) => s.kind === "grid");
     expect(grid?.kind).toBe("grid");
     if (grid?.kind !== "grid") return;
-    // Worst real grade first (D, then A), unscanned ("—") last by name.
-    expect(grid.cells.map((c) => c.badge.text)).toEqual(["D", "A", "—", "—"]);
-    expect(grid.cells.map((c) => c.label)).toEqual([
-      "Rated D",
-      "Rated A",
-      "unscanned-a",
-      "unscanned-b",
-    ]);
+    // Rated-A drops; the worst real grade (D) leads, unscanned ("—") sorts last
+    // by name — a missing scan is still surfaced as a gap.
+    expect(grid.cells.map((c) => c.badge.text)).toEqual(["D", "—", "—"]);
+    expect(grid.cells.map((c) => c.label)).toEqual(["Rated D", "unscanned-a", "unscanned-b"]);
   });
 });
 
