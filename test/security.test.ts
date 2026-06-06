@@ -226,6 +226,31 @@ describe("buildSecurityBoard edge cases", () => {
   test("missing services key is tolerated", () => {
     expect(canvasViewSchema.safeParse(buildSecurityBoard({ report: {} })).success).toBe(true);
   });
+
+  test("SAST grid sorts unscanned services last, not as worst", () => {
+    const b = buildSecurityBoard({
+      report: {
+        services: [
+          { name: "unscanned-a", sonar: {} },
+          { name: "rated-d", display_name: "Rated D", sonar: { security_rating: "D" } },
+          { name: "unscanned-b" },
+          { name: "rated-a", display_name: "Rated A", sonar: { security_rating: "A" } },
+        ],
+      },
+      now: NOW,
+    });
+    const grid = b.sections.find((s) => s.kind === "grid");
+    expect(grid?.kind).toBe("grid");
+    if (grid?.kind !== "grid") return;
+    // Worst real grade first (D, then A), unscanned ("—") last by name.
+    expect(grid.cells.map((c) => c.badge.text)).toEqual(["D", "A", "—", "—"]);
+    expect(grid.cells.map((c) => c.label)).toEqual([
+      "Rated D",
+      "Rated A",
+      "unscanned-a",
+      "unscanned-b",
+    ]);
+  });
 });
 
 describe("extractVulns", () => {

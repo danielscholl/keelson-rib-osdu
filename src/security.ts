@@ -257,8 +257,10 @@ type GridCell = { label: string; href?: string; badge: { text: string; tone?: To
 // reads neutral. A compact at-a-glance matrix in place of one card per service.
 function buildSastGrid(services: ServiceReport[]): GridCell[] {
   const rank = (g: string) => {
-    const i = "EDCBA".indexOf(g);
-    return i === -1 ? 5 : i; // unknown / unscanned sorts last
+    // A single-char guard: "".indexOf in any string is 0, so an empty rating
+    // would otherwise sort as worst. Unknown / unscanned sorts last.
+    const i = g.length === 1 ? "EDCBA".indexOf(g) : -1;
+    return i === -1 ? 5 : i;
   };
   const name = (svc: ServiceReport) => svc.display_name || svc.name || "—";
   return services
