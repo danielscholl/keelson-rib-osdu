@@ -186,4 +186,47 @@ describe("buildQualityBoard edge cases", () => {
     expect(canvasViewSchema.safeParse(empty).success).toBe(true);
     expect(empty.sections.map((s) => s.kind)).toEqual(["stats"]);
   });
+
+  // A stage with counts but no pass_rate must derive one rate the whole lane
+  // agrees on — the Sonar cell, the pulse, the worst table, and the bar.
+  test("a stage with counts but no pass_rate is derived consistently across views", () => {
+    const report: ReleaseReport = {
+      services: [
+        {
+          name: "x",
+          display_name: "X",
+          sonar: {
+            coverage_pct: 90,
+            reliability_rating: "A",
+            security_rating: "A",
+            maintainability_rating: "A",
+          },
+          unit: { passed: 10, failed: 0, skipped: 0 },
+          // 12 / (12 + 0 + 3) = 80% — the same total-tests denominator as the bar.
+          acceptance: { passed: 12, failed: 0, skipped: 3 },
+        },
+      ],
+    };
+    const t = buildQualityTable(report);
+    expect(t.rows[0]?.accept).toEqual({ value: "80.0%", tone: "warn" });
+    const b = buildQualityBoard(report);
+    const seg = b.sections.find((s) => s.kind === "segments");
+    if (seg?.kind !== "segments") throw new Error("no segments section");
+    // 80% → Slipping, never the Failing/unmeasured bucket.
+    expect(seg.items).toContainEqual({ label: "Slipping", n: 1, tone: "warn" });
+    const bars = b.sections.find((s) => s.kind === "bars");
+    if (bars?.kind !== "bars") throw new Error("no bars section");
+    // The bar reports the same 80% (12 / 15) as the table and pulse.
+    expect(bars.items).toContainEqual({
+      label: "Acceptance tests",
+      value: 12,
+      total: 15,
+      tone: "warn",
+      trailing: "12 / 15 · 80.0%",
+    });
+    const tables = b.sections.filter((s) => s.kind === "table");
+    const worst = tables[tables.length - 1];
+    if (worst?.kind !== "table") throw new Error("no worst table");
+    expect(worst.rows[0]?.pct).toEqual({ value: "80%", tone: "warn" });
+  });
 });

@@ -69,6 +69,28 @@ function num(value: unknown): number | null {
 function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
+function stageCounts(m: TestMetrics | null | undefined): {
+  passed: number;
+  failed: number;
+  skipped: number;
+} {
+  return {
+    passed: num(m?.passed) ?? 0,
+    failed: num(m?.failed) ?? 0,
+    skipped: num(m?.skipped) ?? 0,
+  };
+}
+// A stage's pass rate: the reported `pass_rate`, else derived from counts as
+// passed/(passed+failed+skipped) — the same total-tests denominator the stage
+// bars and KPI tiles use, so every count-derived view agrees on a counts-only
+// stage instead of the pulse/table and the bar disagreeing.
+function stageRate(m: TestMetrics | null | undefined): number | null {
+  const reported = num(m?.pass_rate);
+  if (reported !== null) return reported;
+  const c = stageCounts(m);
+  const total = c.passed + c.failed + c.skipped;
+  return total > 0 ? round1((c.passed / total) * 100) : null;
+}
 
 function toneRate(value: number | null): Tone {
   if (value === null) return "neutral";
@@ -119,8 +141,8 @@ function serviceHealth(svc: ServiceReport): number {
     gradeScore(sonar.security_rating),
     gradeScore(sonar.maintainability_rating),
     num(sonar.coverage_pct) ?? NULL_FLOOR,
-    num(svc.unit?.pass_rate) ?? NULL_FLOOR,
-    num(svc.acceptance?.pass_rate) ?? NULL_FLOOR,
+    stageRate(svc.unit) ?? NULL_FLOOR,
+    stageRate(svc.acceptance) ?? NULL_FLOOR,
   );
 }
 
@@ -144,17 +166,6 @@ function buildPulse(services: ServiceReport[]): Segment[] {
 
 // ---- KPI tiles: Pass / Flaky / Fail / Skip, summed across unit + acceptance ----
 type StatItem = { label: string; value: string | number; sub?: string; tone?: Tone };
-function stageCounts(m: TestMetrics | null | undefined): {
-  passed: number;
-  failed: number;
-  skipped: number;
-} {
-  return {
-    passed: num(m?.passed) ?? 0,
-    failed: num(m?.failed) ?? 0,
-    skipped: num(m?.skipped) ?? 0,
-  };
-}
 function buildKpis(services: ServiceReport[]): StatItem[] {
   let passed = 0;
   let failed = 0;
@@ -225,8 +236,8 @@ export function buildQualityTable(report: ReleaseReport): CanvasTableView {
       name: (svc.display_name || svc.name || "—").toLowerCase(),
       row: {
         service: svc.display_name || svc.name || "—",
-        accept: pctCell(num(svc.acceptance?.pass_rate)),
-        unit: pctCell(num(svc.unit?.pass_rate)),
+        accept: pctCell(stageRate(svc.acceptance)),
+        unit: pctCell(stageRate(svc.unit)),
         quality: qualityCell(svc.sonar),
       } satisfies Record<string, Cell>,
     }))
@@ -247,7 +258,7 @@ function buildTestPulse(services: ServiceReport[]): Segment[] {
   let slipping = 0;
   let failing = 0;
   for (const svc of services) {
-    const a = num(svc.acceptance?.pass_rate);
+    const a = stageRate(svc.acceptance);
     // An unmeasured service reads failing, mirroring cimpl-agent's bucket.
     if (a === null) failing += 1;
     else if (a >= PASS_GREEN) passing += 1;
@@ -298,14 +309,12 @@ const WORST_COLUMNS = [
 ];
 function buildWorstAcceptance(services: ServiceReport[]): CanvasTableView {
   const rows = services
-    .map((svc) => {
-      const c = stageCounts(svc.acceptance);
-      const total = c.passed + c.failed + c.skipped;
-      const pct =
-        num(svc.acceptance?.pass_rate) ?? (total > 0 ? round1((c.passed / total) * 100) : null);
-      return { name: svc.display_name || svc.name || "—", ...c, total, pct };
-    })
-    .filter((r) => r.total > 0)
+    .map((svc) => ({
+      name: svc.display_name || svc.name || "—",
+      ...stageCounts(svc.acceptance),
+      pct: stageRate(svc.acceptance),
+    }))
+    .filter((r) => r.pct !== null)
     .sort(
       (a, b) =>
         (a.pct ?? Number.POSITIVE_INFINITY) - (b.pct ?? Number.POSITIVE_INFINITY) ||
