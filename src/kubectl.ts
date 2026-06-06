@@ -1,3 +1,4 @@
+import type { JobRow } from "./events.ts";
 import type { FluxKustomization } from "./topology.ts";
 
 type RunResult = { ok: true; stdout: string } | { ok: false; error: string };
@@ -97,5 +98,37 @@ export function getReadiness(resource: string, scopeArgs: string[] = ["-A"]): Re
     return { ready: items.filter(isReady).length, total: items.length };
   } catch (e) {
     return { ready: 0, total: 0, error: e instanceof Error ? e.message : "parse error" };
+  }
+}
+
+interface KubeJob {
+  metadata?: { name?: string; namespace?: string; creationTimestamp?: string };
+}
+
+export interface JobsResult {
+  jobs: JobRow[];
+  /** Present when collection degraded (no cluster, no kubectl, parse failure). */
+  error?: string;
+}
+
+/**
+ * List Kubernetes Jobs across all namespaces on the active context, flattened to
+ * `{ name, namespace, created_at }`. Never throws: degrades to an empty list with
+ * `error` set so the events feed can still render its other sources.
+ */
+export function getJobs(): JobsResult {
+  const res = runKubectl(["get", "jobs", "-A", "-o", "json"]);
+  if (!res.ok) return { jobs: [], error: res.error };
+  try {
+    const items = (JSON.parse(res.stdout) as { items?: KubeJob[] }).items ?? [];
+    return {
+      jobs: items.map((i) => ({
+        name: i.metadata?.name ?? null,
+        namespace: i.metadata?.namespace ?? null,
+        created_at: i.metadata?.creationTimestamp ?? null,
+      })),
+    };
+  } catch (e) {
+    return { jobs: [], error: e instanceof Error ? e.message : "parse error" };
   }
 }
