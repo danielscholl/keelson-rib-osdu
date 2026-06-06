@@ -157,6 +157,7 @@ const rib: Rib = {
         footer: {
           key: EVENTS_KEY,
           collapsible: true,
+          collapsed: true,
           workflow: "osdu-events",
           title: "Current Events",
         },
