@@ -484,7 +484,7 @@ export function buildSecurityBoard(inputs: SecurityInputs): CanvasBoardView {
     { kind: "stats", items: buildKpis(services, mrs) },
   ];
   if (sast.length > 0) {
-    sections.push({ kind: "grid", title: "Low security rating", cells: sast });
+    sections.push({ kind: "grid", title: "SAST security grades", cells: sast });
   }
   if (offenders.length > 0) {
     sections.push({

@@ -64,7 +64,7 @@ describe("buildSecurityBoard", () => {
   });
 
   test("SAST grade grid: all services worst-first, with grade-toned badges", () => {
-    const grid = section("grid", "Low security rating");
+    const grid = section("grid", "SAST security grades");
     expect(grid?.kind).toBe("grid");
     if (grid?.kind !== "grid") return;
     expect(grid.cells.map((c) => [c.label, c.badge.text])).toEqual([
