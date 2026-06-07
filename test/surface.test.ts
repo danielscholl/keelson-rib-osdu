@@ -18,8 +18,16 @@ describe("CIMPL surface", () => {
     expect(header?.collapsed).toBe(true);
   });
 
+  test("the Waiting on You strip is the full-width row above the lanes", () => {
+    const strip = rib.surfaces?.[0]?.layout.rows[0];
+    expect(strip?.columns.map((c) => c.key)).toEqual(["rib:osdu:waiting"]);
+    expect(strip?.columns[0]?.workflow).toBe("osdu-waiting");
+    expect(strip?.columns[0]?.title).toBe("Waiting on You");
+    expect(typeof strip?.columns[0]?.glyph?.char).toBe("string");
+  });
+
   test("the surface composes the three lane boards in Features·Quality·Security order", () => {
-    const columns = rib.surfaces?.[0]?.layout.rows[0]?.columns ?? [];
+    const columns = rib.surfaces?.[0]?.layout.rows[1]?.columns ?? [];
     expect(columns.map((c) => c.key)).toEqual([
       "rib:osdu:features",
       "rib:osdu:quality",
@@ -29,7 +37,7 @@ describe("CIMPL surface", () => {
   });
 
   test("each lane carries a static identity (title + toned glyph)", () => {
-    const columns = rib.surfaces?.[0]?.layout.rows[0]?.columns ?? [];
+    const columns = rib.surfaces?.[0]?.layout.rows[1]?.columns ?? [];
     expect(columns.map((c) => c.title)).toEqual(["Features", "Quality", "Security"]);
     expect(columns.map((c) => c.glyph?.tone)).toEqual(["brand", "info", "caution"]);
     expect(columns.every((c) => typeof c.glyph?.char === "string")).toBe(true);
@@ -39,7 +47,7 @@ describe("CIMPL surface", () => {
   test("each region names the workflow its refresh re-runs", () => {
     const layout = rib.surfaces?.[0]?.layout;
     expect(layout?.header?.workflow).toBe("osdu-cluster");
-    expect(layout?.rows[0]?.columns.map((c) => c.workflow)).toEqual([
+    expect(layout?.rows[1]?.columns.map((c) => c.workflow)).toEqual([
       "osdu-features",
       "osdu-quality",
       "osdu-security",

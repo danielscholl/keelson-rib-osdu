@@ -10,6 +10,7 @@ const FEATURES_KEY = "rib:osdu:features";
 const SECURITY_KEY = "rib:osdu:security";
 const EVENTS_KEY = "rib:osdu:events";
 const RELEASE_KEY = "rib:osdu:release";
+const WAITING_KEY = "rib:osdu:waiting";
 
 // Absolute paths to the deterministic collectors, resolved at module load so a
 // workflow node runs the right file regardless of the run's cwd.
@@ -20,6 +21,7 @@ const FEATURES_COLLECTOR = new URL("../bin/collect-features.ts", import.meta.url
 const SECURITY_COLLECTOR = new URL("../bin/collect-security.ts", import.meta.url).pathname;
 const EVENTS_COLLECTOR = new URL("../bin/collect-events.ts", import.meta.url).pathname;
 const RELEASE_COLLECTOR = new URL("../bin/collect-release.ts", import.meta.url).pathname;
+const WAITING_COLLECTOR = new URL("../bin/collect-waiting.ts", import.meta.url).pathname;
 
 // cimpl lifecycle verbs the ICC actions dispatch to (POST /api/ribs/osdu/action
 // → onAction). Reconcile/Suspend/Resume are reversible; Delete tears down the
@@ -116,6 +118,7 @@ const rib: Rib = {
     { key: SECURITY_KEY, canvasKind: "view", title: "Security" },
     { key: EVENTS_KEY, canvasKind: "view", title: "Current Events" },
     { key: RELEASE_KEY, canvasKind: "view", title: "Release Train" },
+    { key: WAITING_KEY, canvasKind: "view", title: "Waiting on You" },
   ],
 
   // Composes the lane boards into one CIMPL nav tab (the G4 surface); regions
@@ -142,6 +145,17 @@ const rib: Rib = {
           glyph: { char: "⚑", tone: "accent" },
         },
         rows: [
+          {
+            columns: [
+              {
+                key: WAITING_KEY,
+                workflow: "osdu-waiting",
+                cadenceMs: 600_000,
+                title: "Waiting on You",
+                glyph: { char: "⌖", tone: "caution" },
+              },
+            ],
+          },
           {
             columns: [
               {
@@ -296,6 +310,22 @@ const rib: Rib = {
       },
       bindSnapshotKey: RELEASE_KEY,
       validate: expectView(RELEASE_KEY, "board"),
+    },
+    {
+      definition: {
+        name: "osdu-waiting",
+        description:
+          'Use when: checking what needs your personal attention. Triggers: "what needs my attention", "my queue", "waiting on me", "what am I blocking", "what should I review". Does: reads your GitLab dashboard MRs via currentUser plus kubectl Flux/Job readiness and publishes a Waiting on You queue — your MRs with a failed pipeline or requested changes (P0), MRs awaiting your review (P1), your ready-to-merge MRs (P2), not-ready Flux Kustomizations/HelmReleases (P0), and failed load jobs (P1), priority-sorted — to the Waiting on You canvas. NOT for: merging MRs, approving reviews, or reconciling the cluster.',
+        nodes: [
+          {
+            id: "collect",
+            bash: `bun ${WAITING_COLLECTOR}`,
+            output_schema: { type: "object", required: ["view", "sections"] },
+          },
+        ],
+      },
+      bindSnapshotKey: WAITING_KEY,
+      validate: expectView(WAITING_KEY, "board"),
     },
   ],
 

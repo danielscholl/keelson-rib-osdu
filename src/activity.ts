@@ -29,10 +29,12 @@ const MAX_MR_PAGES = 30;
 const CACHE_VERSION = 3;
 const DEFAULT_TTL_MS = 600_000;
 
-// The 17 Venus core services — mirrors cimpl-agent's bridge scope so the lanes'
-// counts match the upstream dashboard. Off-core projects (DDMS, etc.) stay out
-// of the KPI / vuln / win totals. Membership is by repo basename, so a renamed
-// core repo silently drops until added here (cimpl's mirror test is the guard).
+// The Venus core services — the 17 platform services mirror cimpl-agent's bridge
+// scope so the lanes' counts match the upstream dashboard. Off-core projects
+// (DDMS, etc.) stay out of the KPI / vuln / win totals. Membership is by repo
+// basename, so a renamed core repo silently drops until added here.
+// `cimpl-stack` is a keelson-local addition (the deployment-and-operations repo,
+// not a platform service) so its activity rides the Venus lanes too.
 export const VENUS_CORE: ReadonlySet<string> = new Set([
   "partition",
   "entitlements",
@@ -51,6 +53,7 @@ export const VENUS_CORE: ReadonlySet<string> = new Set([
   "crs-conversion-service",
   "unit-service",
   "ingestion-workflow",
+  "cimpl-stack",
 ]);
 
 export function serviceOf(projectPath: string | null | undefined): string {
@@ -119,6 +122,75 @@ export function runGraphql(query: string, timeoutMs = 30_000): { json?: unknown;
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+// The operator's personal merge-request dashboard from GITLAB_HOST — the open MRs
+// they authored or have been asked to review, across the whole instance (not the
+// Venus-core scope). Identity is implicit: `currentUser` is whoever the glab token
+// authenticates as. One call, fail-closed to an empty list.
+export interface MyMr {
+  iid: number | null;
+  title: string | null;
+  webUrl: string | null;
+  projectPath: string | null;
+  role: "author" | "reviewer";
+  draft: boolean;
+  pipeline: string | null;
+  mergeStatus: string | null;
+  updatedAt: string | null;
+}
+
+export function fetchMyMergeRequests(runGql: GraphqlRunner = runGraphql): MyMr[] {
+  const fields =
+    "nodes { iid title webUrl draft detailedMergeStatus headPipeline { status } project { fullPath } updatedAt }";
+  const res = runGql(
+    `{ currentUser { authored: authoredMergeRequests(state: opened) { ${fields} } reviewing: reviewRequestedMergeRequests(state: opened) { ${fields} } } }`,
+  );
+  if (res.error || !res.json) return [];
+  const cu = (
+    res.json as {
+      data?: {
+        currentUser?: {
+          authored?: { nodes?: unknown[] };
+          reviewing?: { nodes?: unknown[] };
+        } | null;
+      };
+    }
+  )?.data?.currentUser;
+  if (!cu) return [];
+
+  const out: MyMr[] = [];
+  const take = (nodes: unknown[] | undefined, role: "author" | "reviewer") => {
+    for (const node of nodes ?? []) {
+      const n = node as {
+        iid?: unknown;
+        title?: unknown;
+        webUrl?: unknown;
+        draft?: unknown;
+        detailedMergeStatus?: unknown;
+        headPipeline?: { status?: unknown } | null;
+        project?: { fullPath?: unknown } | null;
+        updatedAt?: unknown;
+      };
+      const iidNum =
+        typeof n.iid === "number" ? n.iid : typeof n.iid === "string" ? Number(n.iid) : Number.NaN;
+      out.push({
+        iid: Number.isFinite(iidNum) ? iidNum : null,
+        title: typeof n.title === "string" ? n.title : null,
+        webUrl: typeof n.webUrl === "string" ? n.webUrl : null,
+        projectPath: typeof n.project?.fullPath === "string" ? n.project.fullPath : null,
+        role,
+        draft: n.draft === true,
+        pipeline:
+          typeof n.headPipeline?.status === "string" ? n.headPipeline.status.toLowerCase() : null,
+        mergeStatus: typeof n.detailedMergeStatus === "string" ? n.detailedMergeStatus : null,
+        updatedAt: typeof n.updatedAt === "string" ? n.updatedAt : null,
+      });
+    }
+  };
+  take(cu.authored?.nodes, "author");
+  take(cu.reviewing?.nodes, "reviewer");
+  return out;
 }
 
 // --- enrichment ----------------------------------------------------------

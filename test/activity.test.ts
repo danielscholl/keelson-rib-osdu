@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   type ActivityRunner,
   fetchMrUpdatedAt,
+  fetchMyMergeRequests,
   fetchWorkItemAssignees,
   type GraphqlRunner,
   isVenusCore,
@@ -134,6 +135,43 @@ describe("fetchMrUpdatedAt", () => {
 
   test("fail-closed: graphql error yields an empty map", () => {
     expect(fetchMrUpdatedAt(() => ({ error: "boom" })).size).toBe(0);
+  });
+});
+
+describe("fetchMyMergeRequests", () => {
+  const mrNode = (iid: number, over: Record<string, unknown> = {}) => ({
+    iid: String(iid),
+    title: `mr ${iid}`,
+    webUrl: `https://gitlab/x/-/merge_requests/${iid}`,
+    draft: false,
+    detailedMergeStatus: "MERGEABLE",
+    headPipeline: { status: "SUCCESS" },
+    project: { fullPath: "osdu/platform/deployment-and-operations/cimpl-stack" },
+    updatedAt: "2026-06-04T00:00:00Z",
+    ...over,
+  });
+  const currentUserBody = {
+    data: {
+      currentUser: {
+        authored: { nodes: [mrNode(120), mrNode(125, { draft: true })] },
+        reviewing: { nodes: [mrNode(124, { detailedMergeStatus: "REQUESTED_CHANGES" })] },
+      },
+    },
+  };
+
+  test("flattens authored + reviewing, tags role, normalizes iid/pipeline", () => {
+    const mrs = fetchMyMergeRequests(() => ({ json: currentUserBody }));
+    expect(mrs.map((m) => [m.role, m.iid, m.pipeline, m.draft])).toEqual([
+      ["author", 120, "success", false],
+      ["author", 125, "success", true],
+      ["reviewer", 124, "success", false],
+    ]);
+    expect(mrs[0]?.projectPath).toBe("osdu/platform/deployment-and-operations/cimpl-stack");
+  });
+
+  test("fail-closed: graphql error or absent currentUser yields an empty list", () => {
+    expect(fetchMyMergeRequests(() => ({ error: "boom" }))).toEqual([]);
+    expect(fetchMyMergeRequests(() => ({ json: { data: { currentUser: null } } }))).toEqual([]);
   });
 });
 

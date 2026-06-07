@@ -24,11 +24,15 @@ export interface FeedRelatedMr {
   merged_at?: string | null;
 }
 
-// A Kubernetes Job, flattened from `kubectl get jobs -A -o json`.
+// A Kubernetes Job, flattened from `kubectl get jobs -A -o json`. `status` and
+// `failed` are derived from `.status` for the Waiting-on-you queue; the feed
+// reads only name/namespace/created_at.
 export interface JobRow {
   name?: string | null;
   namespace?: string | null;
   created_at?: string | null;
+  status?: string | null;
+  failed?: number | null;
 }
 
 export interface EventsInput {
