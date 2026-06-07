@@ -18,12 +18,19 @@ describe("CIMPL surface", () => {
     expect(header?.collapsed).toBe(true);
   });
 
-  test("the Waiting on You strip is the full-width row above the lanes", () => {
+  test("Waiting on You is the banner region, above the Release Train", () => {
+    const banner = rib.surfaces?.[0]?.layout.banner;
+    expect(banner?.key).toBe("rib:osdu:waiting");
+    expect(banner?.workflow).toBe("osdu-waiting");
+    expect(banner?.title).toBe("Waiting on You");
+    expect(typeof banner?.glyph?.char).toBe("string");
+  });
+
+  test("the Release Train is the full-width row above the lanes", () => {
     const strip = rib.surfaces?.[0]?.layout.rows[0];
-    expect(strip?.columns.map((c) => c.key)).toEqual(["rib:osdu:waiting"]);
-    expect(strip?.columns[0]?.workflow).toBe("osdu-waiting");
-    expect(strip?.columns[0]?.title).toBe("Waiting on You");
-    expect(typeof strip?.columns[0]?.glyph?.char).toBe("string");
+    expect(strip?.columns.map((c) => c.key)).toEqual(["rib:osdu:release"]);
+    expect(strip?.columns[0]?.workflow).toBe("osdu-release");
+    expect(strip?.columns[0]?.title).toBe("Release Train");
   });
 
   test("the surface composes the three lane boards in Features·Quality·Security order", () => {
@@ -60,7 +67,11 @@ describe("CIMPL surface", () => {
       (rib.contributeWorkflows?.(ctx) ?? []).map((c) => (c.definition as { name: string }).name),
     );
     const layout = rib.surfaces?.[0]?.layout;
-    const regions = [layout?.header, ...(layout?.rows.flatMap((r) => r.columns) ?? [])];
+    const regions = [
+      layout?.header,
+      layout?.banner,
+      ...(layout?.rows.flatMap((r) => r.columns) ?? []),
+    ];
     for (const region of regions) {
       if (region?.workflow) expect(contributed.has(region.workflow)).toBe(true);
     }

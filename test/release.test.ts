@@ -6,9 +6,12 @@ import {
   extractMilestoneFilter,
   extractReleaseMrs,
   milestoneToken,
+  projectTone,
   type ReleaseMr,
   releaseTrain,
 } from "../src/release.ts";
+
+const DECORATIVE_TONES = ["info", "brand", "accent", "caution", "ok"];
 
 const NOW = new Date("2026-06-06T12:00:00Z");
 
@@ -113,7 +116,7 @@ describe("buildReleaseBoard", () => {
     expect(newMrItems(board)).toEqual([
       {
         icon: "⎇",
-        chip: { label: "storage", tone: "neutral" },
+        chip: { label: "storage", tone: projectTone("storage") },
         text: "!931 — add schemathesis tests",
         href: url("storage", 931),
         trailing: "2d",
@@ -376,5 +379,19 @@ describe("extractMilestoneFilter", () => {
     expect(extractMilestoneFilter({})).toBeNull();
     expect(extractMilestoneFilter({ parameters: { milestone_filter: "  " } })).toBeNull();
     expect(extractMilestoneFilter({ parameters: { milestone_filter: null } })).toBeNull();
+  });
+});
+
+describe("projectTone", () => {
+  test("is stable per service and always a decorative palette tone", () => {
+    expect(projectTone("storage")).toBe(projectTone("storage"));
+    for (const svc of ["storage", "legal", "partition", "entitlements", "file", "cimpl-stack"]) {
+      expect(DECORATIVE_TONES).toContain(projectTone(svc));
+    }
+  });
+
+  test("spreads the core services across more than one color", () => {
+    const core = ["partition", "legal", "entitlements", "file", "storage", "policy", "secret"];
+    expect(new Set(core.map(projectTone)).size).toBeGreaterThan(1);
   });
 });

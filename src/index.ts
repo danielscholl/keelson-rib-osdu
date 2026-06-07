@@ -138,21 +138,21 @@ const rib: Rib = {
           title: "Cluster ICC",
         },
         banner: {
-          key: RELEASE_KEY,
-          workflow: "osdu-release",
-          cadenceMs: 1_800_000,
-          title: "Release Train",
-          glyph: { char: "⚑", tone: "accent" },
+          key: WAITING_KEY,
+          workflow: "osdu-waiting",
+          cadenceMs: 600_000,
+          title: "Waiting on You",
+          glyph: { char: "⌖", tone: "caution" },
         },
         rows: [
           {
             columns: [
               {
-                key: WAITING_KEY,
-                workflow: "osdu-waiting",
-                cadenceMs: 600_000,
-                title: "Waiting on You",
-                glyph: { char: "⌖", tone: "caution" },
+                key: RELEASE_KEY,
+                workflow: "osdu-release",
+                cadenceMs: 1_800_000,
+                title: "Release Train",
+                glyph: { char: "⚑", tone: "accent" },
               },
             ],
           },
