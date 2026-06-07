@@ -1,8 +1,13 @@
+import type { RibExec } from "@keelson/shared";
 import type { JobRow } from "./events.ts";
+import { localExec } from "./exec.ts";
 import type { FluxKustomization } from "./topology.ts";
 
 type RunResult = { ok: true; stdout: string } | { ok: false; error: string };
 
+// Synchronous kubectl, used only for the two fast local config reads below
+// (`current-context`, the kube-system UID). The cluster-state getters are async
+// (RibExec) so they never block the server event loop when a tool calls them.
 function runKubectl(args: string[], timeoutMs = 30_000): RunResult {
   try {
     const proc = Bun.spawnSync(["kubectl", ...args], {
@@ -20,6 +25,8 @@ function runKubectl(args: string[], timeoutMs = 30_000): RunResult {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
+
+const KUBE_TIMEOUT_MS = 30_000;
 
 export function currentContext(): string | null {
   const res = runKubectl(["config", "current-context"], 5_000);
@@ -55,16 +62,18 @@ export interface KustomizationsResult {
  * failure degrades to an empty list with `error` set, so the collector can
  * still emit a valid (single-node) graph.
  */
-export function getKustomizations(namespace = "flux-system"): KustomizationsResult {
+export async function getKustomizations(
+  namespace = "flux-system",
+  exec: RibExec = localExec(),
+): Promise<KustomizationsResult> {
   const context = currentContext();
-  const res = runKubectl(["get", "kustomizations", "-n", namespace, "-o", "json"]);
+  const res = await exec.runJSON<{ items?: FluxKustomization[] }>(
+    "kubectl",
+    ["get", "kustomizations", "-n", namespace, "-o", "json"],
+    { timeoutMs: KUBE_TIMEOUT_MS },
+  );
   if (!res.ok) return { context, kustomizations: [], error: res.error };
-  try {
-    const parsed = JSON.parse(res.stdout) as { items?: FluxKustomization[] };
-    return { context, kustomizations: parsed.items ?? [] };
-  } catch (e) {
-    return { context, kustomizations: [], error: e instanceof Error ? e.message : "parse error" };
-  }
+  return { context, kustomizations: res.data.items ?? [] };
 }
 
 export interface HelmReleasesResult {
@@ -78,15 +87,14 @@ export interface HelmReleasesResult {
  * shape (metadata + status.conditions) so `isReady` applies unchanged. Never
  * throws: degrades to an empty list with `error` set.
  */
-export function getHelmReleases(): HelmReleasesResult {
-  const res = runKubectl(["get", "helmreleases", "-A", "-o", "json"]);
+export async function getHelmReleases(exec: RibExec = localExec()): Promise<HelmReleasesResult> {
+  const res = await exec.runJSON<{ items?: FluxKustomization[] }>(
+    "kubectl",
+    ["get", "helmreleases", "-A", "-o", "json"],
+    { timeoutMs: KUBE_TIMEOUT_MS },
+  );
   if (!res.ok) return { helmreleases: [], error: res.error };
-  try {
-    const parsed = JSON.parse(res.stdout) as { items?: FluxKustomization[] };
-    return { helmreleases: parsed.items ?? [] };
-  } catch (e) {
-    return { helmreleases: [], error: e instanceof Error ? e.message : "parse error" };
-  }
+  return { helmreleases: res.data.items ?? [] };
 }
 
 interface ReadyLike {
@@ -112,15 +120,19 @@ export interface ReadinessResult {
  * Count ready/total for a Flux resource (e.g. kustomizations, helmreleases) on
  * the active context. Never throws: degrades to `{ ready: 0, total: 0, error }`.
  */
-export function getReadiness(resource: string, scopeArgs: string[] = ["-A"]): ReadinessResult {
-  const res = runKubectl(["get", resource, ...scopeArgs, "-o", "json"]);
+export async function getReadiness(
+  resource: string,
+  scopeArgs: string[] = ["-A"],
+  exec: RibExec = localExec(),
+): Promise<ReadinessResult> {
+  const res = await exec.runJSON<{ items?: ReadyLike[] }>(
+    "kubectl",
+    ["get", resource, ...scopeArgs, "-o", "json"],
+    { timeoutMs: KUBE_TIMEOUT_MS },
+  );
   if (!res.ok) return { ready: 0, total: 0, error: res.error };
-  try {
-    const items = (JSON.parse(res.stdout) as { items?: ReadyLike[] }).items ?? [];
-    return { ready: items.filter(isReady).length, total: items.length };
-  } catch (e) {
-    return { ready: 0, total: 0, error: e instanceof Error ? e.message : "parse error" };
-  }
+  const items = res.data.items ?? [];
+  return { ready: items.filter(isReady).length, total: items.length };
 }
 
 interface KubeJob {
@@ -152,21 +164,21 @@ export interface JobsResult {
  * `{ name, namespace, created_at, status, failed }`. Never throws: degrades to an
  * empty list with `error` set so the events feed can still render its other sources.
  */
-export function getJobs(): JobsResult {
-  const res = runKubectl(["get", "jobs", "-A", "-o", "json"]);
+export async function getJobs(exec: RibExec = localExec()): Promise<JobsResult> {
+  const res = await exec.runJSON<{ items?: KubeJob[] }>(
+    "kubectl",
+    ["get", "jobs", "-A", "-o", "json"],
+    { timeoutMs: KUBE_TIMEOUT_MS },
+  );
   if (!res.ok) return { jobs: [], error: res.error };
-  try {
-    const items = (JSON.parse(res.stdout) as { items?: KubeJob[] }).items ?? [];
-    return {
-      jobs: items.map((i) => ({
-        name: i.metadata?.name ?? null,
-        namespace: i.metadata?.namespace ?? null,
-        created_at: i.metadata?.creationTimestamp ?? null,
-        status: jobStatus(i.status),
-        failed: i.status?.failed ?? 0,
-      })),
-    };
-  } catch (e) {
-    return { jobs: [], error: e instanceof Error ? e.message : "parse error" };
-  }
+  const items = res.data.items ?? [];
+  return {
+    jobs: items.map((i) => ({
+      name: i.metadata?.name ?? null,
+      namespace: i.metadata?.namespace ?? null,
+      created_at: i.metadata?.creationTimestamp ?? null,
+      status: jobStatus(i.status),
+      failed: i.status?.failed ?? 0,
+    })),
+  };
 }

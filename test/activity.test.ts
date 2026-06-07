@@ -49,7 +49,7 @@ function epicEnvelope() {
 }
 
 function fakeActivity(seen: string[][] = []): ActivityRunner {
-  return (args) => {
+  return async (args) => {
     seen.push(args);
     if (args[0] === "mr") return { json: mrEnvelope() };
     if (args[0] === "epic") return { json: epicEnvelope() };
@@ -83,7 +83,7 @@ const updatedBody = {
 };
 
 function fakeGraphql(): GraphqlRunner {
-  return (query) => {
+  return async (query) => {
     if (query.includes("workItem")) return { json: assigneeBody };
     if (query.includes("mergeRequests")) return { json: updatedBody };
     return { error: "unexpected query" };
@@ -105,20 +105,20 @@ describe("parseLenient / scope helpers", () => {
 });
 
 describe("fetchWorkItemAssignees", () => {
-  test("maps the ASSIGNEES widget per epic iid; misses absent", () => {
-    const map = fetchWorkItemAssignees([10, 20], fakeGraphql());
+  test("maps the ASSIGNEES widget per epic iid; misses absent", async () => {
+    const map = await fetchWorkItemAssignees([10, 20], fakeGraphql());
     expect(map.get(10)).toEqual(["alice"]);
     expect(map.has(20)).toBe(false);
   });
 
-  test("fail-closed: graphql error yields an empty map", () => {
-    const map = fetchWorkItemAssignees([10], () => ({ error: "boom" }));
+  test("fail-closed: graphql error yields an empty map", async () => {
+    const map = await fetchWorkItemAssignees([10], async () => ({ error: "boom" }));
     expect(map.size).toBe(0);
   });
 
-  test("no iids → no query", () => {
+  test("no iids → no query", async () => {
     let called = 0;
-    const map = fetchWorkItemAssignees([], () => {
+    const map = await fetchWorkItemAssignees([], async () => {
       called++;
       return { json: assigneeBody };
     });
@@ -128,13 +128,13 @@ describe("fetchWorkItemAssignees", () => {
 });
 
 describe("fetchMrUpdatedAt", () => {
-  test("keys last-activity by project-path and iid", () => {
-    const map = fetchMrUpdatedAt(fakeGraphql());
+  test("keys last-activity by project-path and iid", async () => {
+    const map = await fetchMrUpdatedAt(fakeGraphql());
     expect(map.get("osdu/platform/system/storage!1")).toBe("2026-06-01T00:00:00Z");
   });
 
-  test("fail-closed: graphql error yields an empty map", () => {
-    expect(fetchMrUpdatedAt(() => ({ error: "boom" })).size).toBe(0);
+  test("fail-closed: graphql error yields an empty map", async () => {
+    expect((await fetchMrUpdatedAt(async () => ({ error: "boom" }))).size).toBe(0);
   });
 });
 
@@ -159,8 +159,8 @@ describe("fetchMyMergeRequests", () => {
     },
   };
 
-  test("flattens authored + reviewing, tags role, normalizes iid/pipeline", () => {
-    const mrs = fetchMyMergeRequests(() => ({ json: currentUserBody }));
+  test("flattens authored + reviewing, tags role, normalizes iid/pipeline", async () => {
+    const mrs = await fetchMyMergeRequests(async () => ({ json: currentUserBody }));
     expect(mrs.map((m) => [m.role, m.iid, m.pipeline, m.draft])).toEqual([
       ["author", 120, "success", false],
       ["author", 125, "success", true],
@@ -169,16 +169,18 @@ describe("fetchMyMergeRequests", () => {
     expect(mrs[0]?.projectPath).toBe("osdu/platform/deployment-and-operations/cimpl-stack");
   });
 
-  test("fail-closed: graphql error or absent currentUser yields an empty list", () => {
-    expect(fetchMyMergeRequests(() => ({ error: "boom" }))).toEqual([]);
-    expect(fetchMyMergeRequests(() => ({ json: { data: { currentUser: null } } }))).toEqual([]);
+  test("fail-closed: graphql error or absent currentUser yields an empty list", async () => {
+    expect(await fetchMyMergeRequests(async () => ({ error: "boom" }))).toEqual([]);
+    expect(
+      await fetchMyMergeRequests(async () => ({ json: { data: { currentUser: null } } })),
+    ).toEqual([]);
   });
 });
 
 describe("loadVenusBundle", () => {
-  test("scopes MRs to core, injects project_path, drops --milestone, enriches", () => {
+  test("scopes MRs to core, injects project_path, drops --milestone, enriches", async () => {
     const seen: string[][] = [];
-    const bundle = loadVenusBundle({
+    const bundle = await loadVenusBundle({
       runActivity: fakeActivity(seen),
       runGraphql: fakeGraphql(),
       cacheDir: null,
@@ -212,10 +214,11 @@ describe("loadVenusBundle", () => {
     expect(bundle.errors).toHaveLength(0);
   });
 
-  test("a degraded source is reported, never thrown", () => {
-    const bundle = loadVenusBundle({
-      runActivity: (args) => (args[0] === "mr" ? { error: "cli down" } : { json: epicEnvelope() }),
-      runGraphql: () => ({ error: "no graphql" }),
+  test("a degraded source is reported, never thrown", async () => {
+    const bundle = await loadVenusBundle({
+      runActivity: async (args) =>
+        args[0] === "mr" ? { error: "cli down" } : { json: epicEnvelope() },
+      runGraphql: async () => ({ error: "no graphql" }),
       cacheDir: null,
     });
     expect(bundle.errors.some((e) => e.includes("mrs degraded"))).toBe(true);
@@ -231,31 +234,31 @@ describe("loadVenusBundle cache", () => {
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   });
 
-  test("serves a hit within TTL and refetches after expiry", () => {
+  test("serves a hit within TTL and refetches after expiry", async () => {
     const dir = join(tmpdir(), `rib-osdu-test-${process.pid}-${dirs.length}-${Date.now()}`);
     dirs.push(dir);
     let fetches = 0;
-    const runActivity: ActivityRunner = (args) => {
+    const runActivity: ActivityRunner = async (args) => {
       if (args[0] === "mr") fetches++;
       return args[0] === "mr" ? { json: mrEnvelope() } : { json: epicEnvelope() };
     };
     const runGraphql = fakeGraphql();
     const base = { runActivity, runGraphql, cacheDir: dir, ttlMs: 600_000 };
 
-    loadVenusBundle({ ...base, now: () => 1_000 });
+    await loadVenusBundle({ ...base, now: () => 1_000 });
     expect(fetches).toBe(1);
-    loadVenusBundle({ ...base, now: () => 200_000 }); // within TTL → cache hit
+    await loadVenusBundle({ ...base, now: () => 200_000 }); // within TTL → cache hit
     expect(fetches).toBe(1);
-    loadVenusBundle({ ...base, now: () => 1_000 + 700_000 }); // past TTL → refetch
+    await loadVenusBundle({ ...base, now: () => 1_000 + 700_000 }); // past TTL → refetch
     expect(fetches).toBe(2);
   });
 
-  test("a degraded fetch is not cached, so the next run retries within TTL", () => {
+  test("a degraded fetch is not cached, so the next run retries within TTL", async () => {
     const dir = join(tmpdir(), `rib-osdu-test-${process.pid}-deg-${Date.now()}`);
     dirs.push(dir);
     let mode: "fail" | "ok" = "fail";
     let mrFetches = 0;
-    const runActivity: ActivityRunner = (args) => {
+    const runActivity: ActivityRunner = async (args) => {
       if (args[0] === "mr") {
         mrFetches++;
         return mode === "fail" ? { error: "cli down" } : { json: mrEnvelope() };
@@ -264,10 +267,10 @@ describe("loadVenusBundle cache", () => {
     };
     const base = { runActivity, runGraphql: fakeGraphql(), cacheDir: dir, ttlMs: 600_000 };
 
-    const degraded = loadVenusBundle({ ...base, now: () => 1_000 });
+    const degraded = await loadVenusBundle({ ...base, now: () => 1_000 });
     expect(degraded.errors.some((e) => e.includes("mrs degraded"))).toBe(true);
     mode = "ok";
-    loadVenusBundle({ ...base, now: () => 2_000 }); // within TTL, but nothing cached → refetch
+    await loadVenusBundle({ ...base, now: () => 2_000 }); // within TTL, but nothing cached → refetch
     expect(mrFetches).toBe(2);
   });
 });

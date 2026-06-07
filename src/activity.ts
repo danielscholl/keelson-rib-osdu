@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { runText } from "@keelson/shared/exec";
 
 export const GITLAB_GROUP = process.env.KEELSON_OSDU_GITLAB_GROUP ?? "osdu/platform";
 // glab's default host is gitlab.com; the OSDU group lives on the community
@@ -65,42 +66,23 @@ export function isVenusCore(projectPath: string | null | undefined): boolean {
   return VENUS_CORE.has(serviceOf(projectPath));
 }
 
-type RunResult = { ok: true; stdout: string } | { ok: false; error: string };
-
-function spawn(cmd: string, args: string[], timeoutMs: number): RunResult {
-  try {
-    const proc = Bun.spawnSync([cmd, ...args], {
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: timeoutMs,
-    });
-    if (proc.exitCode !== 0) {
-      const stderr = proc.stderr.toString().trim().split("\n").pop() ?? "";
-      return { ok: false, error: stderr.length > 0 ? stderr : `${cmd} exited ${proc.exitCode}` };
-    }
-    return { ok: true, stdout: proc.stdout.toString() };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
 // osdu-activity (and the epic CLI) emit unescaped control characters (raw
 // newlines in titles/descriptions) that JSON.parse rejects; strip before parse.
 export function parseLenient(stdout: string): unknown {
   return JSON.parse(stdout.replace(/\p{Cc}/gu, " "));
 }
 
-export type ActivityRunner = (args: string[]) => { json?: unknown; error?: string };
-export type GraphqlRunner = (query: string) => { json?: unknown; error?: string };
+export type ActivityRunner = (args: string[]) => Promise<{ json?: unknown; error?: string }>;
+export type GraphqlRunner = (query: string) => Promise<{ json?: unknown; error?: string }>;
 
-export function runActivity(
+export async function runActivity(
   args: string[],
   timeoutMs = 180_000,
-): { json?: unknown; error?: string } {
-  const res = spawn("osdu-activity", args, timeoutMs);
+): Promise<{ json?: unknown; error?: string }> {
+  const res = await runText("osdu-activity", args, { timeoutMs });
   if (!res.ok) return { error: res.error };
   try {
-    return { json: parseLenient(res.stdout) };
+    return { json: parseLenient(res.data) };
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) };
   }
@@ -108,15 +90,18 @@ export function runActivity(
 
 // Generic GitLab GraphQL via glab. Returns the parsed top-level body so each
 // caller reads its own `data` shape; surfaces transport and `errors` failures.
-export function runGraphql(query: string, timeoutMs = 30_000): { json?: unknown; error?: string } {
-  const res = spawn(
+export async function runGraphql(
+  query: string,
+  timeoutMs = 30_000,
+): Promise<{ json?: unknown; error?: string }> {
+  const res = await runText(
     "glab",
     ["api", "graphql", "--hostname", GITLAB_HOST, "-f", `query=${query}`],
-    timeoutMs,
+    { timeoutMs },
   );
   if (!res.ok) return { error: res.error };
   try {
-    const body = JSON.parse(res.stdout) as { errors?: unknown };
+    const body = JSON.parse(res.data) as { errors?: unknown };
     if (body.errors) return { error: `graphql: ${JSON.stringify(body.errors).slice(0, 200)}` };
     return { json: body };
   } catch (e) {
@@ -140,10 +125,10 @@ export interface MyMr {
   updatedAt: string | null;
 }
 
-export function fetchMyMergeRequests(runGql: GraphqlRunner = runGraphql): MyMr[] {
+export async function fetchMyMergeRequests(runGql: GraphqlRunner = runGraphql): Promise<MyMr[]> {
   const fields =
     "nodes { iid title webUrl draft detailedMergeStatus headPipeline { status } project { fullPath } updatedAt }";
-  const res = runGql(
+  const res = await runGql(
     `{ currentUser { authored: authoredMergeRequests(state: opened) { ${fields} } reviewing: reviewRequestedMergeRequests(state: opened) { ${fields} } } }`,
   );
   if (res.error || !res.json) return [];
@@ -211,10 +196,10 @@ function assigneeUsernames(workItem: unknown): string[] {
 // Epic assignees live in the work-item ASSIGNEES widget (the legacy REST field
 // the CLI reads is always null). One aliased query per batch of iids; fail-closed
 // to whatever we resolved so far.
-export function fetchWorkItemAssignees(
+export async function fetchWorkItemAssignees(
   iids: number[],
   runGql: GraphqlRunner = runGraphql,
-): Map<number, string[]> {
+): Promise<Map<number, string[]>> {
   const out = new Map<number, string[]>();
   const list = iids.filter((i) => Number.isFinite(i) && i > 0);
   for (let i = 0; i < list.length; i += ASSIGNEE_BATCH) {
@@ -225,7 +210,7 @@ export function fetchWorkItemAssignees(
           `e${iid}: workItem(iid: "${iid}") { widgets { ... on WorkItemWidgetAssignees { assignees { nodes { username } } } } }`,
       )
       .join(" ");
-    const res = runGql(`{ group(fullPath: ${JSON.stringify(GITLAB_GROUP)}) { ${aliases} } }`);
+    const res = await runGql(`{ group(fullPath: ${JSON.stringify(GITLAB_GROUP)}) { ${aliases} } }`);
     if (res.error || !res.json) break;
     const group = (res.json as { data?: { group?: Record<string, unknown> } })?.data?.group ?? {};
     for (const iid of batch) {
@@ -238,12 +223,14 @@ export function fetchWorkItemAssignees(
 
 // The `mr` CLI returns updated_at null; recover last-activity from the group's
 // open merge requests, keyed by `${project}!${iid}`. Paginated, fail-closed.
-export function fetchMrUpdatedAt(runGql: GraphqlRunner = runGraphql): Map<string, string> {
+export async function fetchMrUpdatedAt(
+  runGql: GraphqlRunner = runGraphql,
+): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   let cursor: string | null = null;
   for (let page = 0; page < MAX_MR_PAGES; page++) {
     const after = cursor ? `, after: ${JSON.stringify(cursor)}` : "";
-    const res = runGql(
+    const res = await runGql(
       `{ group(fullPath: ${JSON.stringify(GITLAB_GROUP)}) { mergeRequests(state: opened, includeSubgroups: true, first: ${MR_PAGE_SIZE}${after}) { pageInfo { hasNextPage endCursor } nodes { iid updatedAt project { fullPath } } } } }`,
     );
     if (res.error || !res.json) break;
@@ -400,7 +387,7 @@ export interface BundleDeps {
   ttlMs?: number;
 }
 
-export function loadVenusBundle(deps: BundleDeps = {}): VenusBundle {
+export async function loadVenusBundle(deps: BundleDeps = {}): Promise<VenusBundle> {
   const now = deps.now ?? (() => Date.now());
   const ttlMs = deps.ttlMs ?? readTtlEnv();
   const cacheDir = deps.cacheDir === null ? null : (deps.cacheDir ?? defaultCacheDir());
@@ -414,9 +401,16 @@ export function loadVenusBundle(deps: BundleDeps = {}): VenusBundle {
   const runGql = deps.runGraphql ?? ((q) => runGraphql(q));
   const errors: string[] = [];
 
-  const mrsRes = runAct(["mr", "--output", "json", "--include-draft", "--limit", String(MR_LIMIT)]);
+  const mrsRes = await runAct([
+    "mr",
+    "--output",
+    "json",
+    "--include-draft",
+    "--limit",
+    String(MR_LIMIT),
+  ]);
   if (mrsRes.error) errors.push(`mrs degraded: ${mrsRes.error}`);
-  const epicsRes = runAct([
+  const epicsRes = await runAct([
     "epic",
     "list",
     "--label",
@@ -438,8 +432,8 @@ export function loadVenusBundle(deps: BundleDeps = {}): VenusBundle {
     errors.push(`epics: hit the ${EPIC_LIMIT}-row cap — board may underreport`);
   }
 
-  epicsRaw = patchAssignees(epicsRaw, fetchWorkItemAssignees(epicIids(epicsRaw), runGql));
-  mrsRaw = patchUpdatedAt(mrsRaw, fetchMrUpdatedAt(runGql));
+  epicsRaw = patchAssignees(epicsRaw, await fetchWorkItemAssignees(epicIids(epicsRaw), runGql));
+  mrsRaw = patchUpdatedAt(mrsRaw, await fetchMrUpdatedAt(runGql));
 
   const bundle: VenusBundle = { mrsRaw, epicsRaw, errors };
   if (cacheDir && !coreFetchFailed) writeCache(cacheDir, bundle, now());

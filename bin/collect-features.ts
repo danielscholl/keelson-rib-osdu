@@ -8,7 +8,7 @@
 import { loadVenusBundle } from "../src/activity.ts";
 import { buildFeaturesBoard, extractEpics, extractMrs } from "../src/features.ts";
 
-const bundle = loadVenusBundle();
+const bundle = await loadVenusBundle();
 for (const err of bundle.errors) console.error(`[rib-osdu] features ${err}`);
 
 const epics = extractEpics(bundle.epicsRaw);

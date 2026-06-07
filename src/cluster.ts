@@ -1,4 +1,5 @@
-import type { CanvasBoardView } from "@keelson/shared";
+import type { CanvasBoardView, RibExec } from "@keelson/shared";
+import { localExec } from "./exec.ts";
 
 // The subset of `cimpl info --json` the ICC reads. With `--show-secrets` cimpl
 // also returns each credential's password; the collector discards it — only the
@@ -83,6 +84,44 @@ export function hasRealSecret(password: unknown): boolean {
 export function parseCimplInfoJson(text: string): unknown {
   const start = text.indexOf("{");
   return JSON.parse(start >= 0 ? text.slice(start) : text);
+}
+
+// Pick only the fields the board reads; drop every credential's `password` so a
+// plaintext secret never crosses into a published snapshot OR a chat tool result.
+// Keep only credentials that carry a real secret and a service name (cimpl emits
+// "n/a" placeholders during partial deployments).
+export function sanitizeCimplInfo(raw: unknown): CimplInfo {
+  const obj = (raw ?? {}) as Record<string, unknown>;
+  const creds = Array.isArray(obj.credentials) ? obj.credentials : [];
+  return {
+    endpoints: obj.endpoints as CimplInfo["endpoints"],
+    internal_services: obj.internal_services as CimplInfo["internal_services"],
+    suspended: obj.suspended === true,
+    credentials: creds
+      .map((c) => (c ?? {}) as Record<string, unknown>)
+      .filter((c) => String(c.service ?? "").trim().length > 0 && hasRealSecret(c.password))
+      .map((c) => ({
+        service: String(c.service),
+        username: typeof c.username === "string" ? c.username : undefined,
+      })),
+  };
+}
+
+// Fetch `cimpl info` (sanitized) for the Cluster ICC collector and the
+// `osdu_cluster` chat tool. `--show-secrets` only enumerates which services have
+// a credential; sanitizeCimplInfo discards the password before it returns.
+export async function fetchClusterInfo(
+  exec: RibExec = localExec(),
+): Promise<{ info?: CimplInfo; error?: string }> {
+  const res = await exec.runText("cimpl", ["info", "--json", "--show-secrets"], {
+    timeoutMs: 30_000,
+  });
+  if (!res.ok) return { error: res.error };
+  try {
+    return { info: sanitizeCimplInfo(parseCimplInfoJson(res.data)) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 // cimpl always acts on the live kubectl current-context, so every cluster action

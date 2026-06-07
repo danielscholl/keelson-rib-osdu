@@ -4,7 +4,9 @@ import type {
   CanvasCellBadge,
   CanvasTableView,
   CanvasTone,
+  RibExec,
 } from "@keelson/shared";
+import { localExec } from "./exec.ts";
 
 // Shape of `osdu-quality release --output json`. Only the fields the lane reads
 // are modeled; the CLI emits more (pipeline urls, allure links, ncloc, …).
@@ -43,6 +45,16 @@ export interface ReleaseReport {
   release?: string | null;
   branch?: string | null;
   services?: ServiceReport[];
+}
+
+// Fetch the one-shot `osdu-quality release` report (auth via GITLAB_TOKEN/glab).
+// Shared by the Quality + Security collectors and the `osdu_quality` chat tool.
+// Degrades to an empty report so every caller still renders/answers.
+export async function fetchReleaseReport(exec: RibExec = localExec()): Promise<ReleaseReport> {
+  const res = await exec.runJSON<ReleaseReport>("osdu-quality", ["release", "--output", "json"], {
+    timeoutMs: 120_000,
+  });
+  return res.ok ? res.data : { services: [] };
 }
 
 export type Tone = CanvasTone;

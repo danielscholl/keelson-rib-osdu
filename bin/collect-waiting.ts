@@ -12,12 +12,12 @@ import { fetchMyMergeRequests } from "../src/activity.ts";
 import { getHelmReleases, getJobs, getKustomizations } from "../src/kubectl.ts";
 import { buildWaitingBoard, composeQueue } from "../src/waiting.ts";
 
-const mrs = fetchMyMergeRequests();
-const { kustomizations, error: kErr } = getKustomizations();
+const mrs = await fetchMyMergeRequests();
+const { kustomizations, error: kErr } = await getKustomizations();
 if (kErr) console.error(`[rib-osdu] waiting kustomizations degraded: ${kErr}`);
-const { helmreleases, error: hErr } = getHelmReleases();
+const { helmreleases, error: hErr } = await getHelmReleases();
 if (hErr) console.error(`[rib-osdu] waiting helmreleases degraded: ${hErr}`);
-const { jobs, error: jErr } = getJobs();
+const { jobs, error: jErr } = await getJobs();
 if (jErr) console.error(`[rib-osdu] waiting jobs degraded: ${jErr}`);
 
 const items = composeQueue({ mrs, kustomizations, helmreleases, jobs, now: new Date() });
