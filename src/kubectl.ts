@@ -67,6 +67,28 @@ export function getKustomizations(namespace = "flux-system"): KustomizationsResu
   }
 }
 
+export interface HelmReleasesResult {
+  helmreleases: FluxKustomization[];
+  /** Present when collection degraded (no cluster, no kubectl, parse failure). */
+  error?: string;
+}
+
+/**
+ * Read Flux HelmReleases across all namespaces. Shares the Kustomization item
+ * shape (metadata + status.conditions) so `isReady` applies unchanged. Never
+ * throws: degrades to an empty list with `error` set.
+ */
+export function getHelmReleases(): HelmReleasesResult {
+  const res = runKubectl(["get", "helmreleases", "-A", "-o", "json"]);
+  if (!res.ok) return { helmreleases: [], error: res.error };
+  try {
+    const parsed = JSON.parse(res.stdout) as { items?: FluxKustomization[] };
+    return { helmreleases: parsed.items ?? [] };
+  } catch (e) {
+    return { helmreleases: [], error: e instanceof Error ? e.message : "parse error" };
+  }
+}
+
 interface ReadyLike {
   spec?: { suspend?: boolean };
   status?: { conditions?: { type?: string; status?: string }[] };
@@ -74,7 +96,7 @@ interface ReadyLike {
 
 // A Flux resource is ready when not suspended and its `Ready` condition is True
 // — the same rule for Kustomizations and HelmReleases.
-function isReady(item: ReadyLike): boolean {
+export function isReady(item: ReadyLike): boolean {
   if (item.spec?.suspend === true) return false;
   return item.status?.conditions?.some((c) => c.type === "Ready" && c.status === "True") ?? false;
 }
@@ -103,6 +125,20 @@ export function getReadiness(resource: string, scopeArgs: string[] = ["-A"]): Re
 
 interface KubeJob {
   metadata?: { name?: string; namespace?: string; creationTimestamp?: string };
+  status?: {
+    failed?: number;
+    active?: number;
+    conditions?: { type?: string; status?: string }[];
+  };
+}
+
+// Collapse a Job's `.status` to a single token: a True `Failed`/`Complete`
+// condition wins, else an active pod reads as Running, else Pending.
+function jobStatus(status: KubeJob["status"]): string {
+  const conds = status?.conditions ?? [];
+  if (conds.some((c) => c.type === "Failed" && c.status === "True")) return "Failed";
+  if (conds.some((c) => c.type === "Complete" && c.status === "True")) return "Complete";
+  return (status?.active ?? 0) > 0 ? "Running" : "Pending";
 }
 
 export interface JobsResult {
@@ -113,8 +149,8 @@ export interface JobsResult {
 
 /**
  * List Kubernetes Jobs across all namespaces on the active context, flattened to
- * `{ name, namespace, created_at }`. Never throws: degrades to an empty list with
- * `error` set so the events feed can still render its other sources.
+ * `{ name, namespace, created_at, status, failed }`. Never throws: degrades to an
+ * empty list with `error` set so the events feed can still render its other sources.
  */
 export function getJobs(): JobsResult {
   const res = runKubectl(["get", "jobs", "-A", "-o", "json"]);
@@ -126,6 +162,8 @@ export function getJobs(): JobsResult {
         name: i.metadata?.name ?? null,
         namespace: i.metadata?.namespace ?? null,
         created_at: i.metadata?.creationTimestamp ?? null,
+        status: jobStatus(i.status),
+        failed: i.status?.failed ?? 0,
       })),
     };
   } catch (e) {

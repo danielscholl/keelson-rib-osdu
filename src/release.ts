@@ -63,6 +63,19 @@ function serviceFromUrl(url: string | null | undefined): string | null {
   return url.match(/\/([^/]+)\/-\/merge_requests\//)?.[1] ?? null;
 }
 
+// Stable decorative pill color per service — the same repo always renders the
+// same hue (djb2 hash → palette slot), mirroring cimpl-agent's New-MRs chips so
+// color disambiguates repos at a glance. A curated subset of the canvas tones:
+// distinct hues with no status-loaded red/yellow, so a repo name never reads as a
+// failure.
+const PROJECT_TONES: Tone[] = ["info", "brand", "accent", "caution", "ok"];
+
+export function projectTone(name: string): Tone {
+  let h = 5381;
+  for (let i = 0; i < name.length; i++) h = ((h << 5) + h) ^ name.charCodeAt(i);
+  return PROJECT_TONES[Math.abs(h) % PROJECT_TONES.length] as Tone;
+}
+
 // Resolve a milestone field (a string, or GitLab's {title|name} object) to a
 // token; null when absent. Exported for the extractor.
 export function milestoneToken(m: unknown): string | null {
@@ -107,7 +120,7 @@ function newMrRows(mrs: ReleaseMr[], now: Date): RowItem[] {
     const service = serviceFromUrl(mr.web_url);
     const age = dayAge(mr.created_at, now);
     const row: RowItem = { icon: ICON_BRANCH, text: `!${mr.iid} — ${mr.title || "untitled MR"}` };
-    if (service) row.chip = { label: service, tone: "neutral" };
+    if (service) row.chip = { label: service, tone: projectTone(service) };
     if (mr.web_url) row.href = mr.web_url;
     if (age != null) row.trailing = `${age}d`;
     rows.push(row);
