@@ -10,8 +10,10 @@ export interface RelatedMr {
   merged_at?: string | null;
 }
 export interface EpicRow {
+  iid?: number | null;
   title?: string | null;
   web_url?: string | null;
+  author?: string | null;
   liveness?: Liveness | string | null;
   last_motion?: string | null;
   total_issue_count?: number | null;
@@ -23,6 +25,8 @@ export interface MrRow {
   state?: string | null;
   draft?: boolean;
   created_at?: string | null;
+  updated_at?: string | null;
+  project_path?: string | null;
   latest_pipeline_status?: string | null;
   detailed_merge_status?: string | null;
 }
@@ -53,9 +57,14 @@ function ageDays(iso: string | null | undefined, now: Date): number | null {
   return t === null ? null : Math.max(0, Math.floor((now.getTime() - t) / DAY_MS));
 }
 
+// Owner is the assignee; when none, fall back to author. `osdu-activity epic
+// list` never populates epic `assignees` (the legacy REST field went null after
+// GitLab's work-item migration), so author is the practical owner signal today.
 function ownerOf(epic: EpicRow): string {
-  const first = (epic.assignees ?? []).find((a) => typeof a === "string" && a.trim() !== "");
-  return first ? first.trim() : "unowned";
+  const assignee = (epic.assignees ?? []).find((a) => typeof a === "string" && a.trim() !== "");
+  if (assignee) return assignee.trim();
+  const author = typeof epic.author === "string" ? epic.author.trim() : "";
+  return author !== "" ? author : "unowned";
 }
 
 // Completion reads tasks first (closed/total issues), falls back to merged/total
@@ -117,7 +126,11 @@ type StatItem = { label: string; value: string | number; sub?: string; tone?: To
 function buildKpis(mrs: MrRow[], now: Date): StatItem[] {
   const open = mrs.filter((m) => (m.state ?? "opened") === "opened" && !m.draft);
   const drafts = mrs.filter((m) => m.draft);
-  const stale = open.filter((m) => (ageDays(m.created_at, now) ?? 0) > STALE_MR_DAYS);
+  // Staleness = no recent activity. The mr CLI returns updated_at null, so the
+  // bundle backfills it via GraphQL; fall back to created_at when absent.
+  const stale = open.filter(
+    (m) => (ageDays(m.updated_at ?? m.created_at, now) ?? 0) > STALE_MR_DAYS,
+  );
   const blocked = open.filter((m) => (m.latest_pipeline_status ?? "").toLowerCase() === "failed");
   const ready = open.filter(
     (m) =>
@@ -247,12 +260,12 @@ export function buildFeaturesBoard(epics: EpicRow[], mrs: MrRow[], now: Date): C
   const movers = buildMovers(epics, now);
   const stalled = buildStalled(epics, now);
   const sections: CanvasBoardView["sections"] = [{ kind: "stats", items: buildKpis(mrs, now) }];
-  if (movers.length > 0) sections.push({ kind: "cards", title: "Movers · active", items: movers });
+  if (movers.length > 0) sections.push({ kind: "cards", title: "Movers (active)", items: movers });
   if (stalled.length > 0)
-    sections.push({ kind: "cards", title: "Stalled · quiet", items: stalled });
+    sections.push({ kind: "cards", title: "Stalled (quiet)", items: stalled });
   return {
     view: "board",
-    title: "Features · Venus",
+    title: "Features",
     header: { chip: "VENUS", segments: pulse(epics) },
     sections,
   };

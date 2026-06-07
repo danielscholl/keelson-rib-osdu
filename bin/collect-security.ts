@@ -1,31 +1,28 @@
 #!/usr/bin/env bun
 /**
  * Security collector — the producer behind the `osdu-security` workflow. Shapes
- * three one-shot sources into a canvas board-view JSON object and prints that
+ * four one-shot sources into a canvas board-view JSON object and prints that
  * (and nothing else) to stdout:
  *   - `osdu-quality release --output json` — per-service vulnerability counts +
  *     Sonar security ratings (pulse, KPI tiles, offenders, low-rating cards).
  *   - `glab api graphql` group vulnerabilities — per-CVE detail (aged criticals,
  *     quick wins). `glab` handles GitLab auth.
  *   - OSV.dev `/v1/vulns/{id}` — fix versions for quick wins (public, no auth).
- *   - `osdu-activity mr --output json` — open vuln-labeled MRs (Vuln MRs tile).
+ *   - the shared Venus bundle — open vuln-labeled MRs, core-scoped (Vuln MRs tile).
  * Each source degrades independently; the board always renders what it has.
  */
+import { GITLAB_GROUP, loadVenusBundle, runGraphql } from "../src/activity.ts";
 import type { ReleaseReport } from "../src/quality.ts";
 import {
   buildSecurityBoard,
+  extractSecurityMrs,
   extractVulns,
   osvFixKey,
   parseOsvFixed,
   type SecurityInputs,
-  type SecurityMr,
   type VulnRecord,
 } from "../src/security.ts";
 
-const GITLAB_GROUP = process.env.KEELSON_OSDU_GITLAB_GROUP ?? "osdu/platform";
-// glab's default host is gitlab.com; the OSDU group lives on the community
-// instance, so the vulnerabilities query must target it explicitly.
-const GITLAB_HOST = process.env.KEELSON_OSDU_GITLAB_HOST ?? "community.opengroup.org";
 const VULN_PAGE_SIZE = 100;
 const MAX_VULN_PAGES = 20;
 const OSV_BATCH = 8;
@@ -66,93 +63,25 @@ interface VulnConnection {
   nodes?: unknown[];
 }
 
-function runGlab(query: string, timeoutMs = 30_000): VulnConnection | { error: string } {
-  try {
-    const proc = Bun.spawnSync(
-      ["glab", "api", "graphql", "--hostname", GITLAB_HOST, "-f", `query=${query}`],
-      { stdout: "pipe", stderr: "pipe", timeout: timeoutMs },
-    );
-    if (proc.exitCode !== 0) {
-      const stderr = proc.stderr.toString().trim().split("\n").pop() ?? "";
-      return { error: stderr || `glab exited ${proc.exitCode}` };
-    }
-    const body = JSON.parse(proc.stdout.toString()) as {
-      data?: { group?: { vulnerabilities?: VulnConnection } | null };
-      errors?: unknown;
-    };
-    if (body.errors) return { error: `graphql: ${JSON.stringify(body.errors).slice(0, 200)}` };
-    const conn = body.data?.group?.vulnerabilities;
-    return conn ?? { nodes: [] };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
 function collectVulns(): VulnRecord[] {
   const nodes: unknown[] = [];
   let cursor: string | null = null;
   for (let page = 0; page < MAX_VULN_PAGES; page++) {
-    const res = runGlab(vulnQuery(GITLAB_GROUP, cursor));
-    if ("error" in res) {
-      note(`vulns degraded: ${res.error}`);
+    const res = runGraphql(vulnQuery(GITLAB_GROUP, cursor));
+    if (res.error || !res.json) {
+      note(`vulns degraded: ${res.error ?? "no data"}`);
       break;
     }
-    nodes.push(...(res.nodes ?? []));
-    if (!res.pageInfo?.hasNextPage || !res.pageInfo.endCursor) break;
-    cursor = res.pageInfo.endCursor;
+    const conn = (res.json as { data?: { group?: { vulnerabilities?: VulnConnection } | null } })
+      ?.data?.group?.vulnerabilities;
+    nodes.push(...(conn?.nodes ?? []));
+    if (!conn?.pageInfo?.hasNextPage || !conn.pageInfo.endCursor) break;
+    cursor = conn.pageInfo.endCursor;
     if (page === MAX_VULN_PAGES - 1) {
       note(`vulns: hit the ${MAX_VULN_PAGES}-page cap — CVE detail may underreport`);
     }
   }
   return extractVulns(nodes);
-}
-
-function collectMrs(timeoutMs = 180_000): SecurityMr[] {
-  try {
-    const proc = Bun.spawnSync(
-      [
-        "osdu-activity",
-        "mr",
-        "--milestone",
-        "Venus",
-        "--output",
-        "json",
-        "--include-draft",
-        "--limit",
-        "1000",
-      ],
-      { stdout: "pipe", stderr: "pipe", timeout: timeoutMs },
-    );
-    if (proc.exitCode !== 0) {
-      const stderr = proc.stderr.toString().trim().split("\n").pop() ?? "";
-      note(`mrs degraded: ${stderr || `osdu-activity exited ${proc.exitCode}`}`);
-      return [];
-    }
-    const raw = JSON.parse(proc.stdout.toString().replace(/\p{Cc}/gu, " ")) as {
-      data?: { projects?: unknown };
-    };
-    const projects = Array.isArray(raw.data?.projects) ? raw.data.projects : [];
-    return projects.flatMap((p) => {
-      const proj = p as { project_path?: string | null; merge_requests?: unknown };
-      const path = proj.project_path ?? null;
-      const mrs = Array.isArray(proj.merge_requests) ? proj.merge_requests : [];
-      return mrs.map((m) => {
-        const mr = m as SecurityMr;
-        return {
-          state: mr.state,
-          draft: mr.draft,
-          labels: mr.labels,
-          iid: mr.iid,
-          detailed_merge_status: mr.detailed_merge_status,
-          latest_pipeline_status: mr.latest_pipeline_status,
-          project_path: path,
-        } satisfies SecurityMr;
-      });
-    });
-  } catch (e) {
-    note(`mrs degraded: ${e instanceof Error ? e.message : String(e)}`);
-    return [];
-  }
 }
 
 async function collectFixes(vulns: VulnRecord[]): Promise<Map<string, string>> {
@@ -199,9 +128,11 @@ async function collectFixes(vulns: VulnRecord[]): Promise<Map<string, string>> {
   return fixes;
 }
 
+const bundle = loadVenusBundle();
+for (const err of bundle.errors) note(err);
 const report = runOsduQuality();
 const vulns = collectVulns();
-const mrs = collectMrs();
+const mrs = extractSecurityMrs(bundle.mrsRaw);
 const fixes = await collectFixes(vulns);
 
 const inputs: SecurityInputs = { report, vulns, fixes, mrs, now: new Date() };

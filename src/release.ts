@@ -1,4 +1,5 @@
 import type { CanvasBoardView } from "@keelson/shared";
+import { VENUS_CORE } from "./activity.ts";
 import type { FeedRelatedMr } from "./events.ts";
 
 export type Tone = "ok" | "warn" | "error" | "neutral" | "info" | "caution" | "brand" | "accent";
@@ -33,28 +34,6 @@ const DAY_MS = 86_400_000;
 // win reads as a check.
 const ICON_BRANCH = "⎇";
 const ICON_CHECK = "✓";
-
-// A merged MR counts as a platform win only when its project segment is one of
-// the 17 Venus core services — mirrors the cimpl-agent scope list.
-const VENUS_CORE: ReadonlySet<string> = new Set([
-  "partition",
-  "entitlements",
-  "legal",
-  "storage",
-  "indexer-service",
-  "search-service",
-  "file",
-  "schema-service",
-  "notification",
-  "register",
-  "dataset",
-  "secret",
-  "policy",
-  "crs-catalog-service",
-  "crs-conversion-service",
-  "unit-service",
-  "ingestion-workflow",
-]);
 
 type RowItem = {
   icon?: string;

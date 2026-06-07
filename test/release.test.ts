@@ -278,6 +278,25 @@ describe("releaseTrain", () => {
     expect(releaseTrain([])).toBeNull();
     expect(releaseTrain([{ iid: 1 }, { milestone: null }])).toBeNull();
   });
+
+  // The banner regression guard: with --milestone dropped, the all-core fetch
+  // mixes the current release, a few stragglers on the prior one, and many
+  // milestone-less MRs. The plurality (current release) must win and nulls must
+  // not dilute it.
+  test("current-release plurality wins over stragglers and null-milestone MRs", () => {
+    const current = "M27 - Release 0.30 (Venus - Preview 2)";
+    const prior = "M26 - Release 0.29 (Venus - Preview 1)";
+    expect(
+      releaseTrain([
+        { milestone: current },
+        { milestone: current },
+        { milestone: current },
+        { milestone: prior },
+        { milestone: null },
+        { milestone: null },
+      ]),
+    ).toBe(current);
+  });
 });
 
 describe("milestoneToken", () => {
