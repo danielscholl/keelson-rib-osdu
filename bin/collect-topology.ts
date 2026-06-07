@@ -9,7 +9,7 @@
 import { getKustomizations } from "../src/kubectl.ts";
 import { buildTopologyGraph } from "../src/topology.ts";
 
-const result = getKustomizations();
+const result = await getKustomizations();
 if (result.error) {
   // stderr only — stdout must stay pure JSON.
   console.error(`[rib-osdu] topology degraded: ${result.error}`);

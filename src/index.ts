@@ -1,7 +1,15 @@
 import type { CanvasView, Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
 import { canvasViewSchema } from "@keelson/shared";
 import { actionGuardError, hasRealSecret, parseCimplInfoJson } from "./cluster.ts";
+import {
+  CLUSTER_LIFECYCLE_ARGS,
+  type ClusterVerb,
+  runClusterLifecycle,
+  verifyCimplContext,
+} from "./cluster-actions.ts";
+import { asMessage } from "./exec.ts";
 import { clusterFingerprint, currentContext } from "./kubectl.ts";
+import { registerOsduTools } from "./tools.ts";
 
 const CLUSTER_KEY = "rib:osdu:cluster";
 const TOPOLOGY_KEY = "rib:osdu:topology";
@@ -22,17 +30,6 @@ const SECURITY_COLLECTOR = new URL("../bin/collect-security.ts", import.meta.url
 const EVENTS_COLLECTOR = new URL("../bin/collect-events.ts", import.meta.url).pathname;
 const RELEASE_COLLECTOR = new URL("../bin/collect-release.ts", import.meta.url).pathname;
 const WAITING_COLLECTOR = new URL("../bin/collect-waiting.ts", import.meta.url).pathname;
-
-// cimpl lifecycle verbs the ICC actions dispatch to (POST /api/ribs/osdu/action
-// → onAction). Reconcile/Suspend/Resume are reversible; Delete tears down the
-// active context's cluster and is guarded behind the SPA's destructive confirm.
-// `reveal-credential` is handled separately (it reads, not mutates).
-const CLUSTER_ACTION_ARGS: Record<string, string[]> = {
-  reconcile: ["reconcile"],
-  suspend: ["reconcile", "--suspend"],
-  resume: ["reconcile", "--resume"],
-  delete: ["down", "--provider", "current-context"],
-};
 
 // Validate through the canvas view union (not a bare member schema) so the
 // producer-side guard enforces node-id / column-key uniqueness — the same
@@ -77,31 +74,6 @@ async function revealCredential(action: RibAction, ctx: RibContext): Promise<Rib
     return { ok: false, error: `no credential for '${service}'` };
   }
   return { ok: true, data: cred.password };
-}
-
-function asMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
-// Freshly confirm the current context is a CIMPL deployment before Delete.
-// `cimpl info` runs cimpl's own authoritative fingerprint (verify_cimpl_cluster:
-// the cimpl-stack-system GitRepository / cimpl-gateway-config) and exits
-// non-zero on a non-CIMPL context — but a full `cimpl down` does NOT, so gate
-// the irreversible teardown on a fresh successful info probe. Exit 0 is the
-// signal (a partially-installed CIMPL cluster with no endpoints still passes,
-// so cleanup of a broken cluster isn't blocked). Returns an error to refuse
-// with, or null when teardown may proceed.
-async function verifyDeletableCimpl(ctx: RibContext): Promise<string | null> {
-  const res = await ctx.getExec().runText("cimpl", ["info", "--json"], { timeoutMs: 60_000 });
-  if (!res.ok) {
-    return `refusing Delete: the current context (${currentContext() ?? "none"}) is not a confirmed CIMPL deployment — refresh and retry`;
-  }
-  try {
-    parseCimplInfoJson(res.data);
-  } catch (e) {
-    return `refusing Delete: could not parse cimpl info (${asMessage(e)})`;
-  }
-  return null;
 }
 
 const rib: Rib = {
@@ -343,25 +315,30 @@ const rib: Rib = {
     const guard = actionGuardError(payload, currentContext(), clusterFingerprint());
     if (guard) return { ok: false, error: guard };
     if (action.type === "reveal-credential") return revealCredential(action, ctx);
-    const args = CLUSTER_ACTION_ARGS[action.type];
-    if (!args) return { ok: false, error: `unknown action '${action.type}'` };
+    if (!(action.type in CLUSTER_LIFECYCLE_ARGS)) {
+      return { ok: false, error: `unknown action '${action.type}'` };
+    }
+    const verb = action.type as ClusterVerb;
     // Re-verify identity before the irreversible teardown: a context can match
     // yet not be a live CIMPL deployment (e.g. cimpl info degraded at collect
     // time over a reachable non-CIMPL cluster). `cimpl down` would otherwise
     // remove fixed namespaces from whatever cluster is current.
-    if (action.type === "delete") {
-      const denial = await verifyDeletableCimpl(ctx);
-      if (denial) return { ok: false, error: denial };
+    if (verb === "delete") {
+      const denial = await verifyCimplContext(ctx.getExec());
+      if (denial) return { ok: false, error: `refusing Delete: ${denial}` };
     }
     // Teardown waits on Flux pruning + namespace termination — minutes, not the
     // ~2 min a reconcile/suspend needs. A too-short timeout would abort a delete
     // mid-flight and leave the cluster half-removed.
-    const timeoutMs = action.type === "delete" ? 600_000 : 120_000;
-    const res = await ctx.getExec().runText("cimpl", args, { timeoutMs });
-    return res.ok
-      ? { ok: true, data: { ran: `cimpl ${args.join(" ")}` } }
-      : { ok: false, error: res.error };
+    const timeoutMs = verb === "delete" ? 600_000 : 120_000;
+    const res = await runClusterLifecycle(ctx.getExec(), verb, timeoutMs);
+    return res.ok ? { ok: true, data: { ran: res.ran } } : { ok: false, error: res.error };
   },
+
+  // The OSDU domains as chat tools — the same data layer the panels visualize,
+  // plus the reversible cluster-lifecycle verbs. The harness registers what this
+  // returns into the shared tool registry (chat, /api/tools).
+  registerTools: (ctx) => registerOsduTools(ctx),
 
   authStatus: () => {
     const ctx = currentContext();

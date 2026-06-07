@@ -13,7 +13,7 @@ import { loadVenusBundle } from "../src/activity.ts";
 import { extractMergedRelatedMrs } from "../src/events.ts";
 import { buildReleaseBoard, extractMilestoneFilter, extractReleaseMrs } from "../src/release.ts";
 
-const bundle = loadVenusBundle();
+const bundle = await loadVenusBundle();
 for (const err of bundle.errors) console.error(`[rib-osdu] release ${err}`);
 
 const openMrs = extractReleaseMrs(bundle.mrsRaw);

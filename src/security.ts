@@ -1,6 +1,13 @@
-import type { CanvasBoardView } from "@keelson/shared";
-import { serviceOf, VENUS_CORE } from "./activity.ts";
-import type { ReleaseReport, ServiceReport, Tone, VulnCounts } from "./quality.ts";
+import type { CanvasBoardView, RibExec } from "@keelson/shared";
+import { GITLAB_GROUP, loadVenusBundle, runGraphql, serviceOf, VENUS_CORE } from "./activity.ts";
+import { localExec } from "./exec.ts";
+import {
+  fetchReleaseReport,
+  type ReleaseReport,
+  type ServiceReport,
+  type Tone,
+  type VulnCounts,
+} from "./quality.ts";
 
 // Per-CVE detail from GitLab's `vulnerabilities` GraphQL connection, plus the
 // OSV.dev fix-version map. Only the fields the board reads are modeled.
@@ -574,6 +581,121 @@ export function osvFixKey(packageName: string, cveId: string): string {
 // uses `group:artifact`; normalize the separator so the two match.
 function normalizePackageName(name: string): string {
   return name.trim().toLowerCase().replaceAll(":", "/");
+}
+
+// --- fetch ---------------------------------------------------------------
+// The Security board composes four one-shot sources; each degrades independently,
+// pushing a note rather than throwing. Shared by the collector and the
+// `osdu_security` chat tool.
+
+const VULN_PAGE_SIZE = 100;
+const MAX_VULN_PAGES = 20;
+const OSV_BATCH = 8;
+const OSV_TIMEOUT_MS = 4_000;
+const MAX_OSV_LOOKUPS = 400;
+
+function vulnQuery(group: string, cursor: string | null): string {
+  const after = cursor ? `, after: ${JSON.stringify(cursor)}` : "";
+  return `{ group(fullPath: ${JSON.stringify(group)}) { vulnerabilities(state: [DETECTED, CONFIRMED], first: ${VULN_PAGE_SIZE}${after}) { pageInfo { hasNextPage endCursor } nodes { detectedAt severity state webUrl identifiers { externalType externalId } project { fullPath } location { ... on VulnerabilityLocationDependencyScanning { dependency { package { name } version } } ... on VulnerabilityLocationContainerScanning { dependency { package { name } version } } } } } } }`;
+}
+
+interface VulnConnection {
+  pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+  nodes?: unknown[];
+}
+
+async function collectVulns(errors: string[]): Promise<VulnRecord[]> {
+  const nodes: unknown[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < MAX_VULN_PAGES; page++) {
+    const res = await runGraphql(vulnQuery(GITLAB_GROUP, cursor));
+    if (res.error || !res.json) {
+      errors.push(`vulns degraded: ${res.error ?? "no data"}`);
+      break;
+    }
+    const conn = (res.json as { data?: { group?: { vulnerabilities?: VulnConnection } | null } })
+      ?.data?.group?.vulnerabilities;
+    nodes.push(...(conn?.nodes ?? []));
+    if (!conn?.pageInfo?.hasNextPage || !conn.pageInfo.endCursor) break;
+    cursor = conn.pageInfo.endCursor;
+    if (page === MAX_VULN_PAGES - 1) {
+      errors.push(`vulns: hit the ${MAX_VULN_PAGES}-page cap — CVE detail may underreport`);
+    }
+  }
+  return extractVulns(nodes);
+}
+
+async function collectFixes(vulns: VulnRecord[], errors: string[]): Promise<Map<string, string>> {
+  const fixes = new Map<string, string>();
+  // Distinct (package, CVE) pairs needing a fix; the OSV fix is package-specific
+  // (one CVE record can carry fixes for several packages), so we extract per
+  // pair. OSV is queried once per CVE and the body shared across its packages.
+  const pairs = [
+    ...new Map(
+      vulns
+        .filter((v) => v.cve_id && v.package_name)
+        .map((v) => [osvFixKey(v.package_name, v.cve_id), v]),
+    ).values(),
+  ];
+  let cves = [...new Set(pairs.map((v) => v.cve_id))];
+  if (cves.length > MAX_OSV_LOOKUPS) {
+    errors.push(
+      `osv: ${cves.length} CVEs exceeds the ${MAX_OSV_LOOKUPS} lookup cap — quick wins may underreport`,
+    );
+    cves = cves.slice(0, MAX_OSV_LOOKUPS);
+  }
+  const bodies = new Map<string, unknown>();
+  for (let i = 0; i < cves.length; i += OSV_BATCH) {
+    const batch = cves.slice(i, i + OSV_BATCH);
+    const results = await Promise.all(
+      batch.map(async (cve): Promise<[string, unknown]> => {
+        try {
+          const r = await fetch(`https://api.osv.dev/v1/vulns/${encodeURIComponent(cve)}`, {
+            signal: AbortSignal.timeout(OSV_TIMEOUT_MS),
+          });
+          return [cve, r.ok ? await r.json() : null];
+        } catch {
+          return [cve, null];
+        }
+      }),
+    );
+    for (const [cve, body] of results) bodies.set(cve, body);
+  }
+  for (const v of pairs) {
+    if (!bodies.has(v.cve_id)) continue;
+    const fix = parseOsvFixed(bodies.get(v.cve_id), v.package_name);
+    if (fix) fixes.set(osvFixKey(v.package_name, v.cve_id), fix);
+  }
+  return fixes;
+}
+
+export interface SecurityFetchResult {
+  inputs: SecurityInputs;
+  errors: string[];
+}
+
+// Compose the four Security sources into the board inputs: the osdu-quality
+// report (counts + Sonar), per-CVE GitLab detail, OSV fix versions, and the
+// core-scoped vuln MRs from the shared Venus bundle. The three independent
+// sources fetch concurrently; only the OSV fix lookup depends on the vulns.
+export async function fetchSecurityInputs(
+  exec: RibExec = localExec(),
+): Promise<SecurityFetchResult> {
+  const errors: string[] = [];
+  const [bundle, quality, vulnsAll] = await Promise.all([
+    loadVenusBundle(),
+    fetchReleaseReport(exec),
+    collectVulns(errors),
+  ]);
+  errors.push(...bundle.errors);
+  if (quality.error) errors.push(`quality degraded: ${quality.error}`);
+  // Scope CVEs to the core services so the tool result agrees with the board
+  // (buildSecurityBoard applies the same VENUS_CORE filter) and OSV lookups skip
+  // off-core packages.
+  const vulns = vulnsAll.filter((v) => VENUS_CORE.has(serviceOf(v.project_path)));
+  const mrs = extractSecurityMrs(bundle.mrsRaw);
+  const fixes = await collectFixes(vulns, errors);
+  return { inputs: { report: quality.report, vulns, fixes, mrs, now: new Date() }, errors };
 }
 
 // OSV.dev `/v1/vulns/{id}` body → highest published fixed version for the given

@@ -10,8 +10,8 @@ import { loadVenusBundle } from "../src/activity.ts";
 import { buildEventsBoard, extractFeedMrs, extractMergedRelatedMrs } from "../src/events.ts";
 import { getJobs } from "../src/kubectl.ts";
 
-const bundle = loadVenusBundle();
-const jobsRes = getJobs();
+const bundle = await loadVenusBundle();
+const jobsRes = await getJobs();
 for (const err of bundle.errors) console.error(`[rib-osdu] events ${err}`);
 if (jobsRes.error) console.error(`[rib-osdu] events jobs degraded: ${jobsRes.error}`);
 
