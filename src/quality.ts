@@ -49,12 +49,16 @@ export interface ReleaseReport {
 
 // Fetch the one-shot `osdu-quality release` report (auth via GITLAB_TOKEN/glab).
 // Shared by the Quality + Security collectors and the `osdu_quality` chat tool.
-// Degrades to an empty report so every caller still renders/answers.
-export async function fetchReleaseReport(exec: RibExec = localExec()): Promise<ReleaseReport> {
+// Degrades to an empty report with `error` set, so a CLI-missing / auth-expired
+// failure is distinguishable from a genuinely empty report (collectors log it;
+// the tool surfaces it in `notes`).
+export async function fetchReleaseReport(
+  exec: RibExec = localExec(),
+): Promise<{ report: ReleaseReport; error?: string }> {
   const res = await exec.runJSON<ReleaseReport>("osdu-quality", ["release", "--output", "json"], {
     timeoutMs: 120_000,
   });
-  return res.ok ? res.data : { services: [] };
+  return res.ok ? { report: res.data } : { report: { services: [] }, error: res.error };
 }
 
 export type Tone = CanvasTone;

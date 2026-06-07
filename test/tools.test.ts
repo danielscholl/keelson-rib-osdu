@@ -106,10 +106,50 @@ describe("osdu_quality tool", () => {
     const { tctx, emits } = fakeToolCtx();
 
     await tool.execute({}, tctx);
-    // fetchReleaseReport degrades to { services: [] }; the tool still emits a result.
+    // fetchReleaseReport degrades to { services: [] } but the error surfaces in notes,
+    // so an osdu-quality outage is distinguishable from a genuinely empty report.
     const r = results(emits);
     expect(r).toHaveLength(1);
-    expect(JSON.parse(r[0]?.content ?? "{}").report).toEqual({ services: [] });
+    const parsed = JSON.parse(r[0]?.content ?? "{}");
+    expect(parsed.report).toEqual({ services: [] });
+    expect(parsed.notes).toEqual(["quality degraded: down"]);
+  });
+});
+
+describe("osdu_cluster + osdu_topology tools (exec-injected)", () => {
+  function tool(name: string, exec: RibExec) {
+    const t = registerOsduTools(ctxWith(exec)).find((x) => x.name === name);
+    if (!t) throw new Error(`${name} missing`);
+    return t;
+  }
+
+  test("osdu_cluster surfaces every degraded source in notes (not a false all-clear)", async () => {
+    // kubectl context ok, but cimpl info + both readiness reads fail.
+    const { exec } = makeExec({
+      text: (cmd) =>
+        cmd === "kubectl"
+          ? { ok: true, data: "kind-cimpl-test\n" }
+          : { ok: false, error: "cimpl down", code: 1 },
+      json: () => ({ ok: false, error: "no cluster", code: 1 }),
+    });
+    const { tctx, emits } = fakeToolCtx();
+    await tool("osdu_cluster", exec).execute({}, tctx);
+    const out = JSON.parse(results(emits)[0]?.content ?? "{}");
+    expect(out.context).toBe("kind-cimpl-test");
+    expect(out.notes).toEqual(["info: cimpl down", "flux: no cluster", "services: no cluster"]);
+  });
+
+  test("osdu_topology returns kustomizations with the active context", async () => {
+    const { exec } = makeExec({
+      text: () => ({ ok: true, data: "kind-cimpl-test\n" }),
+      json: () => ({ ok: true, data: { items: [{ metadata: { name: "infra" } }] } }),
+    });
+    const { tctx, emits } = fakeToolCtx();
+    await tool("osdu_topology", exec).execute({}, tctx);
+    const out = JSON.parse(results(emits)[0]?.content ?? "{}");
+    expect(out.context).toBe("kind-cimpl-test");
+    expect(out.kustomizations).toHaveLength(1);
+    expect(out.notes).toEqual([]);
   });
 });
 
@@ -120,8 +160,18 @@ describe("osdu_cluster_reconcile tool", () => {
     return t;
   }
 
-  test("without confirm: reports the intended command and runs no exec", async () => {
-    const { exec, calls } = makeExec({ text: () => ({ ok: true, data: "{}" }) });
+  // The fake routes the async context read (kubectl) and the cimpl calls; tests
+  // assert on the cimpl calls specifically. `cimpl` returns the given result.
+  const execFor = (cimpl: (args: string[]) => unknown) =>
+    makeExec({
+      text: (cmd, args) =>
+        cmd === "kubectl" ? { ok: true, data: "kind-cimpl-test\n" } : cimpl(args),
+    });
+  const cimplCalls = (calls: { cmd: string; args: string[] }[]) =>
+    calls.filter((c) => c.cmd === "cimpl").map((c) => c.args.join(" "));
+
+  test("without confirm: reports the intended command and runs no cimpl", async () => {
+    const { exec, calls } = execFor(() => ({ ok: true, data: "{}" }));
     const { tctx, emits } = fakeToolCtx();
 
     await reconcile(exec).execute({ confirm: false }, tctx);
@@ -131,12 +181,13 @@ describe("osdu_cluster_reconcile tool", () => {
     expect(r[0]?.isError).toBeUndefined();
     expect(r[0]?.content).toContain("Would run");
     expect(r[0]?.content).toContain("cimpl reconcile");
-    // Nothing was executed — the confirm gate held.
-    expect(calls).toHaveLength(0);
+    expect(r[0]?.content).toContain("kind-cimpl-test"); // resolved via the injected exec
+    // Nothing was mutated — the confirm gate held (the kubectl context read is not a cimpl call).
+    expect(cimplCalls(calls)).toEqual([]);
   });
 
   test("with confirm on a CIMPL context: verifies then runs reconcile", async () => {
-    const { exec, calls } = makeExec({ text: () => ({ ok: true, data: "{}" }) });
+    const { exec, calls } = execFor(() => ({ ok: true, data: "{}" }));
     const { tctx, emits } = fakeToolCtx();
 
     await reconcile(exec).execute({ confirm: true }, tctx);
@@ -144,14 +195,13 @@ describe("osdu_cluster_reconcile tool", () => {
     const r = results(emits);
     expect(r[0]?.isError).toBeUndefined();
     expect(r[0]?.content).toContain("Ran");
-    expect(calls.map((c) => c.args.join(" "))).toEqual(["info --json", "reconcile"]);
+    expect(cimplCalls(calls)).toEqual(["info --json", "reconcile"]);
   });
 
   test("with confirm on a non-CIMPL context: refuses, runs no mutation", async () => {
-    const { exec, calls } = makeExec({
-      text: (_cmd, args) =>
-        args[0] === "info" ? { ok: false, error: "not cimpl", code: 1 } : { ok: true, data: "{}" },
-    });
+    const { exec, calls } = execFor((args) =>
+      args[0] === "info" ? { ok: false, error: "not cimpl", code: 1 } : { ok: true, data: "{}" },
+    );
     const { tctx, emits } = fakeToolCtx();
 
     await reconcile(exec).execute({ confirm: true }, tctx);
@@ -160,6 +210,6 @@ describe("osdu_cluster_reconcile tool", () => {
     expect(r[0]?.isError).toBe(true);
     expect(r[0]?.content).toContain("Refused");
     // Only the identity probe ran; the lifecycle verb did not.
-    expect(calls.map((c) => c.args.join(" "))).toEqual(["info --json"]);
+    expect(cimplCalls(calls)).toEqual(["info --json"]);
   });
 });

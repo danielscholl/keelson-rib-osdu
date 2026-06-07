@@ -1,5 +1,6 @@
 import type { RibExec } from "@keelson/shared";
 import { parseCimplInfoJson } from "./cluster.ts";
+import { asMessage } from "./exec.ts";
 import { currentContext } from "./kubectl.ts";
 
 // cimpl lifecycle verbs the ICC actions (onAction) and the chat tools dispatch
@@ -13,10 +14,6 @@ export const CLUSTER_LIFECYCLE_ARGS = {
 } as const;
 
 export type ClusterVerb = keyof typeof CLUSTER_LIFECYCLE_ARGS;
-
-function asMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
 
 // Confirm the live current-context is a CIMPL deployment before a mutation.
 // `cimpl info` runs cimpl's own authoritative fingerprint and exits non-zero on

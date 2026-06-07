@@ -7,5 +7,6 @@
  */
 import { buildQualityBoard, fetchReleaseReport } from "../src/quality.ts";
 
-const report = await fetchReleaseReport();
+const { report, error } = await fetchReleaseReport();
+if (error) console.error(`[rib-osdu] quality degraded: ${error}`);
 process.stdout.write(JSON.stringify(buildQualityBoard(report)));

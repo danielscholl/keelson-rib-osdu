@@ -676,19 +676,26 @@ export interface SecurityFetchResult {
 
 // Compose the four Security sources into the board inputs: the osdu-quality
 // report (counts + Sonar), per-CVE GitLab detail, OSV fix versions, and the
-// core-scoped vuln MRs from the shared Venus bundle.
+// core-scoped vuln MRs from the shared Venus bundle. The three independent
+// sources fetch concurrently; only the OSV fix lookup depends on the vulns.
 export async function fetchSecurityInputs(
   exec: RibExec = localExec(),
-  now: Date = new Date(),
 ): Promise<SecurityFetchResult> {
   const errors: string[] = [];
-  const bundle = await loadVenusBundle();
+  const [bundle, quality, vulnsAll] = await Promise.all([
+    loadVenusBundle(),
+    fetchReleaseReport(exec),
+    collectVulns(errors),
+  ]);
   errors.push(...bundle.errors);
-  const report = await fetchReleaseReport(exec);
-  const vulns = await collectVulns(errors);
+  if (quality.error) errors.push(`quality degraded: ${quality.error}`);
+  // Scope CVEs to the core services so the tool result agrees with the board
+  // (buildSecurityBoard applies the same VENUS_CORE filter) and OSV lookups skip
+  // off-core packages.
+  const vulns = vulnsAll.filter((v) => VENUS_CORE.has(serviceOf(v.project_path)));
   const mrs = extractSecurityMrs(bundle.mrsRaw);
   const fixes = await collectFixes(vulns, errors);
-  return { inputs: { report, vulns, fixes, mrs, now }, errors };
+  return { inputs: { report: quality.report, vulns, fixes, mrs, now: new Date() }, errors };
 }
 
 // OSV.dev `/v1/vulns/{id}` body → highest published fixed version for the given

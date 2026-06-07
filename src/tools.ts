@@ -9,9 +9,10 @@ import {
   verifyCimplContext,
 } from "./cluster-actions.ts";
 import { extractFeedMrs, extractMergedRelatedMrs } from "./events.ts";
+import { asMessage } from "./exec.ts";
 import { extractEpics, extractMrs } from "./features.ts";
 import {
-  currentContext,
+  getCurrentContext,
   getHelmReleases,
   getJobs,
   getKustomizations,
@@ -26,12 +27,10 @@ import { composeQueue } from "./waiting.ts";
 // the chat context budget. Truncation is signalled, never silent.
 const MAX_TOOL_RESULT_CHARS = 16_000;
 
-function asMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
+// Compact (not pretty) so the cap carries more data and large payloads aren't
+// fully pretty-printed just to be sliced away.
 function boundedJson(data: unknown): string {
-  const full = JSON.stringify(data, null, 2);
+  const full = JSON.stringify(data);
   if (full.length <= MAX_TOOL_RESULT_CHARS) return full;
   const omitted = full.length - MAX_TOOL_RESULT_CHARS;
   return `${full.slice(0, MAX_TOOL_RESULT_CHARS)}\n…(truncated — ${omitted} more chars; ask for a narrower slice)`;
@@ -42,7 +41,9 @@ function emitResult(ctx: ToolContext, content: string, isError = false): void {
 }
 
 // A read tool: fetch the live rows behind a panel, emit them as bounded JSON.
-// Never throws — a degraded source surfaces as an error tool_result.
+// Never throws — a degraded source surfaces as an error tool_result. The fetched
+// result is always emitted (no abort early-return): suppressing the emit would
+// make a cancelled read look like an empty-but-successful result to the model.
 function readTool(
   name: string,
   description: string,
@@ -55,9 +56,7 @@ function readTool(
     state_changing: false,
     async execute(_input, ctx) {
       try {
-        const data = await fetch();
-        if (ctx.abortSignal.aborted) return;
-        emitResult(ctx, boundedJson(data));
+        emitResult(ctx, boundedJson(await fetch()));
       } catch (e) {
         emitResult(ctx, `${name} failed: ${asMessage(e)}`, true);
       }
@@ -88,7 +87,7 @@ function lifecycleTool(exec: RibExec, verb: ClusterVerb, action: string): ToolDe
     async execute(input, ctx) {
       const parsed = confirmSchema.safeParse(input);
       const confirm = parsed.success && parsed.data.confirm === true;
-      const context = currentContext();
+      const context = await getCurrentContext(exec);
       if (!confirm) {
         emitResult(
           ctx,
@@ -96,13 +95,15 @@ function lifecycleTool(exec: RibExec, verb: ClusterVerb, action: string): ToolDe
         );
         return;
       }
-      if (ctx.abortSignal.aborted) return;
       try {
         const denial = await verifyCimplContext(exec);
         if (denial) {
           emitResult(ctx, `Refused: ${denial}`, true);
           return;
         }
+        // The exec can't cancel an in-flight cimpl run, so the most we can do is
+        // not START the mutation if the turn was cancelled during verification.
+        if (ctx.abortSignal.aborted) return;
         const res = await runClusterLifecycle(exec, verb, 120_000);
         if (res.ok) {
           emitResult(
@@ -129,7 +130,10 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
     readTool(
       "osdu_quality",
       "Use when the user asks about platform release quality, test pass rates, Sonar grades, coverage, or which services are failing. Returns the live `osdu-quality release` report: per-service acceptance/unit pass rates, coverage, reliability/security/maintainability grades, and vulnerability counts. Read-only. NOT for changing pipelines or merging.",
-      async () => ({ report: await fetchReleaseReport(exec) }),
+      async () => {
+        const { report, error } = await fetchReleaseReport(exec);
+        return { report, notes: error ? [`quality degraded: ${error}`] : [] };
+      },
     ),
     readTool(
       "osdu_security",
@@ -174,8 +178,7 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
       "osdu_events",
       "Use when the user asks what just happened or for recent platform + cluster motion. Returns newest-first open/merged MRs (PLATFORM) and recent kubectl Jobs (CLUSTER). Read-only. NOT for changing cluster state or merging.",
       async () => {
-        const b = await loadVenusBundle();
-        const jobs = await getJobs(exec);
+        const [b, jobs] = await Promise.all([loadVenusBundle(), getJobs(exec)]);
         return {
           openMrs: extractFeedMrs(b.mrsRaw),
           mergedMrs: extractMergedRelatedMrs(b.epicsRaw),
@@ -188,10 +191,17 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
       "osdu_waiting",
       "Use when the user asks what needs their attention, their queue, or what they're blocking. Returns the operator's personal queue: their MRs with a failed pipeline / changes requested / ready to merge, MRs awaiting their review, not-ready Flux resources, and failed load jobs — priority-sorted. Read-only. NOT for merging, approving, or reconciling.",
       async () => {
-        const mrs = await fetchMyMergeRequests();
-        const k = await getKustomizations(undefined, exec);
-        const h = await getHelmReleases(exec);
-        const j = await getJobs(exec);
+        const [mrs, k, h, j] = await Promise.all([
+          fetchMyMergeRequests(),
+          getKustomizations(undefined, exec),
+          getHelmReleases(exec),
+          getJobs(exec),
+        ]);
+        const notes = [
+          k.error && `kustomizations: ${k.error}`,
+          h.error && `helmreleases: ${h.error}`,
+          j.error && `jobs: ${j.error}`,
+        ].filter((n): n is string => Boolean(n));
         return {
           queue: composeQueue({
             mrs,
@@ -200,6 +210,7 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
             jobs: j.jobs,
             now: new Date(),
           }),
+          notes,
         };
       },
     ),
@@ -207,11 +218,18 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
       "osdu_cluster",
       "Use when the user asks about the CIMPL dev cluster's health, access, or where a service/portal is. Returns the live kubectl context, Flux/HelmRelease readiness, and sanitized `cimpl info` access data (endpoints + internal services + which services have credentials — passwords are never returned). Read-only. NOT for creating, deleting, or reconciling the cluster (use the lifecycle tools).",
       async () => {
-        const { info, error } = await fetchClusterInfo(exec);
-        const context = currentContext();
-        const flux = await getReadiness("kustomizations", ["-n", "flux-system"], exec);
-        const services = await getReadiness("helmreleases", ["-A"], exec);
-        return { context, info, flux, services, notes: error ? [`info: ${error}`] : [] };
+        const [{ info, error }, context, flux, services] = await Promise.all([
+          fetchClusterInfo(exec),
+          getCurrentContext(exec),
+          getReadiness("kustomizations", ["-n", "flux-system"], exec),
+          getReadiness("helmreleases", ["-A"], exec),
+        ]);
+        const notes = [
+          error && `info: ${error}`,
+          flux.error && `flux: ${flux.error}`,
+          services.error && `services: ${services.error}`,
+        ].filter((n): n is string => Boolean(n));
+        return { context, info, flux, services, notes };
       },
     ),
     readTool(

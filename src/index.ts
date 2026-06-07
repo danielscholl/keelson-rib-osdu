@@ -7,6 +7,7 @@ import {
   runClusterLifecycle,
   verifyCimplContext,
 } from "./cluster-actions.ts";
+import { asMessage } from "./exec.ts";
 import { clusterFingerprint, currentContext } from "./kubectl.ts";
 import { registerOsduTools } from "./tools.ts";
 
@@ -73,10 +74,6 @@ async function revealCredential(action: RibAction, ctx: RibContext): Promise<Rib
     return { ok: false, error: `no credential for '${service}'` };
   }
   return { ok: true, data: cred.password };
-}
-
-function asMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }
 
 const rib: Rib = {

@@ -35,6 +35,15 @@ export function currentContext(): string | null {
   return ctx.length > 0 ? ctx : null;
 }
 
+// Async variant for the in-server tool/fetch path, so a chat tool reads the
+// active context through RibExec instead of a synchronous spawn on the loop.
+export async function getCurrentContext(exec: RibExec = localExec()): Promise<string | null> {
+  const res = await exec.runText("kubectl", ["config", "current-context"], { timeoutMs: 5_000 });
+  if (!res.ok) return null;
+  const ctx = res.data.trim();
+  return ctx.length > 0 ? ctx : null;
+}
+
 // A stable per-cluster identity that survives nothing but the cluster's own
 // lifetime: the kube-system namespace UID is created with the cluster and is
 // reassigned when it's recreated. Used to bind a board's destructive actions to
@@ -66,7 +75,7 @@ export async function getKustomizations(
   namespace = "flux-system",
   exec: RibExec = localExec(),
 ): Promise<KustomizationsResult> {
-  const context = currentContext();
+  const context = await getCurrentContext(exec);
   const res = await exec.runJSON<{ items?: FluxKustomization[] }>(
     "kubectl",
     ["get", "kustomizations", "-n", namespace, "-o", "json"],

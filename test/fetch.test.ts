@@ -35,26 +35,30 @@ export function makeExec(opts: ExecOpts): { exec: RibExec; calls: FakeCall[] } {
 describe("fetchReleaseReport", () => {
   test("runs the osdu-quality release CLI and returns the parsed report", async () => {
     const { exec, calls } = makeExec({ json: () => ({ ok: true, data: report }) });
-    const r = await fetchReleaseReport(exec);
+    const { report: r, error } = await fetchReleaseReport(exec);
     expect((r.services ?? []).length).toBeGreaterThan(0);
+    expect(error).toBeUndefined();
     expect(calls[0]).toEqual({ cmd: "osdu-quality", args: ["release", "--output", "json"] });
   });
 
-  test("degrades to an empty report when the CLI fails", async () => {
+  test("degrades to an empty report WITH an error when the CLI fails", async () => {
     const { exec } = makeExec({ json: () => ({ ok: false, error: "boom", code: 1 }) });
-    expect(await fetchReleaseReport(exec)).toEqual({ services: [] });
+    // The error channel distinguishes a real failure from a genuinely empty report.
+    expect(await fetchReleaseReport(exec)).toEqual({ report: { services: [] }, error: "boom" });
   });
 });
 
 describe("getKustomizations", () => {
   test("returns the parsed items with the active context", async () => {
     const { exec, calls } = makeExec({
+      text: () => ({ ok: true, data: "kind-cimpl-test\n" }),
       json: () => ({ ok: true, data: { items: [{ metadata: { name: "infra" } }] } }),
     });
     const r = await getKustomizations(undefined, exec);
     expect(r.kustomizations).toHaveLength(1);
     expect(r.error).toBeUndefined();
-    expect(calls[0]?.args).toContain("kustomizations");
+    expect(r.context).toBe("kind-cimpl-test");
+    expect(calls.some((c) => c.args.includes("kustomizations"))).toBe(true);
   });
 
   test("degrades to an empty list with an error on failure", async () => {
