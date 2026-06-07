@@ -1,78 +1,26 @@
 #!/usr/bin/env bun
 /**
  * Release Train collector — the producer behind the `osdu-release` workflow.
- * Shells `osdu-activity mr` (open MRs, for the milestone identity + the New
- * Merge Requests queue) and `osdu-activity epic list` (merged MRs ride epic
- * `related_mrs`, the only source carrying merged_at, for Platform Wins), shapes
- * them into a Release Train board, and prints that (and nothing else) to stdout.
- * Degrades to a valid board when a source is missing or errors.
+ * Reads the shared Venus bundle: open MRs (for the milestone identity + the New
+ * Merge Requests queue) and merged MRs that ride epic `related_mrs` (the only
+ * source carrying merged_at, for Platform Wins). Shapes them into a Release Train
+ * board and prints that (and nothing else) to stdout. The active milestone is the
+ * most-common token across open MRs (the CLI no longer pins it server-side, so
+ * the bundle's all-core fetch makes the plurality correct). Degrades to a valid
+ * board when a source errors.
  */
+import { loadVenusBundle } from "../src/activity.ts";
 import { extractMergedRelatedMrs } from "../src/events.ts";
 import { buildReleaseBoard, extractMilestoneFilter, extractReleaseMrs } from "../src/release.ts";
 
-// `osdu-activity` can emit unescaped control characters (raw newlines in MR /
-// epic titles) that JSON.parse rejects; strip them before parsing.
-function parseLenient(stdout: string): unknown {
-  return JSON.parse(stdout.replace(/\p{Cc}/gu, " "));
-}
+const bundle = loadVenusBundle();
+for (const err of bundle.errors) console.error(`[rib-osdu] release ${err}`);
 
-function runActivity(args: string[], timeoutMs = 180_000): { json?: unknown; error?: string } {
-  try {
-    const proc = Bun.spawnSync(["osdu-activity", ...args], {
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: timeoutMs,
-    });
-    if (proc.exitCode !== 0) {
-      const stderr = proc.stderr.toString().trim().split("\n").pop() ?? "";
-      return {
-        error:
-          stderr.length > 0 ? stderr : `osdu-activity ${args.join(" ")} exited ${proc.exitCode}`,
-      };
-    }
-    return { json: parseLenient(proc.stdout.toString()) };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-const MR_LIMIT = 1000;
-const EPIC_LIMIT = 500;
-const VENUS = "Venus";
-
-// Open MRs (default state) — carry created_at and the milestone token.
-const mrsRes = runActivity([
-  "mr",
-  "--milestone",
-  VENUS,
-  "--output",
-  "json",
-  "--limit",
-  String(MR_LIMIT),
-]);
-// Merged MRs ride epic related_mrs (the only source with merged_at).
-const epicsRes = runActivity([
-  "epic",
-  "list",
-  "--label",
-  VENUS,
-  "--output",
-  "json",
-  "--limit",
-  String(EPIC_LIMIT),
-]);
-
-for (const [name, err] of [
-  ["mrs", mrsRes.error],
-  ["epics", epicsRes.error],
-] as const) {
-  // stderr only — stdout must stay pure JSON.
-  if (err) console.error(`[rib-osdu] release ${name} degraded: ${err}`);
-}
-
-const openMrs = mrsRes.json ? extractReleaseMrs(mrsRes.json) : [];
-const release = mrsRes.json ? extractMilestoneFilter(mrsRes.json) : null;
-const mergedMrs = epicsRes.json ? extractMergedRelatedMrs(epicsRes.json) : [];
+const openMrs = extractReleaseMrs(bundle.mrsRaw);
+// Null without a server-side --milestone filter; buildReleaseBoard falls back to
+// the most-common milestone across the open MRs.
+const release = extractMilestoneFilter(bundle.mrsRaw);
+const mergedMrs = extractMergedRelatedMrs(bundle.epicsRaw);
 
 process.stdout.write(
   JSON.stringify(buildReleaseBoard({ openMrs, mergedMrs, release, now: new Date() })),

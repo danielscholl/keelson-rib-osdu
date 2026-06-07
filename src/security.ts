@@ -1,4 +1,5 @@
 import type { CanvasBoardView } from "@keelson/shared";
+import { serviceOf, VENUS_CORE } from "./activity.ts";
 import type { ReleaseReport, ServiceReport, Tone, VulnCounts } from "./quality.ts";
 
 // Per-CVE detail from GitLab's `vulnerabilities` GraphQL connection, plus the
@@ -26,28 +27,32 @@ export interface SecurityMr {
   latest_pipeline_status?: string | null;
 }
 
-// The 17 Venus core services — mirrors cimpl-agent's bridge scope so the lane's
-// "in core" counts match the upstream dashboard. Off-core projects (DDMS, etc.)
-// stay out of the KPI/Vuln-MR totals.
-const VENUS_CORE: ReadonlySet<string> = new Set([
-  "partition",
-  "entitlements",
-  "legal",
-  "storage",
-  "indexer-service",
-  "search-service",
-  "file",
-  "schema-service",
-  "notification",
-  "register",
-  "dataset",
-  "secret",
-  "policy",
-  "crs-catalog-service",
-  "crs-conversion-service",
-  "unit-service",
-  "ingestion-workflow",
-]);
+// Flatten the bundle MR envelope (already core-scoped, project_path-stamped) to
+// the fields the Vuln-MRs tile reads.
+export function extractSecurityMrs(raw: unknown): SecurityMr[] {
+  const projects = (raw as { data?: { projects?: unknown } } | null)?.data?.projects;
+  if (!Array.isArray(projects)) return [];
+  const out: SecurityMr[] = [];
+  for (const p of projects) {
+    const proj = p as { project_path?: string | null; merge_requests?: unknown };
+    const path = proj.project_path ?? null;
+    const mrs = Array.isArray(proj.merge_requests) ? proj.merge_requests : [];
+    for (const m of mrs) {
+      if (!m || typeof m !== "object") continue;
+      const mr = m as SecurityMr;
+      out.push({
+        state: mr.state,
+        draft: mr.draft,
+        labels: mr.labels,
+        iid: mr.iid,
+        detailed_merge_status: mr.detailed_merge_status,
+        latest_pipeline_status: mr.latest_pipeline_status,
+        project_path: mr.project_path ?? path,
+      });
+    }
+  }
+  return out;
+}
 
 const OFFENDERS_CAP = 8;
 const AGED_CRITICALS_CAP = 8;
@@ -100,11 +105,6 @@ function parseMs(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const t = Date.parse(iso);
   return Number.isFinite(t) ? t : null;
-}
-
-function serviceFromPath(projectPath: string | null | undefined): string {
-  if (!projectPath) return "";
-  return projectPath.split("/").pop() ?? "";
 }
 
 function totals(v: VulnCounts | null | undefined): { crit: number; high: number; medium: number } {
@@ -211,7 +211,7 @@ function buildVulnMrTile(mrs: SecurityMr[]): StatItem {
   let draft = 0;
   let blocked = 0;
   for (const mr of mrs) {
-    if (!VENUS_CORE.has(serviceFromPath(mr.project_path))) continue;
+    if (!VENUS_CORE.has(serviceOf(mr.project_path))) continue;
     if ((mr.state ?? "opened") !== "opened") continue;
     if (!(mr.labels ?? []).some((l) => VULN_MR_LABELS.has(l.trim().toLowerCase()))) continue;
     const key = `${mr.project_path}#${mr.iid}`;
@@ -310,7 +310,7 @@ function buildAgedCriticals(vulns: VulnRecord[], now: Date, agedDays: number): C
     .slice(0, AGED_CRITICALS_CAP)
     .map(({ v }) => {
       const pkg = v.current_version ? `${v.package_name} ${v.current_version}` : v.package_name;
-      const svc = serviceFromPath(v.project_path);
+      const svc = serviceOf(v.project_path);
       // The CVE id reads as a red mono identifier; the service chip takes a
       // hash-stable hue. Age lives in the section header, not per-row.
       return {
@@ -426,7 +426,7 @@ function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardIt
     }
     if (critCves.size + highCves.size + medCves.size === 0) continue;
 
-    const scope = [...new Set(members.map((m) => serviceFromPath(m.project_path)).filter(Boolean))]
+    const scope = [...new Set(members.map((m) => serviceOf(m.project_path)).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b))
       .join(", ");
     const url = members.find((m) => fixes.get(osvFixKey(pkg, m.cve_id)) && m.web_url)?.web_url;
@@ -470,7 +470,7 @@ export function buildSecurityBoard(inputs: SecurityInputs): CanvasBoardView {
   // The group GraphQL query returns CVEs across every osdu/platform project;
   // scope them to core so the CVE sections agree with the core-scoped KPI tiles
   // and offenders (both fed by the core-only release report).
-  const vulns = (inputs.vulns ?? []).filter((v) => VENUS_CORE.has(serviceFromPath(v.project_path)));
+  const vulns = (inputs.vulns ?? []).filter((v) => VENUS_CORE.has(serviceOf(v.project_path)));
   const fixes = inputs.fixes ?? new Map<string, string>();
   const mrs = inputs.mrs ?? [];
   const now = inputs.now ?? new Date();

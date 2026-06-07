@@ -11,10 +11,10 @@ const board = buildFeaturesBoard(epics, mrs, NOW);
 
 const statsSection = board.sections.find((s) => s.kind === "stats");
 const moversSection = board.sections.find(
-  (s) => s.kind === "cards" && s.title === "Movers · active",
+  (s) => s.kind === "cards" && s.title === "Movers (active)",
 );
 const stalledSection = board.sections.find(
-  (s) => s.kind === "cards" && s.title === "Stalled · quiet",
+  (s) => s.kind === "cards" && s.title === "Stalled (quiet)",
 );
 
 const kpi = (label: string) =>
@@ -112,21 +112,80 @@ describe("buildFeaturesBoard edge cases", () => {
 
   test("a no-motion epic is flagged 'no motion', not stale-0d", () => {
     const b = buildFeaturesBoard([{ title: "Dormant", liveness: "dead", assignees: [] }], [], NOW);
-    const stalled = b.sections.find((s) => s.kind === "cards" && s.title === "Stalled · quiet");
+    const stalled = b.sections.find((s) => s.kind === "cards" && s.title === "Stalled (quiet)");
     expect(stalled?.kind).toBe("cards");
     if (stalled?.kind !== "cards") return;
     expect(stalled.items[0]?.pill).toEqual({ label: "DEAD", tone: "error" });
     expect(stalled.items[0]?.reason).toEqual({ label: "why flagged:", text: "no motion, unowned" });
   });
 
+  const moverOwner = (epic: Parameters<typeof buildFeaturesBoard>[0][number]) => {
+    const cards = buildFeaturesBoard([epic], [], NOW).sections.find(
+      (s) => s.kind === "cards" && s.title === "Movers (active)",
+    );
+    return cards?.kind === "cards" ? cards.items[0]?.fields?.at(-1) : undefined;
+  };
+
+  test("owner is the assignee when present", () => {
+    expect(
+      moverOwner({
+        title: "Assigned",
+        liveness: "active",
+        author: "creator",
+        assignees: ["owner"],
+      }),
+    ).toEqual({ value: "@owner", tone: "accent" });
+  });
+
+  test("owner falls back to author when there is no assignee", () => {
+    expect(moverOwner({ title: "Authored", liveness: "active", author: "danielscholl" })).toEqual({
+      value: "@danielscholl",
+      tone: "accent",
+    });
+  });
+
+  test("no assignee and no author reads unowned", () => {
+    expect(moverOwner({ title: "Orphan", liveness: "active", assignees: [] })).toEqual({
+      value: "unowned",
+      tone: "caution",
+    });
+  });
+
   test("missing liveness is non-active in both the pulse and the Stalled cards", () => {
     const b = buildFeaturesBoard([{ title: "No liveness", assignees: ["x"] }], [], NOW);
     expect(b.header?.segments?.find((s) => s.label === "stalled")?.n).toBe(1);
-    const stalled = b.sections.find((s) => s.kind === "cards" && s.title === "Stalled · quiet");
+    const stalled = b.sections.find((s) => s.kind === "cards" && s.title === "Stalled (quiet)");
     expect(stalled?.kind).toBe("cards");
     if (stalled?.kind !== "cards") return;
     expect(stalled.items).toHaveLength(1);
     expect(stalled.items[0]?.pill).toEqual({ label: "QUIET", tone: "info" });
+  });
+
+  test("Stale MR counts last activity (updated_at), falling back to created_at", () => {
+    const staleValue = (mr: Record<string, unknown>) => {
+      const s = buildFeaturesBoard(
+        [],
+        [{ state: "opened", draft: false, ...mr }],
+        NOW,
+      ).sections.find((x) => x.kind === "stats");
+      return s?.kind === "stats" ? s.items.find((i) => i.label === "Stale MR")?.value : undefined;
+    };
+    // Opened 30d ago but updated yesterday → active, not stale.
+    expect(
+      staleValue({
+        created_at: "2026-05-03T00:00:00.000Z",
+        updated_at: "2026-06-01T00:00:00.000Z",
+      }),
+    ).toBe(0);
+    // Opened yesterday but no activity for 30d → stale (updated_at wins).
+    expect(
+      staleValue({
+        created_at: "2026-06-01T00:00:00.000Z",
+        updated_at: "2026-05-03T00:00:00.000Z",
+      }),
+    ).toBe(1);
+    // No updated_at → falls back to created_at (30d ago → stale).
+    expect(staleValue({ created_at: "2026-05-03T00:00:00.000Z" })).toBe(1);
   });
 
   test("the draft sublabel pluralizes", () => {
