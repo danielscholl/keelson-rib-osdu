@@ -355,6 +355,10 @@ export function loadVenusBundle(deps: BundleDeps = {}): VenusBundle {
     String(EPIC_LIMIT),
   ]);
   if (epicsRes.error) errors.push(`epics degraded: ${epicsRes.error}`);
+  // A failed core fetch yields an empty fallback envelope; never cache that —
+  // it would pin every collector to empty data until the TTL, even once the CLI
+  // recovers. The previous good cache (if any) is left to serve out its TTL.
+  const coreFetchFailed = Boolean(mrsRes.error || epicsRes.error);
 
   let mrsRaw: unknown = scopeMrsToCore(mrsRes.json ?? { data: { projects: [] } });
   let epicsRaw: unknown = epicsRes.json ?? { data: { epics: [] } };
@@ -366,7 +370,7 @@ export function loadVenusBundle(deps: BundleDeps = {}): VenusBundle {
   mrsRaw = patchUpdatedAt(mrsRaw, fetchMrUpdatedAt(runGql));
 
   const bundle: VenusBundle = { mrsRaw, epicsRaw, errors };
-  if (cacheDir) writeCache(cacheDir, bundle, now());
+  if (cacheDir && !coreFetchFailed) writeCache(cacheDir, bundle, now());
   return bundle;
 }
 

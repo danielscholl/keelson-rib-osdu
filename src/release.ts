@@ -75,11 +75,14 @@ export function milestoneToken(m: unknown): string | null {
   return null;
 }
 
-// The active release: the most-common milestone token across open MRs, with the
-// first-seen token winning ties. null when no MR carries a milestone.
+// The active release: the most-common milestone token across open non-draft MRs,
+// with the first-seen token winning ties. null when no MR carries a milestone.
+// Drafts are excluded so a batch of draft work on a future/prior milestone can't
+// swing the banner away from the real queue (the shared bundle includes drafts).
 export function releaseTrain(mrs: ReleaseMr[]): string | null {
   const counts = new Map<string, number>();
   for (const mr of mrs) {
+    if (mr.draft) continue;
     if (mr.milestone) counts.set(mr.milestone, (counts.get(mr.milestone) ?? 0) + 1);
   }
   let best: string | null = null;

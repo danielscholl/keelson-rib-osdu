@@ -297,6 +297,17 @@ describe("releaseTrain", () => {
       ]),
     ).toBe(current);
   });
+
+  test("drafts are excluded from the milestone tally", () => {
+    // Two drafts on a future milestone must not outvote the single real MR.
+    expect(
+      releaseTrain([
+        { milestone: "Real", draft: false },
+        { milestone: "Future", draft: true },
+        { milestone: "Future", draft: true },
+      ]),
+    ).toBe("Real");
+  });
 });
 
 describe("milestoneToken", () => {

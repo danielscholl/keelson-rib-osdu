@@ -211,4 +211,25 @@ describe("loadVenusBundle cache", () => {
     loadVenusBundle({ ...base, now: () => 1_000 + 700_000 }); // past TTL → refetch
     expect(fetches).toBe(2);
   });
+
+  test("a degraded fetch is not cached, so the next run retries within TTL", () => {
+    const dir = join(tmpdir(), `rib-osdu-test-${process.pid}-deg-${Date.now()}`);
+    dirs.push(dir);
+    let mode: "fail" | "ok" = "fail";
+    let mrFetches = 0;
+    const runActivity: ActivityRunner = (args) => {
+      if (args[0] === "mr") {
+        mrFetches++;
+        return mode === "fail" ? { error: "cli down" } : { json: mrEnvelope() };
+      }
+      return { json: epicEnvelope() };
+    };
+    const base = { runActivity, runGraphql: fakeGraphql(), cacheDir: dir, ttlMs: 600_000 };
+
+    const degraded = loadVenusBundle({ ...base, now: () => 1_000 });
+    expect(degraded.errors.some((e) => e.includes("mrs degraded"))).toBe(true);
+    mode = "ok";
+    loadVenusBundle({ ...base, now: () => 2_000 }); // within TTL, but nothing cached → refetch
+    expect(mrFetches).toBe(2);
+  });
 });
