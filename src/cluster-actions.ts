@@ -1,6 +1,6 @@
 import type { RibExec } from "@keelson/shared";
+import { errText } from "@keelson/shared";
 import { parseCimplInfoJson } from "./cluster.ts";
-import { asMessage } from "./exec.ts";
 import { currentContext } from "./kubectl.ts";
 
 // cimpl lifecycle verbs the ICC actions (onAction) and the chat tools dispatch
@@ -28,7 +28,7 @@ export async function verifyCimplContext(exec: RibExec): Promise<string | null> 
   try {
     parseCimplInfoJson(res.data);
   } catch (e) {
-    return `could not parse cimpl info (${asMessage(e)})`;
+    return `could not parse cimpl info (${errText(e)})`;
   }
   return null;
 }
