@@ -9,7 +9,3 @@ import { runJSON, runText } from "@keelson/shared/exec";
 export function localExec(): RibExec {
   return { runJSON, runText };
 }
-
-export function asMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}

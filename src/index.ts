@@ -1,5 +1,5 @@
-import type { CanvasView, Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
-import { canvasViewSchema } from "@keelson/shared";
+import type { Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
+import { errText, expectView } from "@keelson/shared";
 import { actionGuardError, hasRealSecret, parseCimplInfoJson } from "./cluster.ts";
 import {
   CLUSTER_LIFECYCLE_ARGS,
@@ -7,7 +7,6 @@ import {
   runClusterLifecycle,
   verifyCimplContext,
 } from "./cluster-actions.ts";
-import { asMessage } from "./exec.ts";
 import { clusterFingerprint, currentContext } from "./kubectl.ts";
 import { registerOsduTools } from "./tools.ts";
 
@@ -30,17 +29,6 @@ const SECURITY_COLLECTOR = new URL("../bin/collect-security.ts", import.meta.url
 const EVENTS_COLLECTOR = new URL("../bin/collect-events.ts", import.meta.url).pathname;
 const RELEASE_COLLECTOR = new URL("../bin/collect-release.ts", import.meta.url).pathname;
 const WAITING_COLLECTOR = new URL("../bin/collect-waiting.ts", import.meta.url).pathname;
-
-// Validate through the canvas view union (not a bare member schema) so the
-// producer-side guard enforces node-id / column-key uniqueness — the same
-// checks the SPA render gate runs — before a frame is ever broadcast.
-function expectView(key: string, kind: CanvasView["view"]) {
-  return (data: unknown): CanvasView => {
-    const view = canvasViewSchema.parse(data);
-    if (view.view !== kind) throw new Error(`${key} expects a ${kind} view`);
-    return view;
-  };
-}
 
 interface CimplCredentialSecret {
   service?: string;
@@ -66,7 +54,7 @@ async function revealCredential(action: RibAction, ctx: RibContext): Promise<Rib
     const parsed = parseCimplInfoJson(res.data) as { credentials?: CimplCredentialSecret[] };
     creds = parsed.credentials ?? [];
   } catch (e) {
-    return { ok: false, error: `failed to parse cimpl output: ${asMessage(e)}` };
+    return { ok: false, error: `failed to parse cimpl output: ${errText(e)}` };
   }
 
   const cred = creds.find((c) => c.service === service);

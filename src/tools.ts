@@ -1,5 +1,5 @@
 import type { RibContext, RibExec, ToolContext, ToolDefinition } from "@keelson/shared";
-import { z } from "@keelson/shared";
+import { errText, z } from "@keelson/shared";
 import { fetchMyMergeRequests, loadVenusBundle } from "./activity.ts";
 import { fetchClusterInfo } from "./cluster.ts";
 import {
@@ -9,7 +9,6 @@ import {
   verifyCimplContext,
 } from "./cluster-actions.ts";
 import { extractFeedMrs, extractMergedRelatedMrs } from "./events.ts";
-import { asMessage } from "./exec.ts";
 import { extractEpics, extractMrs } from "./features.ts";
 import {
   getCurrentContext,
@@ -58,7 +57,7 @@ function readTool(
       try {
         emitResult(ctx, boundedJson(await fetch()));
       } catch (e) {
-        emitResult(ctx, `${name} failed: ${asMessage(e)}`, true);
+        emitResult(ctx, `${name} failed: ${errText(e)}`, true);
       }
     },
   };
@@ -114,7 +113,7 @@ function lifecycleTool(exec: RibExec, verb: ClusterVerb, action: string): ToolDe
           emitResult(ctx, `\`${cmd}\` failed: ${res.error}`, true);
         }
       } catch (e) {
-        emitResult(ctx, `${name} failed: ${asMessage(e)}`, true);
+        emitResult(ctx, `${name} failed: ${errText(e)}`, true);
       }
     },
   };
