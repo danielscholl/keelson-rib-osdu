@@ -157,6 +157,23 @@ CLI (`osdu-quality`, `osdu-activity`, `cimpl info`) plus public CVE lookups (Git
 reimplemented analyzers, no resident sidecar.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the gap taxonomy.
 
+## Acknowledgments
+
+This rib stands on OSDU community tooling. It bundles none of it; its collectors
+shell these CLIs (installed on PATH) and shape their JSON output into generic,
+domain-free Keelson views:
+
+- **[CIMPL Stack](https://community.opengroup.org/osdu/platform/deployment-and-operations/cimpl-stack)**
+  (Apache-2.0): the `cimpl` CLI behind the **Cluster ICC** and **topology** —
+  cluster bootstrap and Flux GitOps for OSDU on Kubernetes. The cluster/topology
+  shaping re-expresses its bridge composers (ported, never imported).
+- **[AI DevOps Agent](https://community.opengroup.org/osdu/ui/ai-devops-agent/community)**
+  (Apache-2.0): the `osdu-activity` and `osdu-quality` CLIs behind the
+  **Quality**, **Features**, and **Security** lanes.
+
+Full attribution lives in [NOTICE](NOTICE).
+
 ## License
 
-Apache-2.0.
+Licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for
+third-party attribution.

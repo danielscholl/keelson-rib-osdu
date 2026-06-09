@@ -10,7 +10,9 @@
     "src",
     "bin",
     "workflows",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "NOTICE"
   ],
   "scripts": {
     "test": "bun test",

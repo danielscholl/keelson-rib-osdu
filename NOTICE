@@ -1,0 +1,35 @@
+@keelson/rib-osdu
+Copyright 2026 Daniel Scholl
+
+Licensed under the Apache License, Version 2.0. See LICENSE for the full text.
+
+This rib re-expresses the OSDU CIMPL "bridge" as a Keelson rib. It bundles none
+of the OSDU toolchain: its collectors shell the community CLIs below (installed
+by the operator on PATH) and shape their JSON output into generic, domain-free
+Keelson canvas views. Attribution to the upstream projects whose tooling and
+vision this rib builds on follows.
+
+==============================================================================
+CIMPL Stack — the `cimpl` CLI (cluster bootstrap + Flux GitOps for OSDU)
+==============================================================================
+
+The Cluster ICC and topology surfaces shell the `cimpl` CLI (`cimpl info`,
+`cimpl reconcile`, `cimpl down`) and read the Flux state it provisions. The
+rib's cluster/topology shaping re-expresses the OSDU CIMPL bridge; its dashboard
+composer logic is near-ported (ported, never imported).
+
+  Project:  CIMPL Stack
+  Source:   https://community.opengroup.org/osdu/platform/deployment-and-operations/cimpl-stack
+  License:  Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+
+==============================================================================
+AI DevOps Agent — the `osdu-activity` and `osdu-quality` CLIs
+==============================================================================
+
+The Quality, Features, and Security lanes shell the OSDU AI DevOps Agent CLIs
+(`osdu-quality release`, `osdu-activity epic`/`mr`) and shape their JSON output
+into boards.
+
+  Project:  AI DevOps Agent (OSDU Community Utilities)
+  Source:   https://community.opengroup.org/osdu/ui/ai-devops-agent/community
+  License:  Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
