@@ -1,7 +1,7 @@
 import type { RibExec } from "@keelson/shared";
 import { errText } from "@keelson/shared";
 import { parseCimplInfoJson } from "./cluster.ts";
-import { currentContext } from "./kubectl.ts";
+import { getCurrentContext } from "./kubectl.ts";
 
 // cimpl lifecycle verbs the ICC actions (onAction) and the chat tools dispatch
 // to. Reconcile/Suspend/Resume are reversible; Delete tears down the current
@@ -23,7 +23,11 @@ export type ClusterVerb = keyof typeof CLUSTER_LIFECYCLE_ARGS;
 export async function verifyCimplContext(exec: RibExec): Promise<string | null> {
   const res = await exec.runText("cimpl", ["info", "--json"], { timeoutMs: 60_000 });
   if (!res.ok) {
-    return `the current context (${currentContext() ?? "none"}) is not a confirmed CIMPL deployment — switch context and retry`;
+    // Read the context through the injected exec (async) — the sync currentContext()
+    // would spawn kubectl on the server loop and, with no reachable cluster, block
+    // to its timeout (and isn't stubbable, so it hung this path's CI test).
+    const ctx = await getCurrentContext(exec);
+    return `the current context (${ctx ?? "none"}) is not a confirmed CIMPL deployment — switch context and retry`;
   }
   try {
     parseCimplInfoJson(res.data);
