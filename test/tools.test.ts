@@ -209,6 +209,10 @@ describe("osdu_cluster_reconcile tool", () => {
     const r = results(emits);
     expect(r[0]?.isError).toBe(true);
     expect(r[0]?.content).toContain("Refused");
+    // The context name in the refusal came through the injected exec ("kind-cimpl-test"),
+    // not a real kubectl spawn — so the refuse path is hermetic and never blocks on an
+    // unreachable cluster (this read used to hang the test to its 5s timeout in CI).
+    expect(r[0]?.content).toContain("kind-cimpl-test");
     // Only the identity probe ran; the lifecycle verb did not.
     expect(cimplCalls(calls)).toEqual(["info --json"]);
   });
