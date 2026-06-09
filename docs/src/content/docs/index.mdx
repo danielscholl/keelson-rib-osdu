@@ -1,0 +1,49 @@
+---
+title: Keelson Rib · OSDU
+description: The OSDU CIMPL bridge as a Keelson rib.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+The `@keelson/rib-osdu` package is the OSDU CIMPL bridge as a
+[Keelson](https://danielscholl.github.io/keelson/) **rib**: a discovery-based
+extension that contributes deterministic workflows whose structured output drives
+live canvas views. The harness stays domain-free; all OSDU and cluster knowledge
+lives here.
+
+These docs mirror the keelson documentation tiers. Keelson documents the generic,
+reusable rib contract; this site documents the concrete OSDU rib that implements
+it.
+
+:::note
+Scaffold in progress. The pages below are placeholders while the documentation
+structure and tooling come up. Content lands tier by tier.
+:::
+
+<CardGrid>
+  <LinkCard
+    title="Concepts"
+    href="concepts/"
+    description="The collector to shaper to snapshot to view pipeline, and the Keelson base it depends on."
+  />
+  <LinkCard
+    title="Guides"
+    href="guides/"
+    description="Task-oriented how-tos: run a collector, point at a cluster, link into a local keelson."
+  />
+  <LinkCard
+    title="Tutorials"
+    href="tutorials/"
+    description="A problem-first learning rail. The capstone is adding a new lane to the rib."
+  />
+  <LinkCard
+    title="Reference"
+    href="reference/"
+    description="The contract tier: surfaces, snapshot keys, collectors, and the view payloads."
+  />
+  <LinkCard
+    title="Design"
+    href="design/"
+    description="Decision records and the Keelson base gaps this rib was built against."
+  />
+</CardGrid>
