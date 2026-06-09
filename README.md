@@ -128,11 +128,20 @@ bun run collect:features | jq .  # shells `osdu-activity epic list` + `mr --outp
 bun run collect:security | jq .  # `osdu-quality release` + `glab` group vulns + OSV fixes
 ```
 
-## Distribution
+## Install into Keelson
 
-For a real install (`bun add @keelson/rib-osdu`), both this package and `@keelson/shared`
-must be published to a registry. `@keelson/shared` is already configured to publish; the
-dev loop above needs no registry.
+Into an installed Keelson (the managed home at `~/.keelson`):
+
+```bash
+keelson rib add osdu     # resolves to github:danielscholl/keelson-rib-osdu
+keelson serve
+```
+
+`@keelson/shared` is provided by the harness as a peer dependency (a single copy
+is shared across the harness and every rib), so it is not fetched separately.
+Live data needs the OSDU toolchain on PATH — `cimpl`, `kubectl`, `osdu-activity`,
+`osdu-quality`, `glab` — plus a reachable cluster and GitLab auth; without them
+the rib still loads and its lanes render empty.
 
 ## Roadmap
 
