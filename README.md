@@ -133,7 +133,7 @@ bun run collect:security | jq .  # `osdu-quality release` + `glab` group vulns +
 Into an installed Keelson (the managed home at `~/.keelson`):
 
 ```bash
-keelson rib add osdu     # resolves to github:danielscholl/keelson-rib-osdu
+keelson rib add https://github.com/danielscholl/keelson-rib-osdu
 keelson serve
 ```
 
