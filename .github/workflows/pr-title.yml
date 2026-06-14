@@ -1,0 +1,44 @@
+name: PR Title
+
+# Squash-merge uses the PR title as the commit subject, so the title — not the
+# individual branch commits — is the real enforcement point for conventional
+# commits. Validate it here; keeping titles conventional keeps history
+# release-ready for when release automation is turned on.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  conventional-title:
+    name: Conventional commit title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate PR title
+        env:
+          # Read through the environment, never interpolated into the script,
+          # so a crafted title can't inject shell.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # Standard conventional-commit types (plus revert).
+          types='feat|fix|perf|refactor|docs|chore|style|test|build|ci|revert'
+          if ! printf '%s' "$PR_TITLE" | grep -qE "^(${types})(\([^)]+\))?!?: .+"; then
+            echo "::error::PR title is not a conventional commit: \"${PR_TITLE}\""
+            {
+              echo "The PR title becomes the squash commit subject."
+              echo ""
+              echo "Expected:  <type>[(scope)][!]: <subject>"
+              echo "Types:     ${types//|/ }"
+              echo "Examples:  fix(cluster): re-verify CIMPL context before delete"
+              echo "           feat(quality): add per-service coverage tiles"
+            } >&2
+            exit 1
+          fi
+          echo "PR title OK: ${PR_TITLE}"
