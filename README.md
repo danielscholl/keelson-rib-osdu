@@ -42,7 +42,7 @@ Into an installed Keelson (the managed home at `~/.keelson`):
 
 ```bash
 keelson rib add https://github.com/danielscholl/keelson-rib-osdu
-keelson serve
+keelson restart
 ```
 
 ## Requirements
