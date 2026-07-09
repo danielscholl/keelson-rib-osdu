@@ -36,6 +36,18 @@ Three design choices keep it honest:
 - **No domain logic in Keelson** — OSDU and CIMPL knowledge stays in the rib.
 - **No trusted React from the rib** — views render through Keelson's canvas primitives.
 
+## Scope
+
+This rib surfaces CIMPL **platform delivery and operations** — cluster health and
+Flux topology, release quality, epic/MR activity, and CVE remediation — as live
+Keelson boards over the OSDU/CIMPL CLIs it already wraps.
+
+The OSDU **data plane** (storage records, schemas, search, entitlements, legal
+tags) is deliberately **out of scope**. That surface is reached through direct
+OSDU platform API access (authenticated gateway calls), not through this rib — so
+the rib stays a thin, sidecar-free view over delivery/ops and does not become a
+general OSDU query engine.
+
 ## Install into Keelson
 
 Into an installed Keelson (the managed home at `~/.keelson`):
