@@ -43,10 +43,10 @@ Flux topology, release quality, epic/MR activity, and CVE remediation — as liv
 Keelson boards over the OSDU/CIMPL CLIs it already wraps.
 
 The OSDU **data plane** (storage records, schemas, search, entitlements, legal
-tags) is deliberately **out of scope**. That surface is served by the OSDU
-platform API toolchain (the CIMPL Stack `osdu-api` tooling), reached directly
-rather than wired into this rib — so the rib stays a thin, sidecar-free view over
-delivery/ops and does not become a general OSDU query engine.
+tags) is deliberately **out of scope**. That surface is reached through direct
+OSDU platform API access (authenticated gateway calls), not through this rib — so
+the rib stays a thin, sidecar-free view over delivery/ops and does not become a
+general OSDU query engine.
 
 ## Install into Keelson
 
