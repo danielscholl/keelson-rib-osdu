@@ -20,5 +20,3 @@
 * **readme:** refresh osdu rib overview and usage ([#32](https://github.com/danielscholl/keelson-rib-osdu/issues/32)) ([87340a8](https://github.com/danielscholl/keelson-rib-osdu/commit/87340a89b4a99be7f23f1d5e51beaac8c30b814f))
 * **readme:** update rib add example to use full URL ([#28](https://github.com/danielscholl/keelson-rib-osdu/issues/28)) ([e4d750a](https://github.com/danielscholl/keelson-rib-osdu/commit/e4d750a7ca353c3597514cd0987c04fa06d3a32c))
 * scaffold Starlight docs site with Pages deploy ([#30](https://github.com/danielscholl/keelson-rib-osdu/issues/30)) ([47697bf](https://github.com/danielscholl/keelson-rib-osdu/commit/47697bf33cff18eff2f504ff51dc3bcbef5c1462))
-
-## Changelog
