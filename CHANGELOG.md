@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.2.0...v0.3.0) (2026-07-09)
+
+
+### Added
+
+* **features:** move VENUS label from header to title ([#52](https://github.com/danielscholl/keelson-rib-osdu/issues/52)) ([a8ddfde](https://github.com/danielscholl/keelson-rib-osdu/commit/a8ddfdedc46c9206872bb6a6a286e1e9ae38a92a))
+
 ## [0.2.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.1.0...v0.2.0) (2026-07-09)
 
 
