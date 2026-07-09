@@ -265,8 +265,8 @@ export function buildFeaturesBoard(epics: EpicRow[], mrs: MrRow[], now: Date): C
     sections.push({ kind: "cards", title: "Stalled (quiet)", items: stalled });
   return {
     view: "board",
-    title: "Features",
-    header: { chip: "VENUS", segments: pulse(epics) },
+    title: "Features · VENUS",
+    header: { segments: pulse(epics) },
     sections,
   };
 }

@@ -38,8 +38,9 @@ describe("buildFeaturesBoard", () => {
     expect(canvasViewSchema.safeParse(board).success).toBe(true);
   });
 
-  test("header carries the VENUS chip and an active/quiet/stalled pulse", () => {
-    expect(board.header?.chip).toBe("VENUS");
+  test("title carries the VENUS release and the header an active/quiet/stalled pulse", () => {
+    expect(board.title).toBe("Features · VENUS");
+    expect(board.header?.chip).toBeUndefined();
     const segs = board.header?.segments ?? [];
     expect(segs.map((s) => s.label)).toEqual(["active", "quiet", "stalled"]);
     expect(segs.find((s) => s.label === "active")?.n).toBe(2);
