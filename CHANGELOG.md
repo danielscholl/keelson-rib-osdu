@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.3.1...v0.4.0) (2026-07-10)
+
+
+### Added
+
+* **docs:** contribute the OSDU docs corpus to keelson_docs ([#57](https://github.com/danielscholl/keelson-rib-osdu/issues/57)) ([9aa79d6](https://github.com/danielscholl/keelson-rib-osdu/commit/9aa79d65abe691dfe11e500237cd164579180e84))
+
 ## [0.3.1](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.3.0...v0.3.1) (2026-07-10)
 
 
