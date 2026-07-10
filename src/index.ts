@@ -68,6 +68,15 @@ const rib: Rib = {
   id: "osdu",
   displayName: "OSDU",
 
+  contributeDocs: () => [
+    {
+      title: "OSDU",
+      summary:
+        "The OSDU rib for Keelson: cluster health and topology, quality, security, releases, features, and events. Covers the collector pipeline, guardrails, install and local-dev guides, and the rib's design.",
+      llmsFullUrl: "https://danielscholl.github.io/keelson-rib-osdu/llms-full.txt",
+    },
+  ],
+
   // Each view binds a rib-namespaced snapshot key to a canvas renderer. The
   // buttons appear on the Ribs page; data arrives when the workflows run.
   views: [
