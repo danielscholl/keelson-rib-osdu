@@ -1,9 +1,36 @@
 ---
 title: Concepts
-description: The mental model for the OSDU rib.
+description: "The mental model for the OSDU rib: the collector pipeline and the guardrails around cluster state and secrets."
+sidebar:
+  label: Overview
+  order: 1
 ---
 
-The concept tier explains the shape of the rib: the collector → shaper → snapshot
-→ view pipeline, and the Keelson base it attaches to.
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
 
-Pages land here as the documentation grows.
+This tier is the mental model behind the rib. It assumes you know the
+[Keelson](https://danielscholl.github.io/keelson/) harness and spends its
+words on what this rib adds: how a domain CLI becomes a live board, and the
+guarantees that hold when the board can act on a real cluster.
+
+<CardGrid>
+  <LinkCard
+    title="The collector pipeline"
+    href="the-collector-pipeline/"
+    description="Workflow to collector to pure builder to fail-closed publish: how every panel gets its data."
+  />
+  <LinkCard
+    title="Guardrails"
+    href="guardrails/"
+    description="Secrets never enter a snapshot, actions are identity-guarded, exec is bounded, views fail closed."
+  />
+</CardGrid>
+
+## Where this rib fits
+
+The rib surfaces CIMPL **platform delivery and operations**: cluster health
+and Flux topology, release quality, epic and MR activity, CVE remediation,
+and your personal review queue. The OSDU **data plane** (storage records,
+schemas, search, entitlements, legal tags) is deliberately out of scope; that
+surface is reached through direct OSDU platform API access, not through this
+rib, so the rib stays a thin, sidecar-free view over delivery and ops.
