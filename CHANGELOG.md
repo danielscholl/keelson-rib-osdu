@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.3.0...v0.3.1) (2026-07-10)
+
+
+### Documentation
+
+* **osdu-rib:** add guardrails and surface reference docs ([#55](https://github.com/danielscholl/keelson-rib-osdu/issues/55)) ([81ab9d0](https://github.com/danielscholl/keelson-rib-osdu/commit/81ab9d0bf9bb0b879ff826306c641e0208bc4feb))
+
 ## [0.3.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.2.0...v0.3.0) (2026-07-09)
 
 
