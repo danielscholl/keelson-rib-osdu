@@ -1,0 +1,98 @@
+---
+title: Surface
+description: "The CIMPL nav surface: every region, the snapshot key and workflow behind it, and its refresh cadence."
+sidebar:
+  order: 2
+---
+
+import { Image } from "astro:assets";
+import iccShot from "../../../assets/screenshots/cluster-icc.png";
+
+The rib contributes one nav surface, **CIMPL**, that composes the lane
+boards into a single tab. This page is the contract for that surface: the
+header, banner, rows, and footer, the workflow bound to each region, and
+its refresh cadence.
+
+The surface has a stable identity:
+
+| Field | Value |
+|---|---|
+| `id` | `cimpl` |
+| `title` | `CIMPL` |
+
+## Layout
+
+Every region binds a snapshot key and the workflow that produces it. The
+cadence is how often the surface re-runs that workflow while the tab is
+open.
+
+| Region | Key | Workflow | Cadence | Collapsible |
+|---|---|---|---|---|
+| Header | `rib:osdu:cluster` | `osdu-cluster` | 10 min | yes, starts collapsed |
+| Banner | `rib:osdu:waiting` | `osdu-waiting` | 10 min | no |
+| Row 1 | `rib:osdu:release` | `osdu-release` | 30 min | no |
+| Row 2, column 1 | `rib:osdu:features` | `osdu-features` | 2 h | no |
+| Row 2, column 2 | `rib:osdu:quality` | `osdu-quality` | 2 h | no |
+| Row 2, column 3 | `rib:osdu:security` | `osdu-security` | 2 h | no |
+| Footer | `rib:osdu:events` | `osdu-events` | 30 min | yes, starts collapsed |
+
+The cadences follow how fast each source actually changes. Cluster state
+and your personal queue move in minutes, so the header and banner refresh
+every ten. The release train and the events feed move with MR traffic
+(thirty minutes). The three lane boards aggregate whole-platform reports
+that change a few times a day, so they refresh every two hours; each lane
+also re-collects on demand when you run its workflow by hand.
+
+### Header: Cluster ICC
+
+The collapsible header is the cluster's health and access strip. Collapsed,
+it shows the board's header pill (Healthy / Degraded / Suspended /
+Unreachable), the context chip, and Flux and service readiness segments.
+Expanded, it adds lifecycle rows, the Reconcile / Suspend / Delete actions,
+and the access grid with copy-on-reveal credentials.
+
+<figure>
+  <Image src={iccShot} alt="The expanded Cluster ICC: lifecycle rows for context, cluster, Flux, and services beside the action buttons, above an access grid of service cards with credential copy buttons." />
+  <figcaption>Figure 1. The expanded Cluster ICC: lifecycle rows and actions, above the curated access grid.</figcaption>
+</figure>
+
+This is the one region that can mutate the cluster; every action it emits
+carries the cluster stamp described in
+[Guardrails](../../concepts/guardrails/).
+
+### Banner: Waiting on You
+
+Your personal queue, priority-sorted: your MRs with a failed pipeline or
+requested changes, MRs awaiting your review, ready-to-merge MRs, not-ready
+Flux resources, and failed load jobs. It sits as the banner because it is
+the one region whose rows demand action from you specifically.
+
+### Rows: Release Train, then the three lanes
+
+Row 1 is the Release Train alone, which promotes it to a lead panel: the
+active milestone as the header chip, the queue of new MRs, and the week's
+platform wins. Row 2 holds the three platform-health lanes side by side:
+Features (movers and stalled epics, MR KPIs), Quality (pass rates, Sonar
+table, test performance), and Security (CVE pulse, aged criticals, quick
+wins).
+
+### Footer: Current Events
+
+A collapsed, newest-first feed of recent motion, each row tagged PLATFORM
+(an opened or merged MR) or CLUSTER (a bootstrap or cron job). It stays
+collapsed by default because it is a catch-up view, not a monitoring one.
+
+## One view outside the surface
+
+The rib declares eight views, but only seven fill CIMPL regions. **Cluster
+Topology** (`rib:osdu:topology`, the Flux dependency graph) stands alone;
+it renders from the Ribs page rather than a CIMPL region.
+
+## Related
+
+- [Snapshot keys](../snapshot-keys/): the keys behind every region here.
+- [Workflows](../workflows/): the collector each region's workflow runs.
+- [Tools and actions](../tools-and-actions/): the action verbs the Cluster
+  ICC header dispatches.
+- [Guardrails](../../concepts/guardrails/): the identity guard on those
+  actions.

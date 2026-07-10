@@ -1,9 +1,36 @@
 ---
 title: Reference
-description: The contract tier for the OSDU rib.
+description: "The contract tier for the OSDU rib: the CIMPL surface, the rib:osdu:* snapshot keys, the workflows, and the tools and actions."
+sidebar:
+  label: Overview
+  order: 1
 ---
 
-The reference tier is the contract: the surfaces, their `rib:osdu:*` snapshot
-keys, the collectors that feed them, and the view payloads they publish.
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
 
-Pages land here as the documentation grows.
+The contract tier: the exact surface, keys, workflows, and verbs the rib
+exposes. Precise and terse; look here when you need the contract, not the
+rationale.
+
+<CardGrid>
+  <LinkCard
+    title="Surface"
+    href="surface/"
+    description="The CIMPL nav surface: every region, its snapshot key, workflow, and refresh cadence."
+  />
+  <LinkCard
+    title="Snapshot keys"
+    href="snapshot-keys/"
+    description="The eight rib:osdu:* keys, the workflow that publishes each, and what it renders."
+  />
+  <LinkCard
+    title="Workflows"
+    href="workflows/"
+    description="The eight collector workflows, the CLI each shells, and the builder that shapes it."
+  />
+  <LinkCard
+    title="Tools and actions"
+    href="tools-and-actions/"
+    description="The chat tools the rib registers and the Cluster ICC action verbs, with their guards."
+  />
+</CardGrid>

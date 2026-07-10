@@ -1,9 +1,32 @@
 ---
 title: Guides
-description: Task-oriented how-tos for operating the OSDU rib.
+description: "Task-oriented how-tos: install the rib, smoke-test the collectors, develop against a local Keelson."
+sidebar:
+  label: Overview
+  order: 1
 ---
 
-The guide tier is task-oriented: run a collector, point the rib at a cluster, and
-link it into a local keelson checkout for development.
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
 
-Pages land here as the documentation grows.
+The guide tier is task-oriented. Each page gets you through one job, in
+order of how you are likely to meet them: install the rib into a Keelson
+you run, prove the data layer works against your toolchain, then set up a
+checkout to work on the rib itself.
+
+<CardGrid>
+  <LinkCard
+    title="Install the rib"
+    href="install-the-rib/"
+    description="Add the rib to a running Keelson, put the OSDU toolchain on PATH, and confirm the CIMPL tab is live."
+  />
+  <LinkCard
+    title="Run the collectors"
+    href="run-the-collectors/"
+    description="Smoke-test any collector directly from the shell, and read its degraded output when a CLI is missing."
+  />
+  <LinkCard
+    title="Develop locally"
+    href="develop-locally/"
+    description="Link a checkout into a local Keelson, run the required checks, and iterate on a lane."
+  />
+</CardGrid>

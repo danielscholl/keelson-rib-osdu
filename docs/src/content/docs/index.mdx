@@ -1,35 +1,53 @@
 ---
 title: Keelson Rib · OSDU
-description: The OSDU CIMPL bridge as a Keelson rib.
+description: "The OSDU CIMPL bridge as a Keelson rib: a live cluster rendered as canvas boards, with zero React shipped into the harness."
 ---
 
 import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+import { Image } from "astro:assets";
+import fullLayout from "../../assets/screenshots/full-layout.png";
 
-The `@keelson/rib-osdu` package is the OSDU CIMPL bridge as a
-[Keelson](https://danielscholl.github.io/keelson/) **rib**: a discovery-based
-extension that contributes deterministic workflows whose structured output drives
-live canvas views. The harness stays domain-free; all OSDU and cluster knowledge
-lives here.
+Operating an OSDU CIMPL cluster means juggling five CLIs: `cimpl` for the
+cluster, `kubectl` for Flux, `osdu-quality` for release health,
+`osdu-activity` for delivery motion, and `glab` for GitLab. Each answers one
+question; none shows the whole platform at once.
 
-These docs mirror the keelson documentation tiers. Keelson documents the generic,
-reusable rib contract; this site documents the concrete OSDU rib that implements
-it.
+This rib turns that toolchain into **one live surface** inside
+[Keelson](https://danielscholl.github.io/keelson/): cluster health and
+lifecycle, the Flux dependency graph, and platform-health lanes for quality,
+features, security, the release train, your personal queue, and recent
+events. Every panel is fed by a deterministic workflow whose collector shells
+one of those CLIs and shapes the JSON with a pure, tested builder.
 
-:::note
-Scaffold in progress. The pages below are placeholders while the documentation
-structure and tooling come up. Content lands tier by tier.
-:::
+<figure>
+  <Image src={fullLayout} alt="The CIMPL surface in Keelson: a Healthy cluster header, a Waiting on You banner, the Release Train, and the Features, Quality, and Security lane boards side by side." />
+  <figcaption>Figure 1. The CIMPL surface: the Cluster ICC header, the Waiting on You banner, the Release Train, and the three lane boards, all published by collector workflows.</figcaption>
+</figure>
+
+Three design choices keep it honest:
+
+- **No sidecar.** Every view is gathered through one-shot CLI invocations;
+  nothing stays resident.
+- **No domain logic in Keelson.** OSDU and CIMPL knowledge lives in the rib;
+  the harness stays domain-free.
+- **No trusted React from the rib.** Views render through Keelson's canvas
+  primitives (`board` and `graph`), never hand-coded UI.
+
+`@keelson/rib-osdu` is a Keelson **rib**: a discovery-based extension that
+attaches through the `Rib` contract from `@keelson/shared`. Keelson's own docs
+cover the generic contract; this site documents the one concrete rib that
+implements it.
 
 <CardGrid>
   <LinkCard
     title="Concepts"
     href="concepts/"
-    description="The collector to shaper to snapshot to view pipeline, and the Keelson base it depends on."
+    description="The collector pipeline and the guardrails: how a CLI becomes a board, and what the rib refuses to do."
   />
   <LinkCard
     title="Guides"
     href="guides/"
-    description="Task-oriented how-tos: run a collector, point at a cluster, link into a local keelson."
+    description="Task-oriented how-tos: install the rib, smoke-test the collectors, develop against a local Keelson."
   />
   <LinkCard
     title="Tutorials"
@@ -39,7 +57,7 @@ structure and tooling come up. Content lands tier by tier.
   <LinkCard
     title="Reference"
     href="reference/"
-    description="The contract tier: surfaces, snapshot keys, collectors, and the view payloads."
+    description="The contract tier: the CIMPL surface, the rib:osdu:* snapshot keys, the workflows, and the tools."
   />
   <LinkCard
     title="Design"
