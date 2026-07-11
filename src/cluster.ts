@@ -443,6 +443,8 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
       type: "switch-context",
       label: "Switch active context",
       glyph: "⇄",
+      // Render the picker always-open so the target select shows directly in the ICC.
+      expanded: true,
       payload: {
         observedCurrent: context,
         observedContexts: switchTargets,
