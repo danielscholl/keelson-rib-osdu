@@ -315,7 +315,9 @@ function buildAccessCards(info: CimplInfo, stamp: ClusterStamp): CardItem[] {
       const count = internal.filter((s) => matchKey(baseName(s.name)) === base).length;
       if (count > 1) card.footnote = `${count} instances`;
     }
-    if (fields.length > 0) card.fields = fields;
+    const pf = portForwardField(svc, base, internal, endpoints);
+    const cardFields = pf ? [pf, ...fields] : fields;
+    if (cardFields.length > 0) card.fields = cardFields;
     cards.push(card);
   }
   return cards;
