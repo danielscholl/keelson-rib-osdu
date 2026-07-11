@@ -401,7 +401,7 @@ describe("osdu-cluster-create workflow bash node argv", () => {
   function runCreateBash(
     inputs: Record<string, string>,
     extraEnv: Record<string, string> = {},
-  ): { args: string[]; privateNet: string } {
+  ): { args: string[]; privateNet: string; exitCode: number } {
     const dir = mkdtempSync(join(tmpdir(), "osdu-create-"));
     try {
       const fake = join(dir, "cimpl");
@@ -410,11 +410,15 @@ describe("osdu-cluster-create workflow bash node argv", () => {
       writeFileSync(fake, script, { mode: 0o755 });
       const env: Record<string, string> = { PATH: `${dir}:${process.env.PATH ?? ""}`, ...extraEnv };
       for (const [k, v] of Object.entries(inputs)) env[`KEELSON_INPUTS_${k}`] = v;
-      const proc = Bun.spawnSync(["bash", "-c", CLUSTER_CREATE_BASH], { env, stdout: "pipe" });
+      const proc = Bun.spawnSync(["bash", "-c", CLUSTER_CREATE_BASH], {
+        env,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
       const out = proc.stdout.toString();
       const args = [...out.matchAll(/^ARG:(.*)$/gm)].map((m) => m[1] as string);
       const privateNet = out.match(/^PRIVATE:(.*)$/m)?.[1] ?? "";
-      return { args, privateNet };
+      return { args, privateNet, exitCode: proc.exitCode ?? -1 };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -472,6 +476,19 @@ describe("osdu-cluster-create workflow bash node argv", () => {
     );
     expect(args).toEqual(["up", "--provider", "azure"]);
     expect(privateNet).toBe("");
+  });
+
+  test("re-enforces the provider allowlist at the execution boundary", () => {
+    // A workflow run directly with an off-allowlist provider must exit before cimpl.
+    const { args, exitCode } = runCreateBash({ provider: "aws" });
+    expect(args).toEqual([]);
+    expect(exitCode).not.toBe(0);
+  });
+
+  test("re-enforces the profile allowlist at the execution boundary", () => {
+    const { args, exitCode } = runCreateBash({ provider: "kind", profile: "bogus" });
+    expect(args).toEqual([]);
+    expect(exitCode).not.toBe(0);
   });
 
   test("enables private-network only for the exact `1` input at the execution boundary", () => {

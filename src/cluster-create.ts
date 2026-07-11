@@ -113,6 +113,11 @@ export const CLUSTER_CREATE_BASH = [
   "unset CIMPL_AZURE_PRIVATE_NETWORK",
   'provider="$KEELSON_INPUTS_provider"',
   '[ -n "$provider" ] || provider=kind',
+  // Re-enforce the provider/profile allowlists at the execution boundary — the
+  // workflow is runnable independently of the action's validator. Built from the
+  // TS allowlists above so the two can't drift.
+  `case "$provider" in ${CLUSTER_PROVIDERS.join("|")}) ;; *) echo "unsupported provider: $provider" >&2; exit 2 ;; esac`,
+  `if [ -n "$KEELSON_INPUTS_profile" ]; then case "$KEELSON_INPUTS_profile" in ${CLUSTER_PROFILES.join("|")}) ;; *) echo "unsupported profile: $KEELSON_INPUTS_profile" >&2; exit 2 ;; esac; fi`,
   'args=(up --provider "$provider")',
   '[ -n "$KEELSON_INPUTS_profile" ] && args+=(--profile "$KEELSON_INPUTS_profile")',
   '[ -n "$KEELSON_INPUTS_env" ] && args+=(--env "$KEELSON_INPUTS_env")',
