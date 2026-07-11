@@ -32,6 +32,7 @@ export interface FluxKustomization {
 export type NodeHealth = "ready" | "blocked" | "suspended" | "failed" | "unknown";
 
 const LAYER_LABEL = "cimpl-stack.layer";
+const OWNER_LABEL = "kustomize.toolkit.fluxcd.io/name";
 
 /**
  * Reconciliation health from the Flux `Ready` condition. `DependencyNotReady` is
@@ -51,6 +52,7 @@ export function kustomizationHealth(k: FluxKustomization): NodeHealth {
 export interface TopologyInput {
   context?: string | null;
   kustomizations: readonly FluxKustomization[];
+  helmreleases?: readonly FluxKustomization[];
 }
 
 /**
@@ -58,10 +60,9 @@ export interface TopologyInput {
  * `kubectl get kustomizations -o json` items. Pure — no I/O.
  *
  * Node `kind` carries health so the canvas graph view renders it as a badge;
- * edges follow Flux `spec.dependsOn` (upstream → dependent), and any
- * dependency-free kustomization is rooted under the cluster node so the graph
- * is always connected and rooted. Always emits at least the cluster node, so
- * the result satisfies the canvas graph contract even with no kustomizations.
+ * edges follow Flux `spec.dependsOn` (upstream → dependent), and HelmReleases
+ * render as leaves under their owner or the cluster root. Always emits at
+ * least the cluster node, so the graph stays valid even with no resources.
  */
 export function buildTopologyGraph(input: TopologyInput): CanvasGraphView {
   const contextName = input.context?.trim() || "current context";
@@ -97,6 +98,26 @@ export function buildTopologyGraph(input: TopologyInput): CanvasGraphView {
       for (const dep of deps) {
         edges.push({ source: `ks:${dep}`, target: `ks:${name}` });
       }
+    }
+  }
+
+  const seenHr = new Set<string>();
+  for (const hr of input.helmreleases ?? []) {
+    const name = hr.metadata?.name?.trim() ?? "";
+    if (name.length === 0) continue;
+
+    const namespace = hr.metadata?.namespace?.trim() || "default";
+    const id = `hr:${namespace}/${name}`;
+    if (seenHr.has(id)) continue;
+    seenHr.add(id);
+
+    nodes.push({ id, label: name, kind: kustomizationHealth(hr) });
+
+    const owner = hr.metadata?.labels?.[OWNER_LABEL]?.trim() ?? "";
+    if (owner.length > 0 && seen.has(owner)) {
+      edges.push({ source: `ks:${owner}`, target: id });
+    } else {
+      edges.push({ source: rootId, target: id });
     }
   }
 
