@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.4.0...v0.5.0) (2026-07-11)
+
+
+### Added
+
+* **cluster:** create-cluster and select-context lifecycle actions ([#85](https://github.com/danielscholl/keelson-rib-osdu/issues/85)) ([f25a425](https://github.com/danielscholl/keelson-rib-osdu/commit/f25a425b8c1e02331f53ab8b414962399e2141f6))
+* **cluster:** show port-forward command on internal service cards ([#81](https://github.com/danielscholl/keelson-rib-osdu/issues/81)) ([78f6fae](https://github.com/danielscholl/keelson-rib-osdu/commit/78f6faeea8ebcb992cb439669b24402436ee83b2))
+* link low-security-rating grid cells to SonarQube measures ([#78](https://github.com/danielscholl/keelson-rib-osdu/issues/78)) ([cf49c33](https://github.com/danielscholl/keelson-rib-osdu/commit/cf49c334270b467af78c5691e5662fcb0a9a0427))
+* **quality:** link service cells to Sonar and pipeline URLs ([#84](https://github.com/danielscholl/keelson-rib-osdu/issues/84)) ([79b15fd](https://github.com/danielscholl/keelson-rib-osdu/commit/79b15fdf6856a1f7600f9c0ac4a1b8a3bd44ef08))
+* **release:** add PMC report link to release train ([#82](https://github.com/danielscholl/keelson-rib-osdu/issues/82)) ([390665a](https://github.com/danielscholl/keelson-rib-osdu/commit/390665aed23d700ff533c8e0b1791ba1f265e677))
+* **topology:** fold HelmReleases into reconciliation tree ([#79](https://github.com/danielscholl/keelson-rib-osdu/issues/79)) ([9d7f1e9](https://github.com/danielscholl/keelson-rib-osdu/commit/9d7f1e9aab0f0d3866a0e33f477bf093cfef19c8))
+
+
+### Fixed
+
+* **security:** link offenders to vuln reports ([#83](https://github.com/danielscholl/keelson-rib-osdu/issues/83)) ([c5bdd8f](https://github.com/danielscholl/keelson-rib-osdu/commit/c5bdd8fc6d7221ab9b85136c26bd610212341d44))
+
 ## [0.4.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.3.1...v0.4.0) (2026-07-10)
 
 
