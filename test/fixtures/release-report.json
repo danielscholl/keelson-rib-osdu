@@ -11,7 +11,8 @@
         "quality_gate": "ERROR",
         "reliability_rating": "A",
         "security_rating": "A",
-        "maintainability_rating": "A"
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=partition"
       },
       "unit": { "pass_rate": 100.0, "passed": 112, "failed": 0, "skipped": 0 },
       "acceptance": { "pass_rate": 100.0, "passed": 11, "failed": 0, "skipped": 0 },
@@ -27,6 +28,7 @@
     {
       "name": "crs-conversion",
       "display_name": "CRS Conversion",
+      "pipeline_url": "https://gitlab.example.com/osdu/crs-conversion/-/pipelines/102",
       "sonar": {
         "coverage_pct": 10.9,
         "quality_gate": "ERROR",
@@ -58,8 +60,10 @@
         "coverage_pct": 56.4,
         "reliability_rating": "D",
         "security_rating": "A",
-        "maintainability_rating": "A"
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=register"
       },
+      "pipeline_url": "https://gitlab.example.com/osdu/register/-/pipelines/101",
       "unit": { "pass_rate": 97.0, "passed": 97, "failed": 3, "skipped": 0 },
       "acceptance": { "pass_rate": 80.7, "passed": 46, "failed": 11, "skipped": 0 },
       "vulnerabilities": { "critical": 0, "high": 1 }

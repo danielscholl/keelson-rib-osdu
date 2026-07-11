@@ -9,7 +9,7 @@ import type {
 import { localExec } from "./exec.ts";
 
 // Shape of `osdu-quality release --output json`. Only the fields the lane reads
-// are modeled; the CLI emits more (pipeline urls, allure links, ncloc, …).
+// are modeled; the CLI emits more (allure links, ncloc, …).
 export interface SonarMetrics {
   coverage_pct?: number | null;
   quality_gate?: string | null;
@@ -37,6 +37,7 @@ export interface VulnCounts {
 export interface ServiceReport {
   name?: string;
   display_name?: string | null;
+  pipeline_url?: string | null;
   sonar?: SonarMetrics | null;
   unit?: TestMetrics | null;
   acceptance?: TestMetrics | null;
@@ -233,6 +234,23 @@ function buildKpis(services: ServiceReport[]): StatItem[] {
 function pctCell(value: number | null): Cell {
   return value === null ? "—" : { value: `${value.toFixed(1)}%`, tone: toneRate(value) };
 }
+// Emit an href only for http(s) URLs — the base renderer drops unsafe schemes,
+// but keep the producer honest (mirrors the Security lane's protocol guard).
+function httpHref(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const p = new URL(raw);
+    if (p.protocol !== "http:" && p.protocol !== "https:") return undefined;
+    if (p.username || p.password) return undefined;
+    return raw;
+  } catch {
+    return undefined;
+  }
+}
+function serviceCell(label: string, url: string | null | undefined): Cell {
+  const href = httpHref(url);
+  return href ? { value: label, href } : label;
+}
 function qualityCell(sonar: SonarMetrics | null | undefined): Cell {
   const s = sonar ?? {};
   const coverage = num(s.coverage_pct);
@@ -264,7 +282,7 @@ export function buildQualityTable(report: ReleaseReport): CanvasTableView {
       health: serviceHealth(svc),
       name: (svc.display_name || svc.name || "—").toLowerCase(),
       row: {
-        service: svc.display_name || svc.name || "—",
+        service: serviceCell(svc.display_name || svc.name || "—", svc.sonar?.sonar_url),
         accept: pctCell(stageRate(svc.acceptance)),
         unit: pctCell(stageRate(svc.unit)),
         quality: qualityCell(svc.sonar),
@@ -340,6 +358,7 @@ function buildWorstAcceptance(services: ServiceReport[]): CanvasTableView {
   const rows = services
     .map((svc) => ({
       name: svc.display_name || svc.name || "—",
+      pipeline_url: svc.pipeline_url ?? null,
       present: hasCounts(svc.acceptance),
       ...stageCounts(svc.acceptance),
       pct: stageRate(svc.acceptance),
@@ -356,7 +375,7 @@ function buildWorstAcceptance(services: ServiceReport[]): CanvasTableView {
     .map(
       (r) =>
         ({
-          service: r.name,
+          service: serviceCell(r.name, r.pipeline_url),
           pct: r.pct === null ? "—" : { value: `${Math.round(r.pct)}%`, tone: toneRate(r.pct) },
           passed: countCell(r.passed, "ok"),
           skipped: countCell(r.skipped, "warn"),

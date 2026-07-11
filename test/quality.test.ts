@@ -5,8 +5,10 @@ import report from "./fixtures/release-report.json";
 
 const table = buildQualityTable(report as ReleaseReport);
 const board = buildQualityBoard(report as ReleaseReport);
+const serviceValue = (c: unknown) =>
+  c && typeof c === "object" ? (c as { value?: unknown }).value : c;
 const rowByService = (svc: string) =>
-  table.rows.find((r) => r.service === svc) as Record<string, unknown> | undefined;
+  table.rows.find((r) => serviceValue(r.service) === svc) as Record<string, unknown> | undefined;
 
 describe("buildQualityTable", () => {
   test("emits a valid canvas table view", () => {
@@ -15,6 +17,15 @@ describe("buildQualityTable", () => {
 
   test("is the prototype's Service · Acc · Unit · Quality shape", () => {
     expect(table.columns.map((c) => c.key)).toEqual(["service", "accept", "unit", "quality"]);
+  });
+
+  test("links Service cells to safe Sonar URLs", () => {
+    expect(rowByService("Register")?.service).toEqual({
+      value: "Register",
+      href: "https://sonarcloud.io/project/overview?id=register",
+    });
+    expect(rowByService("Search")?.service).toBe("Search");
+    expect(rowByService("Wellbore Worker")?.service).toBe("Wellbore Worker");
   });
 
   test("Acc / Unit cells are toned one-decimal pass rates", () => {
@@ -56,7 +67,7 @@ describe("buildQualityTable", () => {
   });
 
   test("rows are worst-health first (weakest signal), then name", () => {
-    expect(table.rows.map((r) => r.service)).toEqual([
+    expect(table.rows.map((r) => serviceValue(r.service))).toEqual([
       "CRS Conversion",
       "Register",
       "Search",
@@ -163,7 +174,7 @@ describe("buildQualityBoard", () => {
       "skipped",
       "failed",
     ]);
-    expect(worst.rows.map((r) => r.service)).toEqual([
+    expect(worst.rows.map((r) => serviceValue(r.service))).toEqual([
       "CRS Conversion",
       "Register",
       "Partition",
@@ -171,12 +182,18 @@ describe("buildQualityBoard", () => {
     ]);
     // A zero count stays a plain (dim) chip; non-zero counts are toned.
     expect(worst.rows[0]).toEqual({
-      service: "CRS Conversion",
+      service: {
+        value: "CRS Conversion",
+        href: "https://gitlab.example.com/osdu/crs-conversion/-/pipelines/102",
+      },
       pct: { value: "0%", tone: "error" },
       passed: { badges: [{ text: "0" }] },
       skipped: { badges: [{ text: "2", tone: "warn" }] },
       failed: { badges: [{ text: "5", tone: "error" }] },
     });
+    const partitionCell = worst.rows.find((r) => serviceValue(r.service) === "Partition")?.service;
+    expect(partitionCell).toBe("Partition");
+    expect(typeof partitionCell).toBe("string");
   });
 });
 
@@ -259,5 +276,67 @@ describe("buildQualityBoard edge cases", () => {
     // table still carries the rate from pass_rate.
     expect(b.sections.map((s) => s.kind)).toEqual(["stats", "table", "segments"]);
     expect(buildQualityTable(report).rows[0]?.accept).toEqual({ value: "90.0%", tone: "warn" });
+  });
+
+  test("non-http service URLs stay plain strings", () => {
+    const report: ReleaseReport = {
+      services: [
+        {
+          name: "unsafe",
+          display_name: "Unsafe",
+          pipeline_url: "gitlab.example.com/osdu/unsafe/-/pipelines/1",
+          sonar: {
+            coverage_pct: 90,
+            reliability_rating: "A",
+            security_rating: "A",
+            maintainability_rating: "A",
+            sonar_url: "javascript:alert(1)",
+          },
+          unit: { passed: 1, failed: 0, skipped: 0 },
+          acceptance: { pass_rate: 50, passed: 1, failed: 1, skipped: 0 },
+        },
+      ],
+    };
+    const t = buildQualityTable(report);
+    expect(canvasViewSchema.safeParse(t).success).toBe(true);
+    expect(t.rows[0]?.service).toBe("Unsafe");
+
+    const b = buildQualityBoard(report);
+    expect(canvasViewSchema.safeParse(b).success).toBe(true);
+    const tables = b.sections.filter((s) => s.kind === "table");
+    const worst = tables[tables.length - 1];
+    if (worst?.kind !== "table") throw new Error("no worst table");
+    expect(worst.rows[0]?.service).toBe("Unsafe");
+  });
+
+  test("credential-bearing service URLs stay plain strings (no userinfo in snapshot)", () => {
+    const report: ReleaseReport = {
+      services: [
+        {
+          name: "creds",
+          display_name: "Creds",
+          pipeline_url: "https://user:token@gitlab.example.com/osdu/creds/-/pipelines/1",
+          sonar: {
+            coverage_pct: 90,
+            reliability_rating: "A",
+            security_rating: "A",
+            maintainability_rating: "A",
+            sonar_url: "https://user:token@sonarcloud.io/project/overview?id=creds",
+          },
+          unit: { passed: 1, failed: 0, skipped: 0 },
+          acceptance: { pass_rate: 50, passed: 1, failed: 1, skipped: 0 },
+        },
+      ],
+    };
+    const t = buildQualityTable(report);
+    expect(canvasViewSchema.safeParse(t).success).toBe(true);
+    expect(t.rows[0]?.service).toBe("Creds");
+
+    const b = buildQualityBoard(report);
+    expect(canvasViewSchema.safeParse(b).success).toBe(true);
+    const tables = b.sections.filter((s) => s.kind === "table");
+    const worst = tables[tables.length - 1];
+    if (worst?.kind !== "table") throw new Error("no worst table");
+    expect(worst.rows[0]?.service).toBe("Creds");
   });
 });
