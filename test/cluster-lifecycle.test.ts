@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { CanvasBoardView, RibContext, RibExec } from "@keelson/shared";
 import { buildClusterBoard, provisionGuardError } from "../src/cluster.ts";
 import { CLUSTER_CREATE_ARGS } from "../src/cluster-actions.ts";
 import rib from "../src/index.ts";
+import { getCimplPrefixes, isCimplManagedContext, listContexts } from "../src/kubectl.ts";
 
 type BoardAction = Extract<
   CanvasBoardView["sections"][number],
@@ -307,6 +308,7 @@ describe("cluster lifecycle onAction guards", () => {
           target: "cimpl-b",
           observedCurrent: "cimpl-a",
           observedContexts: ["cimpl-a", "cimpl-b"],
+          fingerprint: "uid-1",
         },
       },
       exec,
@@ -314,6 +316,57 @@ describe("cluster lifecycle onAction guards", () => {
 
     if (!result.ok) throw new Error(`expected switch success: ${result.error}`);
     expect(commandCalls(calls, "kubectl")).toContain("config use-context cimpl-b");
+  });
+
+  test("switch-context rejects a recreated current cluster (stale fingerprint)", async () => {
+    setLiveKube("cimpl-a", "uid-2");
+    const { exec, calls } = makeExec({
+      text: (cmd, args) =>
+        cmd === "kubectl"
+          ? kubectlText(args, ["cimpl-a", "cimpl-b"])
+          : { ok: true, data: "unexpected mutation" },
+    });
+
+    const result = await dispatch(
+      {
+        type: "switch-context",
+        payload: {
+          target: "cimpl-b",
+          observedCurrent: "cimpl-a",
+          observedContexts: ["cimpl-a", "cimpl-b"],
+          fingerprint: "uid-1",
+        },
+      },
+      exec,
+    );
+
+    if (result.ok) throw new Error("expected stale fingerprint refusal");
+    expect(result.error).toMatch(/recreated/);
+    expect(commandCalls(calls, "kubectl")).not.toContain("config use-context cimpl-b");
+  });
+
+  test("cluster-provision refuses when the CIMPL probe is indeterminate (fail-safe)", async () => {
+    setLiveKube(null);
+    const { exec, calls } = makeExec({
+      text: (cmd, args) => {
+        if (cmd === "kubectl") return kubectlText(args);
+        const command = args.join(" ");
+        if (command === "info --json") {
+          return { ok: false, error: "timed out after 60000ms", code: null };
+        }
+        return { ok: true, data: "" };
+      },
+    });
+
+    const result = await dispatch(
+      { type: "cluster-provision", payload: { provider: "kind", observedContext: null } },
+      exec,
+    );
+
+    if (result.ok) throw new Error("expected provision refusal on an indeterminate probe");
+    expect(result.error).toMatch(/could not confirm/);
+    // The probe ran but `cimpl up` never did — fail closed, no create.
+    expect(commandCalls(calls, "cimpl")).toEqual(["info --json"]);
   });
 });
 
@@ -359,6 +412,46 @@ describe("CLUSTER_CREATE_ARGS argv contract", () => {
     expect(
       CLUSTER_CREATE_ARGS({ provider: "kind", location: "eastus", privateNetwork: true }),
     ).toEqual({ args: ["up", "--provider", "kind"] });
+  });
+});
+
+describe("cimpl context filtering", () => {
+  const prevPrefixes = process.env.CIMPL_CONTEXT_PREFIXES;
+  afterEach(() => {
+    if (prevPrefixes === undefined) delete process.env.CIMPL_CONTEXT_PREFIXES;
+    else process.env.CIMPL_CONTEXT_PREFIXES = prevPrefixes;
+  });
+
+  test("isCimplManagedContext matches the default prefixes and rejects others", () => {
+    delete process.env.CIMPL_CONTEXT_PREFIXES;
+    expect(isCimplManagedContext("cimpl-stack-dev")).toBe(true);
+    expect(isCimplManagedContext("kind-cimpl-test")).toBe(true);
+    expect(isCimplManagedContext("k3d-cimpl-x")).toBe(true);
+    expect(isCimplManagedContext("prod-aks")).toBe(false);
+    expect(isCimplManagedContext(null)).toBe(false);
+  });
+
+  test("CIMPL_CONTEXT_PREFIXES overrides the default prefix set", () => {
+    process.env.CIMPL_CONTEXT_PREFIXES = "acme-, team-";
+    expect(getCimplPrefixes()).toEqual(["acme-", "team-"]);
+    expect(isCimplManagedContext("acme-dev")).toBe(true);
+    expect(isCimplManagedContext("cimpl-stack-dev")).toBe(false);
+  });
+
+  test("listContexts filters to cimpl-managed and degrades to [] when kubectl fails", async () => {
+    delete process.env.CIMPL_CONTEXT_PREFIXES;
+    const { exec: okExec } = makeExec({
+      text: (cmd, args) =>
+        cmd === "kubectl" && args.join(" ") === "config get-contexts -o name"
+          ? { ok: true, data: "cimpl-a\nprod-cluster\nkind-cimpl-b\n" }
+          : { ok: false, error: "unexpected", code: 1 },
+    });
+    expect(await listContexts(okExec)).toEqual(["cimpl-a", "kind-cimpl-b"]);
+
+    const { exec: downExec } = makeExec({
+      text: () => ({ ok: false, error: "kubectl missing", code: null }),
+    });
+    expect(await listContexts(downExec)).toEqual([]);
   });
 });
 

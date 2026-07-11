@@ -10,6 +10,7 @@ import {
   CLUSTER_LIFECYCLE_ARGS,
   type ClusterVerb,
   clusterCreatePreview,
+  refuseProvisionOverCimpl,
   runClusterCreate,
   runClusterLifecycle,
   runContextSwitch,
@@ -241,8 +242,8 @@ async function provisionCluster(action: RibAction, ctx: RibContext): Promise<Rib
     liveContext ? await getClusterFingerprint(exec) : null,
   );
   if (guard) return { ok: false, error: guard };
-  const denial = await verifyCimplContext(exec);
-  if (!denial) return { ok: false, error: "refusing Provision: a live CIMPL deployment is active" };
+  const denial = await refuseProvisionOverCimpl(exec);
+  if (denial) return { ok: false, error: denial };
   const res = await runClusterCreate(exec, parsed.payload);
   if (!res.ok) return { ok: false, error: res.error };
   await ctx.refreshWorkflow?.("osdu-cluster");
@@ -276,6 +277,22 @@ async function switchContext(action: RibAction, ctx: RibContext): Promise<RibAct
       ok: false,
       error: `current context changed since this view loaded (was ${observedCurrent ?? "none"}, now ${liveCurrent ?? "none"}) — refresh and retry`,
     };
+  }
+  // Identity guard (parity with create/reconcile): a context name can be reused
+  // (`cimpl down && cimpl up`), the kube-system UID cannot. Refuse if the current
+  // cluster was recreated since the board captured its fingerprint.
+  const observedFingerprint = payload.fingerprint;
+  if (observedFingerprint !== undefined && typeof observedFingerprint !== "string") {
+    return { ok: false, error: "switch-context requires a string fingerprint" };
+  }
+  if (typeof observedFingerprint === "string" && observedFingerprint.length > 0) {
+    const liveFingerprint = await getClusterFingerprint(exec);
+    if (observedFingerprint !== liveFingerprint) {
+      return {
+        ok: false,
+        error: `the current cluster was recreated since this view loaded (context ${liveCurrent ?? "none"}) — refresh and retry`,
+      };
+    }
   }
   const res = await runContextSwitch(exec, { target });
   if (!res.ok) return { ok: false, error: res.error };

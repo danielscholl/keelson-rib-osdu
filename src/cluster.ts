@@ -455,7 +455,11 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
       type: "switch-context",
       label: "Switch active context",
       glyph: "⇄",
-      payload: { observedCurrent: context, observedContexts: contexts },
+      payload: {
+        observedCurrent: context,
+        observedContexts: contexts,
+        ...(stamp.fingerprint ? { fingerprint: stamp.fingerprint } : {}),
+      },
       fields: [
         {
           name: "target",

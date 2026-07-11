@@ -15,7 +15,9 @@ export const CLUSTER_LIFECYCLE_ARGS = {
 } as const;
 
 const CLUSTER_CREATE_TIMEOUT_MS = 600_000;
-const CONTEXT_SWITCH_TIMEOUT_MS = 600_000;
+// use-context is a local kubeconfig edit; bound it like the other config reads
+// so a stalled kubeconfig can't hold the action open for the provisioning span.
+const CONTEXT_SWITCH_TIMEOUT_MS = 5_000;
 
 export type ClusterVerb = keyof typeof CLUSTER_LIFECYCLE_ARGS;
 
@@ -62,26 +64,62 @@ export function clusterCreatePreview(input: ClusterCreateInput): string {
   return [head, ...args].join(" ");
 }
 
-// Confirm the live current-context is a CIMPL deployment before a mutation.
-// `cimpl info` runs cimpl's own authoritative fingerprint and exits non-zero on
-// a non-CIMPL context. Returns an error string to refuse with, or null to
-// proceed. The chat mutation tools have no board stamp to guard against, so this
-// fresh probe is their identity check.
-export async function verifyCimplContext(exec: RibExec): Promise<string | null> {
+// Tri-state result of probing whether the live current-context hosts a CIMPL
+// deployment. `unknown` is deliberately distinct from `absent` so callers can
+// fail closed on an indeterminate probe rather than treat it as "no cluster".
+export type CimplContextState = "live" | "absent" | "unknown";
+export interface CimplContextProbe {
+  state: CimplContextState;
+  detail: string;
+}
+
+// `cimpl info` is cimpl's own authoritative fingerprint. It exits zero with a
+// parseable document over a CIMPL cluster (live); a completed non-zero exit is
+// cimpl reporting the context is not a CIMPL deployment (absent); a probe that
+// never completed — timeout, cimpl not on PATH (both `code: null`) — or output
+// that won't parse is indeterminate (unknown). Never throws.
+export async function probeCimplContext(exec: RibExec): Promise<CimplContextProbe> {
   const res = await exec.runText("cimpl", ["info", "--json"], { timeoutMs: 60_000 });
-  if (!res.ok) {
+  if (res.ok) {
+    try {
+      parseCimplInfoJson(res.data);
+      return { state: "live", detail: "a live CIMPL deployment is active" };
+    } catch (e) {
+      return { state: "unknown", detail: `could not parse cimpl info (${errText(e)})` };
+    }
+  }
+  if (res.code === null) {
+    return { state: "unknown", detail: `cimpl info probe did not complete (${res.error})` };
+  }
+  return { state: "absent", detail: "no CIMPL deployment on the current context" };
+}
+
+// Confirm the live current-context IS a CIMPL deployment before mutating it
+// (reconcile/suspend/resume/delete). Returns an error string to refuse with, or
+// null to proceed. Fails closed: only a confirmed-live probe proceeds; both
+// `absent` and an indeterminate `unknown` refuse.
+export async function verifyCimplContext(exec: RibExec): Promise<string | null> {
+  const probe = await probeCimplContext(exec);
+  if (probe.state === "live") return null;
+  if (probe.state === "absent") {
     // Read the context through the injected exec (async) — the sync currentContext()
     // would spawn kubectl on the server loop and, with no reachable cluster, block
     // to its timeout (and isn't stubbable, so it hung this path's CI test).
     const ctx = await getCurrentContext(exec);
     return `the current context (${ctx ?? "none"}) is not a confirmed CIMPL deployment — switch context and retry`;
   }
-  try {
-    parseCimplInfoJson(res.data);
-  } catch (e) {
-    return `could not parse cimpl info (${errText(e)})`;
-  }
-  return null;
+  return `could not confirm the current context is a CIMPL deployment (${probe.detail}) — retry`;
+}
+
+// Confirm there is NO live CIMPL deployment to clobber before provisioning.
+// Fails closed: only a confirmed-`absent` probe proceeds; a `live` deployment
+// and an indeterminate `unknown` both refuse, so a transient probe failure can
+// never provision over an existing cluster.
+export async function refuseProvisionOverCimpl(exec: RibExec): Promise<string | null> {
+  const probe = await probeCimplContext(exec);
+  if (probe.state === "absent") return null;
+  if (probe.state === "live") return "refusing Provision: a live CIMPL deployment is active";
+  return `refusing Provision: could not confirm the current context is free of a CIMPL deployment (${probe.detail})`;
 }
 
 // Run a cimpl lifecycle verb through the async exec surface, so a slow or
