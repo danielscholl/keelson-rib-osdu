@@ -31,16 +31,24 @@ const healthy: ClusterInput = {
       { name: "Seaweedfs-s3", url: "https://swfs.example.test", note: "" },
     ],
     internal_services: [
-      { name: "PostgreSQL", address: "postgresql-rw.platform:5432", port_forward: "kubectl ..." },
-      { name: "Redis", address: "redis.platform:6379", port_forward: "kubectl ..." },
-      { name: "SeaweedFS S3", address: "seaweedfs-s3.platform:8333", port_forward: "kubectl ..." },
+      {
+        name: "PostgreSQL",
+        address: "postgresql-rw.platform:5432",
+        port_forward: "kubectl port-forward -n platform svc/postgresql-rw 15432:5432",
+      },
+      { name: "Redis", address: "redis.platform:6379" },
+      {
+        name: "SeaweedFS S3",
+        address: "seaweedfs-s3.platform:8333",
+        port_forward: "kubectl port-forward -n platform svc/seaweedfs-s3 8333:8333",
+      },
       {
         name: "SeaweedFS Admin",
         address: "seaweedfs-master.platform:9333",
-        port_forward: "kubectl ...",
+        port_forward: "kubectl port-forward -n platform svc/seaweedfs-master 9333:9333",
       },
-      { name: "Redis (dataset)", address: "redis-dataset.osdu:6379", port_forward: "kubectl ..." },
-      { name: "Redis (indexer)", address: "redis-indexer.osdu:6379", port_forward: "kubectl ..." },
+      { name: "Redis (dataset)", address: "redis-dataset.osdu:6379" },
+      { name: "Redis (indexer)", address: "redis-indexer.osdu:6379" },
     ],
     credentials: [
       { service: "PostgreSQL", username: "osdu" },
@@ -210,14 +218,47 @@ describe("buildClusterBoard", () => {
     expect(swfs?.href).toBeUndefined();
   });
 
-  test("ACCESS internal services render as cyan cards with no address pill", () => {
+  test("ACCESS internal services keep credentials reveal-only beside a copyable port-forward", () => {
     const byTitle = accessByTitle(buildClusterBoard(healthy));
     expect(byTitle.PostgreSQL?.dot).toBe("neutral");
-    // An internal host:port isn't an accessible URL — no copyable address field;
-    // only credential (reveal) pills remain on the card.
     const fields = byTitle.PostgreSQL?.fields ?? [];
+    const copyable = fields.filter((f) => f.copyable);
+    expect(copyable).toHaveLength(1);
+    expect(String(copyable[0]?.value)).toContain("kubectl port-forward");
+    expect(copyable[0]?.copyAction).toBeUndefined();
+
+    const credentials = fields.filter((f) => f.copyAction);
+    expect(credentials).toHaveLength(2);
+    expect(credentials.every((f) => f.copyable !== true)).toBe(true);
+  });
+
+  test("PostgreSQL uses cimpl's port-forward command verbatim", () => {
+    const fields = accessByTitle(buildClusterBoard(healthy)).PostgreSQL?.fields ?? [];
+    const portForward = fields.find((f) => f.copyable);
+    expect(portForward?.value).toBe(
+      "kubectl port-forward -n platform svc/postgresql-rw 15432:5432",
+    );
+  });
+
+  test("Redis synthesizes its default port-forward command", () => {
+    const fields = accessByTitle(buildClusterBoard(healthy)).Redis?.fields ?? [];
+    const portForward = fields.find((f) => f.copyable);
+    expect(portForward?.value).toBe("kubectl port-forward svc/redis 6379:6379 -n platform");
+  });
+
+  test("SeaweedFS suppresses port-forward when a gateway route exists", () => {
+    const fields = accessByTitle(buildClusterBoard(healthy)).SeaweedFS?.fields ?? [];
     expect(fields.some((f) => f.copyable)).toBe(false);
-    expect(fields.every((f) => f.copyAction)).toBe(true);
+  });
+
+  test("SeaweedFS surfaces its internal port-forward when no route exists", () => {
+    const noGateway: ClusterInput = {
+      ...healthy,
+      info: { ...healthy.info, endpoints: [] },
+    };
+    const fields = accessByTitle(buildClusterBoard(noGateway)).SeaweedFS?.fields ?? [];
+    const portForward = fields.find((f) => f.copyable);
+    expect(portForward?.value).toBe("kubectl port-forward -n platform svc/seaweedfs-s3 8333:8333");
   });
 
   test("credentials join onto their service card as copy-on-reveal fields (never a password)", () => {

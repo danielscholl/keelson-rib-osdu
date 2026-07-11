@@ -199,6 +199,34 @@ function credentialField(cred: CimplCredential, stamp: ClusterStamp): FieldItem 
   };
 }
 
+function portForwardField(
+  svc: AccessService,
+  base: string,
+  internal: CimplInternalService[],
+  endpoints: Map<string, CimplEndpoint>,
+): FieldItem | undefined {
+  if (svc.portal) return undefined;
+  const hasRoute = [...endpoints.values()].some(
+    (e) => matchKey(e.name).startsWith(base) && Boolean(e.url),
+  );
+  if (hasRoute) return undefined;
+  const match =
+    internal.find((s) => matchKey(baseName(s.name)) === base) ??
+    internal.find((s) => matchKey(s.name).startsWith(base));
+  const fromCimpl =
+    typeof match?.port_forward === "string" && match.port_forward.trim().length > 0
+      ? match.port_forward.trim()
+      : undefined;
+  const synth = PORT_FORWARDS[svc.title];
+  const command =
+    fromCimpl ??
+    (synth
+      ? `kubectl port-forward svc/${synth.service} ${synth.port}:${synth.port} -n platform`
+      : undefined);
+  if (!command) return undefined;
+  return { label: "Port-forward", value: command, copyable: true };
+}
+
 // The operator-facing services the ACCESS grid surfaces, in display order.
 // cimpl info enumerates every Kubernetes service (the gateway, API-only
 // endpoints like minio-api, the per-namespace Redis variants, an OIDC client
@@ -226,6 +254,11 @@ const ACCESS_SERVICES: readonly AccessService[] = [
   { title: "PostgreSQL", portal: false, creds: ["PostgreSQL", "PostgreSQL (superuser)"] },
   { title: "Redis", portal: false, creds: ["Redis"], instances: true },
 ];
+
+const PORT_FORWARDS: Record<string, { service: string; port: number }> = {
+  PostgreSQL: { service: "postgresql-rw", port: 5432 },
+  Redis: { service: "redis", port: 6379 },
+};
 
 // When a credential drifts from what OSDU is configured with, cimpl emits the
 // usable secret under an "(actual)" suffix (e.g. "Elasticsearch (actual)")
@@ -282,7 +315,9 @@ function buildAccessCards(info: CimplInfo, stamp: ClusterStamp): CardItem[] {
       const count = internal.filter((s) => matchKey(baseName(s.name)) === base).length;
       if (count > 1) card.footnote = `${count} instances`;
     }
-    if (fields.length > 0) card.fields = fields;
+    const pf = portForwardField(svc, base, internal, endpoints);
+    const cardFields = pf ? [pf, ...fields] : fields;
+    if (cardFields.length > 0) card.fields = cardFields;
     cards.push(card);
   }
   return cards;
