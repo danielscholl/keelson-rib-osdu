@@ -282,7 +282,7 @@ export function buildQualityTable(report: ReleaseReport): CanvasTableView {
       health: serviceHealth(svc),
       name: (svc.display_name || svc.name || "—").toLowerCase(),
       row: {
-        service: svc.display_name || svc.name || "—",
+        service: serviceCell(svc.display_name || svc.name || "—", svc.sonar?.sonar_url),
         accept: pctCell(stageRate(svc.acceptance)),
         unit: pctCell(stageRate(svc.unit)),
         quality: qualityCell(svc.sonar),
