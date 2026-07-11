@@ -196,6 +196,11 @@ describe("buildTopologyGraph HelmReleases", () => {
     expect(nodeById(graph, "hr:osdu/search")?.label).toBe("osdu/search");
     expect(nodeById(graph, "hr:other/search")?.label).toBe("other/search");
 
+    expect(hasEdge(graph, "cluster:kind-cimpl", "hr:apps/no-owner")).toBe(true);
+    expect(
+      graph.edges.some((e) => e.source.startsWith("ks:") && e.target === "hr:apps/no-owner"),
+    ).toBe(false);
+
     const nodeIds = new Set(ids);
     for (const e of graph.edges) {
       expect(nodeIds.has(e.source)).toBe(true);
