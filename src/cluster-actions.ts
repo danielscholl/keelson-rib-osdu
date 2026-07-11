@@ -1,6 +1,7 @@
 import type { RibExec } from "@keelson/shared";
 import { errText } from "@keelson/shared";
 import { parseCimplInfoJson } from "./cluster.ts";
+import type { ClusterCreateInput } from "./cluster-create.ts";
 import { getCurrentContext } from "./kubectl.ts";
 
 // cimpl lifecycle verbs the ICC actions (onAction) and the chat tools dispatch
@@ -14,15 +15,9 @@ export const CLUSTER_LIFECYCLE_ARGS = {
 } as const;
 
 const CLUSTER_CREATE_TIMEOUT_MS = 600_000;
-const CONTEXT_SWITCH_TIMEOUT_MS = 30_000;
+const CONTEXT_SWITCH_TIMEOUT_MS = 600_000;
 
 export type ClusterVerb = keyof typeof CLUSTER_LIFECYCLE_ARGS;
-
-export interface ClusterCreateInput {
-  provider: string;
-  profile: string;
-  name: string;
-}
 
 export function CLUSTER_CREATE_ARGS({ provider, profile, name }: ClusterCreateInput): string[] {
   return ["up", "--provider", provider, "--profile", profile, "--name", name];
