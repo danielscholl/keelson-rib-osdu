@@ -234,6 +234,53 @@ describe("buildSecurityBoard", () => {
     );
   });
 
+  test("top-offender bars link only when a vuln project path resolves", () => {
+    const b = buildSecurityBoard({
+      report: {
+        services: [
+          {
+            name: "storage",
+            display_name: "Storage",
+            vulnerabilities: { critical: 2, high: 1 },
+          },
+          {
+            name: "notification",
+            display_name: "Notification",
+            vulnerabilities: { critical: 0, high: 2 },
+          },
+        ],
+      },
+      vulns: [
+        {
+          project_path: "osdu/platform/system/storage",
+          cve_id: "CVE-2026-0001",
+          severity: "high",
+          package_name: "pkg",
+          current_version: "1.0.0",
+          detected_at: "2026-05-01T00:00:00Z",
+          state: "DETECTED",
+          web_url: "https://community.opengroup.org/osdu/platform/system/storage/-/security/vulnerabilities/1",
+        },
+      ],
+      now: NOW,
+    });
+    const bars = b.sections.find((s) => s.kind === "bars" && s.title === "Top offenders · crit + high");
+    expect(bars?.kind).toBe("bars");
+    if (bars?.kind !== "bars") return;
+
+    const storageBar = bars.items.find((bar) => bar.label === "Storage");
+    expect(storageBar?.href).toBe(
+      "https://community.opengroup.org/osdu/platform/system/storage/-/security/vulnerability_report",
+    );
+    expect(storageBar?.tone).toBe("error");
+    expect(storageBar?.trailing).toBe("2 crit · 1 high");
+
+    const notificationBar = bars.items.find((bar) => bar.label === "Notification");
+    expect(notificationBar?.href).toBeUndefined();
+    expect(notificationBar?.tone).toBe("warn");
+    expect(notificationBar?.trailing).toBe("0 crit · 2 high");
+  });
+
   test("aged criticals: red-mono CVE id, hash-toned svc chip, no per-row age", () => {
     const cards = section("cards", "Aged criticals");
     expect(cards?.kind).toBe("cards");
