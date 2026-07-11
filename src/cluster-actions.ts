@@ -1,7 +1,12 @@
 import type { RibExec } from "@keelson/shared";
 import { errText } from "@keelson/shared";
 import { parseCimplInfoJson } from "./cluster.ts";
-import { getCurrentContext } from "./kubectl.ts";
+import {
+  getClusterFingerprint,
+  getCurrentContext,
+  isCimplManagedContext,
+  listContexts,
+} from "./kubectl.ts";
 
 // cimpl lifecycle verbs the ICC actions (onAction) and the chat tools dispatch
 // to. Reconcile/Suspend/Resume are reversible; Delete tears down the current
@@ -87,4 +92,59 @@ export async function runContextSwitch(
   const args = ["config", "use-context", target];
   const res = await exec.runText("kubectl", args, { timeoutMs: CONTEXT_SWITCH_TIMEOUT_MS });
   return res.ok ? { ok: true, ran: `kubectl ${args.join(" ")}` } : { ok: false, error: res.error };
+}
+
+// The guarded context-switch verb (#62). Refuses non-cimpl targets, a vanished
+// target, a stale observed-current, and a recreated cluster (fingerprint drift)
+// before running `kubectl config use-context`. Returns a domain result; the
+// caller (onAction) maps it and triggers the board refresh.
+export async function switchCimplContext(
+  exec: RibExec,
+  payload: { target?: unknown; observedCurrent?: unknown; fingerprint?: unknown },
+): Promise<{ ok: true; ran: string; current: string | null } | { ok: false; error: string }> {
+  const target = typeof payload.target === "string" ? payload.target : "";
+  if (!target) return { ok: false, error: "switch-context requires target" };
+  // Server-side refusal of non-cimpl targets, independent of the (already
+  // filtered) list — the UI only hops between cimpl-managed clusters.
+  if (!isCimplManagedContext(target)) {
+    return {
+      ok: false,
+      error: `context '${target}' is not a cimpl-managed context — refusing to switch`,
+    };
+  }
+  const contexts = await listContexts(exec);
+  if (!contexts.includes(target)) {
+    return { ok: false, error: `context '${target}' is no longer available — refresh and retry` };
+  }
+  const observedCurrent = payload.observedCurrent;
+  if (observedCurrent !== null && typeof observedCurrent !== "string") {
+    return { ok: false, error: "switch-context requires observedCurrent" };
+  }
+  const liveCurrent = await getCurrentContext(exec);
+  if (observedCurrent !== liveCurrent) {
+    return {
+      ok: false,
+      error: `current context changed since this view loaded (was ${observedCurrent ?? "none"}, now ${liveCurrent ?? "none"}) — refresh and retry`,
+    };
+  }
+  // Identity guard (parity with reconcile/delete): a context name can be reused
+  // (`cimpl down && cimpl up`), the kube-system UID cannot. Refuse if the current
+  // cluster was recreated since the board captured its fingerprint.
+  const observedFingerprint = payload.fingerprint;
+  if (observedFingerprint !== undefined && typeof observedFingerprint !== "string") {
+    return { ok: false, error: "switch-context requires a string fingerprint" };
+  }
+  if (typeof observedFingerprint === "string" && observedFingerprint.length > 0) {
+    const liveFingerprint = await getClusterFingerprint(exec);
+    if (observedFingerprint !== liveFingerprint) {
+      return {
+        ok: false,
+        error: `the current cluster was recreated since this view loaded (context ${liveCurrent ?? "none"}) — refresh and retry`,
+      };
+    }
+  }
+  const res = await runContextSwitch(exec, { target });
+  if (!res.ok) return { ok: false, error: res.error };
+  const current = await getCurrentContext(exec);
+  return { ok: true, ran: res.ran, current };
 }

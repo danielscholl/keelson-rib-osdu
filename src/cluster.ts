@@ -387,7 +387,10 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
       destructive: true,
     }),
   ];
-  if (!reachable || context === null) {
+  // Offer Create whenever there is no live CIMPL deployment to manage — keyed on
+  // the absence of `cimpl info`, not generic reachability, so a reachable
+  // non-CIMPL context still surfaces the only bring-up affordance.
+  if (!info) {
     actionItems.push({
       type: "create",
       label: "Create cluster",

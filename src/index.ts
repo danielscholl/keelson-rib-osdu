@@ -5,24 +5,15 @@ import {
   CLUSTER_LIFECYCLE_ARGS,
   type ClusterVerb,
   runClusterLifecycle,
-  runContextSwitch,
+  switchCimplContext,
   verifyCimplContext,
 } from "./cluster-actions.ts";
 import {
   CLUSTER_CREATE_BASH,
-  CLUSTER_PROFILES,
-  type ClusterCreateInput,
   clusterCreateArgs,
-  isClusterProfile,
-  isClusterProvider,
+  clusterCreateSelection,
 } from "./cluster-create.ts";
-import {
-  currentContext,
-  getClusterFingerprint,
-  getCurrentContext,
-  isCimplManagedContext,
-  listContexts,
-} from "./kubectl.ts";
+import { currentContext, getClusterFingerprint, getCurrentContext } from "./kubectl.ts";
 import { registerOsduTools } from "./tools.ts";
 
 const CLUSTER_KEY = "rib:osdu:cluster";
@@ -50,50 +41,6 @@ interface CimplCredentialSecret {
   password?: string;
 }
 
-function trimmedField(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function clusterCreateSelection(
-  payload: Record<string, unknown>,
-): { ok: true; selection: ClusterCreateInput } | { ok: false; error: string } {
-  const { provider } = payload;
-  if (!isClusterProvider(provider)) {
-    return { ok: false, error: "provider must be one of kind, azure" };
-  }
-  const selection: ClusterCreateInput = { provider };
-  // Profile is optional; when blank cimpl applies its per-provider default.
-  const profile = payload.profile;
-  if (profile !== undefined && profile !== "") {
-    if (!isClusterProfile(profile)) {
-      return {
-        ok: false,
-        error: `profile '${String(profile)}' is not one of ${CLUSTER_PROFILES.join(", ")}`,
-      };
-    }
-    selection.profile = profile;
-  }
-  const env = trimmedField(payload.env);
-  if (env) selection.env = env;
-  const partition = trimmedField(payload.partition);
-  if (partition) selection.partition = partition;
-  const instance = trimmedField(payload.instance);
-  if (instance) selection.instance = instance;
-  // Location and private-network only apply to azure (mirrors buildCreateInput).
-  if (provider === "azure") {
-    const location = trimmedField(payload.location);
-    if (location) selection.location = location;
-    // Accept the form field (`private`) and the normalized boolean the
-    // provision payload round-trips back in (`privateNetwork`).
-    if (payload.privateNetwork === true || trimmedField(payload.private)) {
-      selection.privateNetwork = true;
-    }
-  }
-  return { ok: true, selection };
-}
-
 // Create (#61): a single action that launches the `osdu-cluster-create`
 // workflow via the run-workflow client effect, so the potentially long `cimpl
 // up` streams its node trace in the Workflows surface. It bypasses the
@@ -114,54 +61,17 @@ function launchClusterCreate(action: RibAction): RibActionResult {
 }
 
 async function switchContext(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
-  const payload = (action.payload ?? {}) as Record<string, unknown>;
-  const exec = ctx.getExec();
-  const target = typeof payload.target === "string" ? payload.target : "";
-  if (!target) return { ok: false, error: "switch-context requires target" };
-  // Server-side refusal of non-cimpl targets, independent of the (already
-  // filtered) list — the UI only hops between cimpl-managed clusters.
-  if (!isCimplManagedContext(target)) {
-    return {
-      ok: false,
-      error: `context '${target}' is not a cimpl-managed context — refusing to switch`,
-    };
-  }
-  const contexts = await listContexts(exec);
-  if (!contexts.includes(target)) {
-    return { ok: false, error: `context '${target}' is no longer available — refresh and retry` };
-  }
-  const observedCurrent = payload.observedCurrent;
-  if (observedCurrent !== null && typeof observedCurrent !== "string") {
-    return { ok: false, error: "switch-context requires observedCurrent" };
-  }
-  const liveCurrent = await getCurrentContext(exec);
-  if (observedCurrent !== liveCurrent) {
-    return {
-      ok: false,
-      error: `current context changed since this view loaded (was ${observedCurrent ?? "none"}, now ${liveCurrent ?? "none"}) — refresh and retry`,
-    };
-  }
-  // Identity guard (parity with create/reconcile): a context name can be reused
-  // (`cimpl down && cimpl up`), the kube-system UID cannot. Refuse if the current
-  // cluster was recreated since the board captured its fingerprint.
-  const observedFingerprint = payload.fingerprint;
-  if (observedFingerprint !== undefined && typeof observedFingerprint !== "string") {
-    return { ok: false, error: "switch-context requires a string fingerprint" };
-  }
-  if (typeof observedFingerprint === "string" && observedFingerprint.length > 0) {
-    const liveFingerprint = await getClusterFingerprint(exec);
-    if (observedFingerprint !== liveFingerprint) {
-      return {
-        ok: false,
-        error: `the current cluster was recreated since this view loaded (context ${liveCurrent ?? "none"}) — refresh and retry`,
-      };
-    }
-  }
-  const res = await runContextSwitch(exec, { target });
+  const res = await switchCimplContext(
+    ctx.getExec(),
+    (action.payload ?? {}) as {
+      target?: unknown;
+      observedCurrent?: unknown;
+      fingerprint?: unknown;
+    },
+  );
   if (!res.ok) return { ok: false, error: res.error };
-  const current = await getCurrentContext(exec);
   await ctx.refreshWorkflow?.("osdu-cluster");
-  return { ok: true, data: { ran: res.ran, current } };
+  return { ok: true, data: { ran: res.ran, current: res.current } };
 }
 
 // Re-fetch one credential's password on demand for a clipboard copy. The secret

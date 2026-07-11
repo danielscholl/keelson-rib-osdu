@@ -30,6 +30,48 @@ export function isClusterProfile(value: unknown): value is ClusterProfile {
   return typeof value === "string" && CLUSTER_PROFILES.includes(value as ClusterProfile);
 }
 
+function trimmedField(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+// Validate + normalize the create form fields into a ClusterCreateInput.
+// Provider is required (kind|azure); profile is optional (blank → cimpl's
+// per-provider default); location and the private-network flag apply only to
+// azure. Returns an error string the action surfaces on invalid input.
+export function clusterCreateSelection(
+  payload: Record<string, unknown>,
+): { ok: true; selection: ClusterCreateInput } | { ok: false; error: string } {
+  const { provider } = payload;
+  if (!isClusterProvider(provider)) {
+    return { ok: false, error: "provider must be one of kind, azure" };
+  }
+  const selection: ClusterCreateInput = { provider };
+  const profile = payload.profile;
+  if (profile !== undefined && profile !== "") {
+    if (!isClusterProfile(profile)) {
+      return {
+        ok: false,
+        error: `profile '${String(profile)}' is not one of ${CLUSTER_PROFILES.join(", ")}`,
+      };
+    }
+    selection.profile = profile;
+  }
+  const env = trimmedField(payload.env);
+  if (env) selection.env = env;
+  const partition = trimmedField(payload.partition);
+  if (partition) selection.partition = partition;
+  const instance = trimmedField(payload.instance);
+  if (instance) selection.instance = instance;
+  if (provider === "azure") {
+    const location = trimmedField(payload.location);
+    if (location) selection.location = location;
+    if (trimmedField(payload.private)) selection.privateNetwork = true;
+  }
+  return { ok: true, selection };
+}
+
 // Map a validated create selection to the run-workflow `args` (the run's
 // `inputs`) the `osdu-cluster-create` bash node reads. Only set keys are emitted
 // so a blank field stays absent and cimpl's default applies; the azure-only
