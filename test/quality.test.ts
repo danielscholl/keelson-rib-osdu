@@ -308,4 +308,35 @@ describe("buildQualityBoard edge cases", () => {
     if (worst?.kind !== "table") throw new Error("no worst table");
     expect(worst.rows[0]?.service).toBe("Unsafe");
   });
+
+  test("credential-bearing service URLs stay plain strings (no userinfo in snapshot)", () => {
+    const report: ReleaseReport = {
+      services: [
+        {
+          name: "creds",
+          display_name: "Creds",
+          pipeline_url: "https://user:token@gitlab.example.com/osdu/creds/-/pipelines/1",
+          sonar: {
+            coverage_pct: 90,
+            reliability_rating: "A",
+            security_rating: "A",
+            maintainability_rating: "A",
+            sonar_url: "https://user:token@sonarcloud.io/project/overview?id=creds",
+          },
+          unit: { passed: 1, failed: 0, skipped: 0 },
+          acceptance: { pass_rate: 50, passed: 1, failed: 1, skipped: 0 },
+        },
+      ],
+    };
+    const t = buildQualityTable(report);
+    expect(canvasViewSchema.safeParse(t).success).toBe(true);
+    expect(t.rows[0]?.service).toBe("Creds");
+
+    const b = buildQualityBoard(report);
+    expect(canvasViewSchema.safeParse(b).success).toBe(true);
+    const tables = b.sections.filter((s) => s.kind === "table");
+    const worst = tables[tables.length - 1];
+    if (worst?.kind !== "table") throw new Error("no worst table");
+    expect(worst.rows[0]?.service).toBe("Creds");
+  });
 });

@@ -240,13 +240,13 @@ function httpHref(raw: string | null | undefined): string | undefined {
   if (!raw) return undefined;
   try {
     const p = new URL(raw);
-    return p.protocol === "http:" || p.protocol === "https:" ? raw : undefined;
+    if (p.protocol !== "http:" && p.protocol !== "https:") return undefined;
+    if (p.username || p.password) return undefined;
+    return raw;
   } catch {
     return undefined;
   }
 }
-// A Service cell: linked when a safe URL exists, plain text otherwise so an
-// unscanned / unlinked service stays a bare string.
 function serviceCell(label: string, url: string | null | undefined): Cell {
   const href = httpHref(url);
   return href ? { value: label, href } : label;
