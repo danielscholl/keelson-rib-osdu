@@ -298,7 +298,7 @@ function sonarSecurityRatingUrl(raw: string | null): string | null {
   }
 }
 
-type BarItem = { label: string; value: number; total: number; tone?: Tone; trailing?: string };
+type BarItem = { label: string; value: number; total: number; tone?: Tone; trailing?: string; href?: string };
 // Top services by critical+high count, with a severity bar and crit/high tail.
 function buildOffenders(services: ServiceReport[]): BarItem[] {
   const rows = services
