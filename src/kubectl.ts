@@ -44,6 +44,17 @@ export async function getCurrentContext(exec: RibExec = localExec()): Promise<st
   return ctx.length > 0 ? ctx : null;
 }
 
+export async function listContexts(exec: RibExec = localExec()): Promise<string[]> {
+  const res = await exec.runText("kubectl", ["config", "get-contexts", "-o", "name"], {
+    timeoutMs: 5_000,
+  });
+  if (!res.ok) return [];
+  return res.data
+    .split(/\r?\n/)
+    .map((ctx) => ctx.trim())
+    .filter((ctx) => ctx.length > 0);
+}
+
 // A stable per-cluster identity that survives nothing but the cluster's own
 // lifetime: the kube-system namespace UID is created with the cluster and is
 // reassigned when it's recreated. Used to bind a board's destructive actions to

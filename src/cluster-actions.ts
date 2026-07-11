@@ -13,7 +13,20 @@ export const CLUSTER_LIFECYCLE_ARGS = {
   delete: ["down", "--provider", "current-context"],
 } as const;
 
+const CLUSTER_CREATE_TIMEOUT_MS = 600_000;
+const CONTEXT_SWITCH_TIMEOUT_MS = 30_000;
+
 export type ClusterVerb = keyof typeof CLUSTER_LIFECYCLE_ARGS;
+
+export interface ClusterCreateInput {
+  provider: string;
+  profile: string;
+  name: string;
+}
+
+export function CLUSTER_CREATE_ARGS({ provider, profile, name }: ClusterCreateInput): string[] {
+  return ["up", "--provider", provider, "--profile", profile, "--name", name];
+}
 
 // Confirm the live current-context is a CIMPL deployment before a mutation.
 // `cimpl info` runs cimpl's own authoritative fingerprint and exits non-zero on
@@ -48,4 +61,22 @@ export async function runClusterLifecycle(
   const args = CLUSTER_LIFECYCLE_ARGS[verb];
   const res = await exec.runText("cimpl", [...args], { timeoutMs });
   return res.ok ? { ok: true, ran: `cimpl ${args.join(" ")}` } : { ok: false, error: res.error };
+}
+
+export async function runClusterCreate(
+  exec: RibExec,
+  input: ClusterCreateInput,
+): Promise<{ ok: true; ran: string } | { ok: false; error: string }> {
+  const args = CLUSTER_CREATE_ARGS(input);
+  const res = await exec.runText("cimpl", args, { timeoutMs: CLUSTER_CREATE_TIMEOUT_MS });
+  return res.ok ? { ok: true, ran: `cimpl ${args.join(" ")}` } : { ok: false, error: res.error };
+}
+
+export async function runContextSwitch(
+  exec: RibExec,
+  { target }: { target: string },
+): Promise<{ ok: true; ran: string } | { ok: false; error: string }> {
+  const args = ["config", "use-context", target];
+  const res = await exec.runText("kubectl", args, { timeoutMs: CONTEXT_SWITCH_TIMEOUT_MS });
+  return res.ok ? { ok: true, ran: `kubectl ${args.join(" ")}` } : { ok: false, error: res.error };
 }

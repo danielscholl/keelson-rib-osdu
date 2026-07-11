@@ -155,6 +155,31 @@ export function actionGuardError(
   return null;
 }
 
+// Provision is allowed from a no-context board, but the observed kube identity
+// still has to match live state right before the create path mutates anything.
+export function provisionGuardError(
+  payload: { observedContext?: unknown; fingerprint?: unknown } | undefined,
+  liveContext: string | null,
+  liveFingerprint: string | null,
+): string | null {
+  const observedContext = payload?.observedContext;
+  if (observedContext !== null && typeof observedContext !== "string") {
+    return "no observed cluster context captured for this provision action — refresh and retry";
+  }
+  if (liveContext !== observedContext) {
+    return `cluster context changed since this view loaded (was ${observedContext ?? "none"}, now ${liveContext ?? "none"}) — refresh and retry`;
+  }
+  const observedFingerprint = payload?.fingerprint;
+  if (
+    typeof observedFingerprint === "string" &&
+    observedFingerprint.length > 0 &&
+    observedFingerprint !== liveFingerprint
+  ) {
+    return `this cluster was recreated since the view loaded (context ${observedContext ?? "none"}) — refresh and retry`;
+  }
+  return null;
+}
+
 // Exact match key: lowercase, strip every non-alphanumeric, so cimpl's casing
 // quirks compare cleanly ("MinIO"/"Minio", "RabbitMQ"/"Rabbitmq") while
 // parenthetical qualifiers stay distinct ("PostgreSQL" vs "PostgreSQL
