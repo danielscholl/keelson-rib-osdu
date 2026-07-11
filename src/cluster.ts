@@ -1,5 +1,10 @@
 import type { CanvasBoardView, RibExec } from "@keelson/shared";
-import { CLUSTER_PROFILES, CLUSTER_PROVIDERS, DEFAULT_CLUSTER_PROVIDER } from "./cluster-create.ts";
+import {
+  CLUSTER_PROFILES,
+  CLUSTER_PROVIDERS,
+  DEFAULT_CLUSTER_PROVIDER,
+  PRIVATE_NETWORK_TOKEN,
+} from "./cluster-create.ts";
 import { localExec } from "./exec.ts";
 
 // The subset of `cimpl info --json` the ICC reads. With `--show-secrets` cimpl
@@ -421,7 +426,7 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
           name: "private",
           label: "Network (azure)",
           placeholder: "managed VNet",
-          options: [{ value: "private", label: "private subnets" }],
+          options: [{ value: PRIVATE_NETWORK_TOKEN, label: "private subnets" }],
         },
       ],
     });

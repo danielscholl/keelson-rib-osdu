@@ -9,6 +9,11 @@ export const DEFAULT_CLUSTER_PROVIDER: ClusterProvider = "kind";
 export const CLUSTER_PROFILES = ["minimal", "core", "core-plus", "graduated", "full"] as const;
 export type ClusterProfile = (typeof CLUSTER_PROFILES)[number];
 
+// The exact form-field value that opts an azure create into private subnets.
+// Shared by the board's select option and the selection validator so the two
+// can't drift.
+export const PRIVATE_NETWORK_TOKEN = "private";
+
 export interface ClusterCreateInput {
   provider: ClusterProvider;
   // Left unset so cimpl's per-provider default fires (core for kind, graduated
@@ -67,7 +72,9 @@ export function clusterCreateSelection(
   if (provider === "azure") {
     const location = trimmedField(payload.location);
     if (location) selection.location = location;
-    if (trimmedField(payload.private)) selection.privateNetwork = true;
+    // Match the exact form token, not any truthy string, so a malformed/forged
+    // payload can't silently flip the network mode.
+    if (payload.private === PRIVATE_NETWORK_TOKEN) selection.privateNetwork = true;
   }
   return { ok: true, selection };
 }
@@ -101,6 +108,9 @@ export function clusterCreateArgs(input: ClusterCreateInput): Record<string, str
 // (blank) input expands to "" rather than aborting.
 export const CLUSTER_CREATE_BASH = [
   "set -eo pipefail",
+  // The subprocess inherits the server env; clear any stray private-network flag
+  // so it's enabled ONLY when this create explicitly asked for it below.
+  "unset CIMPL_AZURE_PRIVATE_NETWORK",
   'provider="$KEELSON_INPUTS_provider"',
   '[ -n "$provider" ] || provider=kind',
   'args=(up --provider "$provider")',

@@ -370,14 +370,17 @@ describe("cluster create onAction (#61 run-workflow effect)", () => {
 // (reached as $KEELSON_INPUTS_*). Execute the actual node body against a fake
 // `cimpl` on PATH and assert the argv + private-network env it produces.
 describe("osdu-cluster-create workflow bash node argv", () => {
-  function runCreateBash(inputs: Record<string, string>): { args: string[]; privateNet: string } {
+  function runCreateBash(
+    inputs: Record<string, string>,
+    extraEnv: Record<string, string> = {},
+  ): { args: string[]; privateNet: string } {
     const dir = mkdtempSync(join(tmpdir(), "osdu-create-"));
     try {
       const fake = join(dir, "cimpl");
       const script =
         '#!/usr/bin/env bash\nfor a in "$@"; do printf "ARG:%s\\n" "$a"; done\nprintf "PRIVATE:%s\\n" "$CIMPL_AZURE_PRIVATE_NETWORK"\n';
       writeFileSync(fake, script, { mode: 0o755 });
-      const env: Record<string, string> = { PATH: `${dir}:${process.env.PATH ?? ""}` };
+      const env: Record<string, string> = { PATH: `${dir}:${process.env.PATH ?? ""}`, ...extraEnv };
       for (const [k, v] of Object.entries(inputs)) env[`KEELSON_INPUTS_${k}`] = v;
       const proc = Bun.spawnSync(["bash", "-c", CLUSTER_CREATE_BASH], { env, stdout: "pipe" });
       const out = proc.stdout.toString();
@@ -430,6 +433,16 @@ describe("osdu-cluster-create workflow bash node argv", () => {
       private: "1",
     });
     expect(args).toEqual(["up", "--provider", "kind"]);
+    expect(privateNet).toBe("");
+  });
+
+  test("clears an inherited CIMPL_AZURE_PRIVATE_NETWORK when private is not selected", () => {
+    // Server env leaks the flag; a managed-VNet (no private input) create must clear it.
+    const { args, privateNet } = runCreateBash(
+      { provider: "azure" },
+      { CIMPL_AZURE_PRIVATE_NETWORK: "1" },
+    );
+    expect(args).toEqual(["up", "--provider", "azure"]);
     expect(privateNet).toBe("");
   });
 });
