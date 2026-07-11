@@ -16,6 +16,7 @@ export interface SonarMetrics {
   reliability_rating?: string | null;
   security_rating?: string | null;
   maintainability_rating?: string | null;
+  sonar_url?: string | null;
 }
 // A per-stage test result — a pass rate plus the raw counts the KPI tiles, the
 // stage bars, and the worst-acceptance table sum over.
