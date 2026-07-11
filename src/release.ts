@@ -195,7 +195,10 @@ export function buildReleaseBoard(input: ReleaseInput): CanvasBoardView {
   };
   const pmcReportUrl = input.pmcReportUrl?.trim();
   const sections: CanvasBoardView["sections"] = pmcReportUrl
-    ? [{ kind: "rows", title: "Report", items: [{ text: "PMC: Report", href: pmcReportUrl }] }, columns]
+    ? [
+        { kind: "rows", title: "Report", items: [{ text: "PMC: Report", href: pmcReportUrl }] },
+        columns,
+      ]
     : [columns];
   return {
     view: "board",
