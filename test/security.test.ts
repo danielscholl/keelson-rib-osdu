@@ -259,12 +259,15 @@ describe("buildSecurityBoard", () => {
           current_version: "1.0.0",
           detected_at: "2026-05-01T00:00:00Z",
           state: "DETECTED",
-          web_url: "https://community.opengroup.org/osdu/platform/system/storage/-/security/vulnerabilities/1",
+          web_url:
+            "https://community.opengroup.org/osdu/platform/system/storage/-/security/vulnerabilities/1",
         },
       ],
       now: NOW,
     });
-    const bars = b.sections.find((s) => s.kind === "bars" && s.title === "Top offenders · crit + high");
+    const bars = b.sections.find(
+      (s) => s.kind === "bars" && s.title === "Top offenders · crit + high",
+    );
     expect(bars?.kind).toBe("bars");
     if (bars?.kind !== "bars") return;
 
