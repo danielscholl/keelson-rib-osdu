@@ -445,6 +445,12 @@ describe("osdu-cluster-create workflow bash node argv", () => {
     expect(args).toEqual(["up", "--provider", "azure"]);
     expect(privateNet).toBe("");
   });
+
+  test("enables private-network only for the exact `1` input at the execution boundary", () => {
+    // A workflow run with an arbitrary non-`1` value must not enable it.
+    expect(runCreateBash({ provider: "azure", private: "0" }).privateNet).toBe("");
+    expect(runCreateBash({ provider: "azure", private: "1" }).privateNet).toBe("1");
+  });
 });
 
 describe("cimpl context filtering", () => {

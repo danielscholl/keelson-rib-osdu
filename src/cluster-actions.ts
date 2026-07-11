@@ -11,7 +11,7 @@ import {
 // cimpl lifecycle verbs the ICC actions (onAction) and the chat tools dispatch
 // to. Reconcile/Suspend/Resume are reversible; Delete tears down the current
 // context's cluster and is gated separately (UI destructive-confirm; not a tool).
-// Create is not here — it launches the `osdu-cluster-create` workflow (see #61).
+// Create is not here — it launches the `osdu-cluster-create` workflow.
 export const CLUSTER_LIFECYCLE_ARGS = {
   reconcile: ["reconcile"],
   suspend: ["reconcile", "--suspend"],
@@ -94,7 +94,7 @@ export async function runContextSwitch(
   return res.ok ? { ok: true, ran: `kubectl ${args.join(" ")}` } : { ok: false, error: res.error };
 }
 
-// The guarded context-switch verb (#62). Refuses non-cimpl targets, a vanished
+// The guarded context-switch verb. Refuses non-cimpl targets, a vanished
 // target, a stale observed-current, and a recreated cluster (fingerprint drift)
 // before running `kubectl config use-context`. Returns a domain result; the
 // caller (onAction) maps it and triggers the board refresh.

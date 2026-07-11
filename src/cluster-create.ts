@@ -120,7 +120,7 @@ export const CLUSTER_CREATE_BASH = [
   '[ -n "$KEELSON_INPUTS_instance" ] && args+=(--instance "$KEELSON_INPUTS_instance")',
   'if [ "$provider" = azure ]; then',
   '  [ -n "$KEELSON_INPUTS_location" ] && args+=(--location "$KEELSON_INPUTS_location")',
-  '  [ -n "$KEELSON_INPUTS_private" ] && export CIMPL_AZURE_PRIVATE_NETWORK=1',
+  '  [ "$KEELSON_INPUTS_private" = 1 ] && export CIMPL_AZURE_PRIVATE_NETWORK=1',
   "fi",
   // biome-ignore lint/suspicious/noTemplateCurlyInString: bash array expansion, not a JS template
   'cimpl "${args[@]}"',

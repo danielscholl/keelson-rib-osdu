@@ -41,12 +41,8 @@ interface CimplCredentialSecret {
   password?: string;
 }
 
-// Create (#61): a single action that launches the `osdu-cluster-create`
-// workflow via the run-workflow client effect, so the potentially long `cimpl
-// up` streams its node trace in the Workflows surface. It bypasses the
-// stale-context guard entirely — create runs with no current cluster — and
-// carries no board identity stamp; the collected form fields become the run's
-// inputs.
+// Handed to a workflow rather than run inline so the long `cimpl up` streams its
+// node trace; it runs with no current cluster, so it carries no identity guard.
 function launchClusterCreate(action: RibAction): RibActionResult {
   const selected = clusterCreateSelection((action.payload ?? {}) as Record<string, unknown>);
   if (!selected.ok) return { ok: false, error: selected.error };
@@ -224,9 +220,8 @@ const rib: Rib = {
       validate: expectView(CLUSTER_KEY, "board"),
     },
     {
-      // The create action's target (#61): one bash node runs `cimpl up` from the
-      // form fields (passed as run inputs), streaming its trace in the Workflows
-      // surface. No bindSnapshotKey/validate — it acts, it doesn't publish a view.
+      // One bash node runs `cimpl up` from the form fields (passed as run
+      // inputs). No bindSnapshotKey/validate — it acts, it doesn't publish a view.
       definition: {
         name: "osdu-cluster-create",
         description:
@@ -357,8 +352,8 @@ const rib: Rib = {
   // Cluster ICC actions: dispatch lifecycle/context verbs via the async exec
   // surface, so a slow/unreachable cluster can't block the server event loop.
   // `create` and `switch-context` are handled BEFORE the stale-context guard —
-  // create runs with no current cluster (#61) and a switch deliberately changes
-  // the context. `reveal-credential` is a read that returns one password to the
+  // create runs with no current cluster and a switch deliberately changes the
+  // context. `reveal-credential` is a read that returns one password to the
   // caller for an on-demand clipboard copy — the secret never enters a snapshot.
   onAction: async (action, ctx) => {
     if (action.type === "create") return launchClusterCreate(action);
