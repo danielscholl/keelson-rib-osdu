@@ -11,7 +11,13 @@
  */
 import { loadVenusBundle } from "../src/activity.ts";
 import { extractMergedRelatedMrs } from "../src/events.ts";
-import { buildReleaseBoard, extractMilestoneFilter, extractReleaseMrs } from "../src/release.ts";
+import { resolvePmcReportUrl } from "../src/pmc.ts";
+import {
+  buildReleaseBoard,
+  extractMilestoneFilter,
+  extractReleaseMrs,
+  resolveReleaseTrain,
+} from "../src/release.ts";
 
 const bundle = await loadVenusBundle();
 for (const err of bundle.errors) console.error(`[rib-osdu] release ${err}`);
@@ -21,7 +27,9 @@ const openMrs = extractReleaseMrs(bundle.mrsRaw);
 // the most-common milestone across the open MRs.
 const release = extractMilestoneFilter(bundle.mrsRaw);
 const mergedMrs = extractMergedRelatedMrs(bundle.epicsRaw);
+const train = resolveReleaseTrain(release, openMrs);
+const pmcReportUrl = await resolvePmcReportUrl(train);
 
 process.stdout.write(
-  JSON.stringify(buildReleaseBoard({ openMrs, mergedMrs, release, now: new Date() })),
+  JSON.stringify(buildReleaseBoard({ openMrs, mergedMrs, release, pmcReportUrl, now: new Date() })),
 );

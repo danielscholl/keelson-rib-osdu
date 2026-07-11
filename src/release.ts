@@ -22,6 +22,7 @@ export interface ReleaseInput {
   // The CLI's resolved release identity; preferred over the MR mode and present
   // even when the open-MR queue is empty.
   release?: string | null;
+  pmcReportUrl?: string | null;
   now: Date;
 }
 
@@ -109,6 +110,14 @@ export function releaseTrain(mrs: ReleaseMr[]): string | null {
   return best;
 }
 
+export function resolveReleaseTrain(
+  release: string | null | undefined,
+  openMrs: ReleaseMr[],
+): string | null {
+  const resolved = release?.trim();
+  return resolved && resolved.length > 0 ? resolved : releaseTrain(openMrs);
+}
+
 // Most-recent open non-draft MRs (created_at desc, iid desc tiebreak), capped.
 function newMrRows(mrs: ReleaseMr[], now: Date): RowItem[] {
   const ranked = mrs
@@ -170,23 +179,27 @@ function winRows(mergedMrs: FeedRelatedMr[], now: Date): RowItem[] {
 export function buildReleaseBoard(input: ReleaseInput): CanvasBoardView {
   const { now } = input;
   const openMrs = input.openMrs ?? [];
-  const resolved = input.release?.trim();
-  const train = resolved && resolved.length > 0 ? resolved : releaseTrain(openMrs);
-  const sections: CanvasBoardView["sections"] = [
-    {
-      kind: "columns",
-      columns: [
-        {
-          sections: [{ kind: "rows", title: "New Merge Requests", items: newMrRows(openMrs, now) }],
-        },
-        {
-          sections: [
-            { kind: "rows", title: "Platform Wins", items: winRows(input.mergedMrs ?? [], now) },
-          ],
-        },
-      ],
-    },
-  ];
+  const train = resolveReleaseTrain(input.release, openMrs);
+  const columns: CanvasBoardView["sections"][number] = {
+    kind: "columns",
+    columns: [
+      {
+        sections: [{ kind: "rows", title: "New Merge Requests", items: newMrRows(openMrs, now) }],
+      },
+      {
+        sections: [
+          { kind: "rows", title: "Platform Wins", items: winRows(input.mergedMrs ?? [], now) },
+        ],
+      },
+    ],
+  };
+  const pmcReportUrl = input.pmcReportUrl?.trim();
+  const sections: CanvasBoardView["sections"] = pmcReportUrl
+    ? [
+        { kind: "rows", title: "Report", items: [{ text: "PMC: Report", href: pmcReportUrl }] },
+        columns,
+      ]
+    : [columns];
   return {
     view: "board",
     title: "Release Train",
