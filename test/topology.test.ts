@@ -128,6 +128,7 @@ describe("buildTopologyGraph HelmReleases", () => {
 
     const hrId = "hr:osdu/partition";
     expect(nodeById(graph, "ks:osdu-platform")).toBeDefined();
+    expect(nodeById(graph, hrId)?.label).toBe("osdu/partition");
     expect(nodeById(graph, hrId)?.kind).not.toBe("ready");
     expect(nodeById(graph, hrId)?.kind).toBe("failed");
     expect(hasEdge(graph, "ks:osdu-platform", hrId)).toBe(true);
@@ -192,6 +193,8 @@ describe("buildTopologyGraph HelmReleases", () => {
     const ids = graph.nodes.map((n) => n.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(graph.nodes.filter((n) => n.id === "hr:osdu/search")).toHaveLength(1);
+    expect(nodeById(graph, "hr:osdu/search")?.label).toBe("osdu/search");
+    expect(nodeById(graph, "hr:other/search")?.label).toBe("other/search");
 
     const nodeIds = new Set(ids);
     for (const e of graph.edges) {

@@ -111,7 +111,7 @@ export function buildTopologyGraph(input: TopologyInput): CanvasGraphView {
     if (seenHr.has(id)) continue;
     seenHr.add(id);
 
-    nodes.push({ id, label: name, kind: kustomizationHealth(hr) });
+    nodes.push({ id, label: `${namespace}/${name}`, kind: kustomizationHealth(hr) });
 
     const owner = hr.metadata?.labels?.[OWNER_LABEL]?.trim() ?? "";
     if (owner.length > 0 && seen.has(owner)) {
