@@ -9,7 +9,7 @@ import type {
 import { localExec } from "./exec.ts";
 
 // Shape of `osdu-quality release --output json`. Only the fields the lane reads
-// are modeled; the CLI emits more (pipeline urls, allure links, ncloc, …).
+// are modeled; the CLI emits more (allure links, ncloc, …).
 export interface SonarMetrics {
   coverage_pct?: number | null;
   quality_gate?: string | null;
@@ -37,6 +37,7 @@ export interface VulnCounts {
 export interface ServiceReport {
   name?: string;
   display_name?: string | null;
+  pipeline_url?: string | null;
   sonar?: SonarMetrics | null;
   unit?: TestMetrics | null;
   acceptance?: TestMetrics | null;
