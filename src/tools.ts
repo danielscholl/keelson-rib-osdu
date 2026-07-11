@@ -16,6 +16,7 @@ import {
   getJobs,
   getKustomizations,
   getReadiness,
+  listContexts,
 } from "./kubectl.ts";
 import { fetchReleaseReport } from "./quality.ts";
 import { extractMilestoneFilter, extractReleaseMrs } from "./release.ts";
@@ -241,6 +242,17 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
           kustomizations: r.kustomizations,
           notes: r.error ? [`kustomizations: ${r.error}`] : [],
         };
+      },
+    ),
+    readTool(
+      "osdu_contexts",
+      "Use when the user asks which CIMPL clusters they have or which kubectl context is active. Returns the current context plus the cimpl-managed contexts on the machine (prefix-filtered; CIMPL_CONTEXT_PREFIXES overrides the default prefix set), degrading to an empty list when kubectl is unavailable. Read-only. NOT for switching contexts or changing cluster state.",
+      async () => {
+        const [current, contexts] = await Promise.all([
+          getCurrentContext(exec),
+          listContexts(exec),
+        ]);
+        return { current, contexts };
       },
     ),
     lifecycleTool(exec, "reconcile", "Reconcile Flux on"),

@@ -7,12 +7,13 @@
  * else) to stdout. Each source degrades independently to a valid board.
  */
 import { buildClusterBoard, type ClusterLifecycle, fetchClusterInfo } from "../src/cluster.ts";
-import { clusterFingerprint, currentContext, getReadiness } from "../src/kubectl.ts";
+import { clusterFingerprint, currentContext, getReadiness, listContexts } from "../src/kubectl.ts";
 
 const { info, error: infoError } = await fetchClusterInfo();
 if (infoError) console.error(`[rib-osdu] cluster info degraded: ${infoError}`);
 
 const context = currentContext();
+const contexts = await listContexts();
 const flux = await getReadiness("kustomizations", ["-n", "flux-system"]);
 const services = await getReadiness("helmreleases", ["-A"]);
 if (flux.error) console.error(`[rib-osdu] flux readiness degraded: ${flux.error}`);
@@ -28,6 +29,7 @@ const lifecycle: ClusterLifecycle = {
   reachable: Boolean(info) || !flux.error || !services.error,
   flux: { ready: flux.ready, total: flux.total },
   services: { ready: services.ready, total: services.total },
+  contexts,
 };
 
 process.stdout.write(JSON.stringify(buildClusterBoard({ info, lifecycle })));

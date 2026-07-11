@@ -4,10 +4,17 @@ import { actionGuardError, hasRealSecret, parseCimplInfoJson } from "./cluster.t
 import {
   CLUSTER_LIFECYCLE_ARGS,
   type ClusterVerb,
+  refuseCreateOverCimpl,
   runClusterLifecycle,
+  switchCimplContext,
   verifyCimplContext,
 } from "./cluster-actions.ts";
-import { clusterFingerprint, currentContext } from "./kubectl.ts";
+import {
+  CLUSTER_CREATE_BASH,
+  clusterCreateArgs,
+  clusterCreateSelection,
+} from "./cluster-create.ts";
+import { currentContext, getClusterFingerprint, getCurrentContext } from "./kubectl.ts";
 import { registerOsduTools } from "./tools.ts";
 
 const CLUSTER_KEY = "rib:osdu:cluster";
@@ -33,6 +40,39 @@ const WAITING_COLLECTOR = new URL("../bin/collect-waiting.ts", import.meta.url).
 interface CimplCredentialSecret {
   service?: string;
   password?: string;
+}
+
+// Handed to a workflow rather than run inline so the long `cimpl up` streams its
+// node trace; it runs with no current cluster, so it carries no identity guard.
+// A bounded preflight probe still refuses to fire the workflow over a live (or
+// indeterminate) CIMPL deployment — the distinct "don't clobber" safety check.
+async function launchClusterCreate(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
+  const selected = clusterCreateSelection((action.payload ?? {}) as Record<string, unknown>);
+  if (!selected.ok) return { ok: false, error: selected.error };
+  const denial = await refuseCreateOverCimpl(ctx.getExec());
+  if (denial) return { ok: false, error: denial };
+  return {
+    ok: true,
+    data: {
+      effect: "run-workflow",
+      workflow: "osdu-cluster-create",
+      args: clusterCreateArgs(selected.selection),
+    },
+  };
+}
+
+async function switchContext(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
+  const res = await switchCimplContext(
+    ctx.getExec(),
+    (action.payload ?? {}) as {
+      target?: unknown;
+      observedCurrent?: unknown;
+      fingerprint?: unknown;
+    },
+  );
+  if (!res.ok) return { ok: false, error: res.error };
+  await ctx.refreshWorkflow?.("osdu-cluster");
+  return { ok: true, data: { ran: res.ran, current: res.current } };
 }
 
 // Re-fetch one credential's password on demand for a clipboard copy. The secret
@@ -172,7 +212,7 @@ const rib: Rib = {
       definition: {
         name: "osdu-cluster",
         description:
-          'Use when: checking the deployment\'s health + access. Triggers: "show the cluster", "is the cluster up", "where is Airflow / the portal", "reconcile the cluster". Does: shells `cimpl info --json` plus kubectl Flux/HelmRelease readiness and publishes a Cluster ICC board — lifecycle rows (context / reachable / Flux reconciled / services ready), Reconcile · Suspend/Resume actions, and endpoint + internal-service access cards — to the Cluster ICC canvas. NOT for: deleting or creating clusters.',
+          'Use when: checking the deployment\'s health + access or choosing a kube-context. Triggers: "show the cluster", "is the cluster up", "where is Airflow / the portal", "reconcile the cluster", "switch context". Does: shells `cimpl info --json` plus kubectl Flux/HelmRelease readiness and publishes a Cluster ICC board — lifecycle rows (context / reachable / Flux reconciled / services ready), observed context rows, Reconcile · Suspend/Resume · Delete · Create cluster · Switch active context actions, and endpoint + internal-service access cards — to the Cluster ICC canvas. NOT for: bypassing typed confirmations or identity guards.',
         nodes: [
           {
             id: "collect",
@@ -183,6 +223,22 @@ const rib: Rib = {
       },
       bindSnapshotKey: CLUSTER_KEY,
       validate: expectView(CLUSTER_KEY, "board"),
+    },
+    {
+      // One bash node runs `cimpl up` from the form fields (passed as run
+      // inputs). No bindSnapshotKey/validate — it acts, it doesn't publish a view.
+      definition: {
+        name: "osdu-cluster-create",
+        description:
+          'Use when: bringing up a new CIMPL dev cluster from an empty or unreachable ICC. Triggers: "create the cluster", "bring up cimpl", "provision a new cluster". Does: runs `cimpl up` with the chosen provider/profile/env/partition/instance (+ azure location/private) as a streaming node in the Workflows surface. NOT for: reconciling, deleting, or switching an existing cluster.',
+        nodes: [
+          {
+            id: "provision",
+            bash: CLUSTER_CREATE_BASH,
+            timeout: 600_000,
+          },
+        ],
+      },
     },
     {
       definition: {
@@ -298,18 +354,28 @@ const rib: Rib = {
     },
   ],
 
-  // Cluster ICC actions: dispatch a lifecycle verb to the `cimpl` CLI via the
-  // async exec surface, so a slow/unreachable cluster can't block the server
-  // event loop. The board reflects the new state on the next osdu-cluster run.
-  // `reveal-credential` is a read that returns one password to the caller for an
-  // on-demand clipboard copy — the secret never enters a snapshot.
+  // Cluster ICC actions: dispatch lifecycle/context verbs via the async exec
+  // surface, so a slow/unreachable cluster can't block the server event loop.
+  // `create` and `switch-context` are handled BEFORE the stale-context guard —
+  // create runs with no current cluster and a switch deliberately changes the
+  // context. `reveal-credential` is a read that returns one password to the
+  // caller for an on-demand clipboard copy — the secret never enters a snapshot.
   onAction: async (action, ctx) => {
+    if (action.type === "create") return launchClusterCreate(action, ctx);
+    if (action.type === "switch-context") return switchContext(action, ctx);
+
     // Identity guard: cimpl acts on the live kubectl current-context, so every
     // cluster action must match the cluster it was built against (context name
     // and, when captured, the stable fingerprint) — otherwise a stale board
     // could reveal/mutate the wrong cluster (especially Delete).
+    const exec = ctx.getExec();
     const payload = action.payload as { context?: unknown; fingerprint?: unknown } | undefined;
-    const guard = actionGuardError(payload, currentContext(), clusterFingerprint());
+    const liveContext = await getCurrentContext(exec);
+    const guard = actionGuardError(
+      payload,
+      liveContext,
+      liveContext ? await getClusterFingerprint(exec) : null,
+    );
     if (guard) return { ok: false, error: guard };
     if (action.type === "reveal-credential") return revealCredential(action, ctx);
     if (!(action.type in CLUSTER_LIFECYCLE_ARGS)) {
@@ -321,14 +387,14 @@ const rib: Rib = {
     // time over a reachable non-CIMPL cluster). `cimpl down` would otherwise
     // remove fixed namespaces from whatever cluster is current.
     if (verb === "delete") {
-      const denial = await verifyCimplContext(ctx.getExec());
+      const denial = await verifyCimplContext(exec);
       if (denial) return { ok: false, error: `refusing Delete: ${denial}` };
     }
     // Teardown waits on Flux pruning + namespace termination — minutes, not the
     // ~2 min a reconcile/suspend needs. A too-short timeout would abort a delete
     // mid-flight and leave the cluster half-removed.
     const timeoutMs = verb === "delete" ? 600_000 : 120_000;
-    const res = await runClusterLifecycle(ctx.getExec(), verb, timeoutMs);
+    const res = await runClusterLifecycle(exec, verb, timeoutMs);
     return res.ok ? { ok: true, data: { ran: res.ran } } : { ok: false, error: res.error };
   },
 

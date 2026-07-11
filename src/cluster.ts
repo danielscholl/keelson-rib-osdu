@@ -1,5 +1,12 @@
 import type { CanvasBoardView, RibExec } from "@keelson/shared";
+import {
+  CLUSTER_PROFILES,
+  CLUSTER_PROVIDERS,
+  DEFAULT_CLUSTER_PROVIDER,
+  PRIVATE_NETWORK_TOKEN,
+} from "./cluster-create.ts";
 import { localExec } from "./exec.ts";
+import { isCimplManagedContext } from "./kubectl.ts";
 
 // The subset of `cimpl info --json` the ICC reads. With `--show-secrets` cimpl
 // also returns each credential's password; the collector discards it — only the
@@ -35,6 +42,7 @@ export interface ClusterLifecycle {
   reachable: boolean;
   flux: { ready: number; total: number };
   services: { ready: number; total: number };
+  contexts?: string[];
 }
 
 // The cluster-identity stamp every action carries in its payload, so onAction
@@ -52,6 +60,7 @@ type Tone = "ok" | "warn" | "error" | "neutral";
 type BoardSection = CanvasBoardView["sections"][number];
 type ColumnsSection = Extract<BoardSection, { kind: "columns" }>;
 type LeafSection = ColumnsSection["columns"][number]["sections"][number];
+type ActionsSection = Extract<BoardSection, { kind: "actions" }>;
 type CardsSection = Extract<BoardSection, { kind: "cards" }>;
 type CardItem = CardsSection["items"][number];
 type FieldItem = NonNullable<CardItem["fields"]>[number];
@@ -323,6 +332,24 @@ function buildAccessCards(info: CimplInfo, stamp: ClusterStamp): CardItem[] {
   return cards;
 }
 
+function selectOptions(values: readonly string[]): { value: string; label: string }[] {
+  return values.map((value) => ({ value, label: value }));
+}
+
+function observedContexts(lifecycle: ClusterLifecycle): string[] {
+  if (lifecycle.contexts === undefined) return [];
+  const seen = new Set<string>();
+  const contexts: string[] = [];
+  for (const candidate of lifecycle.contexts ?? []) {
+    const context = candidate.trim();
+    if (!context || seen.has(context)) continue;
+    seen.add(context);
+    contexts.push(context);
+  }
+  if (lifecycle.context && !seen.has(lifecycle.context)) contexts.push(lifecycle.context);
+  return contexts;
+}
+
 /**
  * Build the Cluster ICC board from `cimpl info` access data + kubectl-derived
  * lifecycle counts. Pure — no I/O. Always emits a valid board: a degraded
@@ -333,6 +360,11 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
   const { info, lifecycle } = input;
   const { context, reachable, flux, services } = lifecycle;
   const suspended = info?.suspended === true;
+  const contexts = observedContexts(lifecycle);
+  // Only cimpl-managed contexts are valid switch targets; a non-cimpl current
+  // context can appear in `contexts` (for the informational rows) but must never
+  // be offered as a target the guard would refuse.
+  const switchTargets = contexts.filter((name) => isCimplManagedContext(name));
 
   // Cluster-identity stamp carried by every action so onAction can reject a
   // stale board. Context is the guard's required key; fingerprint is added when
@@ -365,37 +397,118 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
     ],
   };
 
+  const contextRows: LeafSection | undefined =
+    contexts.length > 0
+      ? {
+          kind: "rows",
+          title: "Contexts",
+          boxed: true,
+          items: contexts.map((name) => ({
+            glyph: name === context ? ("ok" as const) : ("neutral" as const),
+            text: name,
+            ...(name === context ? { trailing: "current" } : {}),
+          })),
+        }
+      : undefined;
+
   // Each action carries the cluster stamp so onAction can refuse to act on a
   // different cluster than the board was built against. Omitted when there's no
   // context to protect (the guard rejects payload-less actions anyway).
   const actionPayload = stamp.context ? stamp : undefined;
   const withPayload = <T extends { type: string }>(item: T) =>
     actionPayload ? { ...item, payload: actionPayload } : item;
-  const actions: LeafSection = {
+  const actionItems: ActionsSection["items"] = [
+    withPayload({ type: "reconcile", label: "Reconcile", glyph: "↻" }),
+    withPayload(
+      suspended
+        ? { type: "resume", label: "Resume", glyph: "▶" }
+        : { type: "suspend", label: "Suspend", glyph: "⏸" },
+    ),
+    withPayload({
+      type: "delete",
+      label: "Delete",
+      glyph: "✕",
+      tone: "error" as const,
+      destructive: true,
+    }),
+  ];
+  // Offer Create whenever there is no live CIMPL deployment to manage — keyed on
+  // the absence of `cimpl info`, not generic reachability, so a reachable
+  // non-CIMPL context still surfaces the only bring-up affordance.
+  if (!info) {
+    actionItems.push({
+      type: "create",
+      label: "Create cluster",
+      glyph: "+",
+      expanded: true,
+      fields: [
+        {
+          name: "provider",
+          label: "Provider",
+          required: true,
+          options: selectOptions(CLUSTER_PROVIDERS),
+          defaultValue: DEFAULT_CLUSTER_PROVIDER,
+        },
+        {
+          // Optional: left blank, cimpl applies its per-provider default.
+          name: "profile",
+          label: "Profile",
+          placeholder: "cimpl default",
+          options: selectOptions(CLUSTER_PROFILES),
+        },
+        { name: "env", label: "Environment", placeholder: "dev" },
+        { name: "partition", label: "Partition" },
+        { name: "instance", label: "Instance" },
+        { name: "location", label: "Location (azure)", placeholder: "eastus" },
+        {
+          // No boolean field kind: a non-required select clears to "" (managed
+          // VNet); "private" opts into azure private subnets.
+          name: "private",
+          label: "Network (azure)",
+          placeholder: "managed VNet",
+          options: [{ value: PRIVATE_NETWORK_TOKEN, label: "private subnets" }],
+        },
+      ],
+    });
+  }
+  // Offer switching only when there's a cimpl-managed target that isn't already
+  // current — otherwise the picker is a single-option, no-op mutation.
+  if (switchTargets.some((name) => name !== context)) {
+    actionItems.push({
+      type: "switch-context",
+      label: "Switch active context",
+      glyph: "⇄",
+      // Render the picker always-open so the target select shows directly in the ICC.
+      expanded: true,
+      payload: {
+        observedCurrent: context,
+        observedContexts: switchTargets,
+        ...(stamp.fingerprint ? { fingerprint: stamp.fingerprint } : {}),
+      },
+      fields: [
+        {
+          name: "target",
+          label: "Target context",
+          required: true,
+          options: selectOptions(switchTargets),
+          // Preselect the current only when it's itself a valid target — the
+          // canvas rejects a defaultValue outside the option set.
+          ...(context && switchTargets.includes(context) ? { defaultValue: context } : {}),
+        },
+      ],
+    });
+  }
+  const actions: ActionsSection = {
     kind: "actions",
     title: "Actions",
-    items: [
-      withPayload({ type: "reconcile", label: "Reconcile", glyph: "↻" }),
-      withPayload(
-        suspended
-          ? { type: "resume", label: "Resume", glyph: "▶" }
-          : { type: "suspend", label: "Suspend", glyph: "⏸" },
-      ),
-      withPayload({
-        type: "delete",
-        label: "Delete",
-        glyph: "✕",
-        tone: "error" as const,
-        destructive: true,
-      }),
-    ],
+    items: actionItems,
   };
 
   const sections: BoardSection[] = [
     {
       kind: "columns",
       columns: [
-        { weight: 1.4, sections: [lifecycleRows] },
+        { weight: 1.4, sections: contextRows ? [lifecycleRows, contextRows] : [lifecycleRows] },
         { weight: 1, sections: [actions] },
       ],
     },

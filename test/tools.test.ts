@@ -59,6 +59,7 @@ describe("registerOsduTools", () => {
       "osdu_waiting",
       "osdu_cluster",
       "osdu_topology",
+      "osdu_contexts",
       "osdu_cluster_reconcile",
       "osdu_cluster_suspend",
       "osdu_cluster_resume",
@@ -150,6 +151,37 @@ describe("osdu_cluster + osdu_topology tools (exec-injected)", () => {
     expect(out.context).toBe("kind-cimpl-test");
     expect(out.kustomizations).toHaveLength(1);
     expect(out.notes).toEqual([]);
+  });
+
+  test("osdu_contexts returns the current context + cimpl-managed contexts, filtering others", async () => {
+    const { exec } = makeExec({
+      text: (_cmd, args) => {
+        const command = args.join(" ");
+        if (command === "config current-context") return { ok: true, data: "cimpl-a\n" };
+        if (command === "config get-contexts -o name")
+          return { ok: true, data: "cimpl-a\ncimpl-b\nprod-cluster\n" };
+        return { ok: false, error: "unexpected", code: 1 };
+      },
+    });
+    const { tctx, emits } = fakeToolCtx();
+    await tool("osdu_contexts", exec).execute({}, tctx);
+    const out = JSON.parse(results(emits)[0]?.content ?? "{}");
+    expect(out.current).toBe("cimpl-a");
+    expect(out.contexts).toEqual(["cimpl-a", "cimpl-b"]);
+  });
+
+  test("osdu_contexts degrades to null/[] when kubectl is unavailable (no throw)", async () => {
+    const { exec } = makeExec({
+      text: () => ({ ok: false, error: "kubectl missing", code: null }),
+    });
+    const { tctx, emits } = fakeToolCtx();
+    await tool("osdu_contexts", exec).execute({}, tctx);
+    const r = results(emits);
+    expect(r).toHaveLength(1);
+    expect(r[0]?.isError).toBeUndefined();
+    const out = JSON.parse(r[0]?.content ?? "{}");
+    expect(out.current).toBeNull();
+    expect(out.contexts).toEqual([]);
   });
 });
 
