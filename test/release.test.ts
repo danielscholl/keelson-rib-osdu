@@ -8,8 +8,8 @@ import {
   milestoneToken,
   projectTone,
   type ReleaseMr,
-  resolveReleaseTrain,
   releaseTrain,
+  resolveReleaseTrain,
 } from "../src/release.ts";
 
 const DECORATIVE_TONES = ["info", "brand", "accent", "caution", "ok"];

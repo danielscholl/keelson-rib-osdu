@@ -14,9 +14,7 @@ describe("derivePmcReleaseSlug", () => {
 
   test("prefers numeric release tokens in compound milestones", () => {
     expect(derivePmcReleaseSlug("M26 - Release 0.30")).toBe("release-0-30");
-    expect(derivePmcReleaseSlug("M26 - Release 0.29 (Venus - Preview 1)")).toBe(
-      "release-0-29",
-    );
+    expect(derivePmcReleaseSlug("M26 - Release 0.29 (Venus - Preview 1)")).toBe("release-0-29");
   });
 
   test("returns null when no slug can be derived", () => {
