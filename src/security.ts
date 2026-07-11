@@ -289,6 +289,7 @@ function sonarSecurityRatingUrl(raw: string | null): string | null {
   if (!raw) return null;
   try {
     const parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
     const id = parsed.searchParams.get("id");
     if (!id) return null;
     return `${parsed.origin}/component_measures?id=${encodeURIComponent(id)}&metric=security_rating&view=list`;

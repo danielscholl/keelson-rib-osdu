@@ -162,6 +162,39 @@ describe("buildSecurityBoard", () => {
     expect(grid.cells[0]?.href).not.toContain("token");
   });
 
+  test("Low security rating leaves cells unlinked when the Sonar url is missing or non-http", () => {
+    const b = buildSecurityBoard({
+      report: {
+        services: [
+          { name: "nourl", display_name: "NoUrl", sonar: { security_rating: "E" } },
+          {
+            name: "jsurl",
+            display_name: "JsUrl",
+            sonar: { security_rating: "D", sonar_url: "javascript:alert(1)" },
+          },
+          {
+            name: "ftpurl",
+            display_name: "FtpUrl",
+            sonar: {
+              security_rating: "C",
+              sonar_url: "ftp://sonar.example.com/dashboard?id=osdu.ftp",
+            },
+          },
+        ],
+      },
+      now: NOW,
+    });
+    const grid = b.sections.find((s) => s.kind === "grid" && s.title === "Low security rating");
+    expect(grid?.kind).toBe("grid");
+    if (grid?.kind !== "grid") return;
+
+    expect(grid.cells.map((c) => [c.label, c.badge.text, c.href])).toEqual([
+      ["NoUrl", "E", undefined],
+      ["JsUrl", "D", undefined],
+      ["FtpUrl", "C", undefined],
+    ]);
+  });
+
   test("Low security rating collapses when every service is rated A", () => {
     const b = buildSecurityBoard({
       report: {
