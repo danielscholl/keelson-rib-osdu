@@ -275,10 +275,27 @@ function buildSastGrid(services: ServiceReport[]): GridCell[] {
     .map((svc) => ({ svc, rating: (svc.sonar?.security_rating ?? "").trim().toUpperCase() }))
     .filter(({ rating }) => rating !== "A")
     .sort((a, b) => rank(a.rating) - rank(b.rating) || name(a.svc).localeCompare(name(b.svc)))
-    .map(({ svc, rating }) => ({
-      label: name(svc),
-      badge: { text: rating || "—", tone: gradeTone(rating) },
-    }));
+    .map(({ svc, rating }) => {
+      const href = sonarSecurityRatingUrl(svc.sonar?.sonar_url ?? null);
+      return {
+        label: name(svc),
+        ...(href ? { href } : {}),
+        badge: { text: rating || "—", tone: gradeTone(rating) },
+      };
+    });
+}
+
+function sonarSecurityRatingUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    const id = parsed.searchParams.get("id");
+    if (!id) return null;
+    return `${parsed.origin}/component_measures?id=${encodeURIComponent(id)}&metric=security_rating&view=list`;
+  } catch {
+    return null;
+  }
 }
 
 type BarItem = { label: string; value: number; total: number; tone?: Tone; trailing?: string };
