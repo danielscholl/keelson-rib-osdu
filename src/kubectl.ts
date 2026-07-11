@@ -56,9 +56,9 @@ export async function getClusterFingerprint(exec: RibExec = localExec()): Promis
 }
 
 // kubectl context prefixes cimpl provisions its clusters with. Anything else is
-// a real (non-managed) cluster and is refused for write actions. Env-extensible
-// via CIMPL_CONTEXT_PREFIXES (comma-separated), mirroring cimpl-agent's
-// _maps/context.ts.
+// a real (non-managed) cluster and is refused for write actions. A non-empty
+// CIMPL_CONTEXT_PREFIXES (comma-separated) REPLACES this default set, mirroring
+// cimpl-agent's _maps/context.ts.
 const DEFAULT_CIMPL_PREFIXES = ["cimpl-", "kind-cimpl", "k3d-cimpl", "cimpl_"] as const;
 
 export function getCimplPrefixes(): string[] {

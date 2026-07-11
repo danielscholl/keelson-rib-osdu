@@ -246,7 +246,7 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
     ),
     readTool(
       "osdu_contexts",
-      "Use when the user asks which CIMPL clusters they have or which kubectl context is active. Returns the current context plus the cimpl-managed contexts on the machine (prefix-filtered, env-extensible via CIMPL_CONTEXT_PREFIXES), degrading to an empty list when kubectl is unavailable. Read-only. NOT for switching contexts or changing cluster state.",
+      "Use when the user asks which CIMPL clusters they have or which kubectl context is active. Returns the current context plus the cimpl-managed contexts on the machine (prefix-filtered; CIMPL_CONTEXT_PREFIXES overrides the default prefix set), degrading to an empty list when kubectl is unavailable. Read-only. NOT for switching contexts or changing cluster state.",
       async () => {
         const [current, contexts] = await Promise.all([
           getCurrentContext(exec),
