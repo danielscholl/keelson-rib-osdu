@@ -7,26 +7,26 @@ import {
   provisionGuardError,
 } from "./cluster.ts";
 import {
-  CLUSTER_CREATE_ARGS,
   CLUSTER_LIFECYCLE_ARGS,
   type ClusterVerb,
+  clusterCreatePreview,
   runClusterCreate,
   runClusterLifecycle,
   runContextSwitch,
   verifyCimplContext,
 } from "./cluster-actions.ts";
 import {
-  type ClusterProfile,
-  type ClusterProvider,
+  CLUSTER_PROFILES,
+  type ClusterCreateInput,
+  deriveClusterName,
   isClusterProfile,
   isClusterProvider,
-  isClusterProviderProfile,
-  validateClusterName,
 } from "./cluster-create.ts";
 import {
   currentContext,
   getClusterFingerprint,
   getCurrentContext,
+  isCimplManagedContext,
   listContexts,
 } from "./kubectl.ts";
 import { registerOsduTools } from "./tools.ts";
@@ -59,13 +59,7 @@ interface CimplCredentialSecret {
 
 type SnapshotManager = ReturnType<NonNullable<RibContext["getSnapshotManager"]>>;
 
-interface ClusterCreateSelection {
-  clusterName: string;
-  provider: ClusterProvider;
-  profile: ClusterProfile;
-}
-
-interface ClusterProvisionPayload extends ClusterCreateSelection {
+interface ClusterProvisionPayload extends ClusterCreateInput {
   observedContext: string | null;
   fingerprint?: string;
 }
@@ -74,46 +68,62 @@ let clusterProvisionBoard: CanvasBoardView | undefined;
 let clusterProvisionSnapshotManager: SnapshotManager | undefined;
 let unregisterClusterProvisionSnapshot: (() => void) | undefined;
 
+function trimmedField(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function clusterCreateSelection(
   payload: Record<string, unknown>,
-): { ok: true; selection: ClusterCreateSelection } | { ok: false; error: string } {
-  const clusterName = validateClusterName(payload.clusterName);
-  if (!clusterName) {
-    return {
-      ok: false,
-      error:
-        "clusterName must be a DNS-style name: lowercase letters, numbers, and hyphens; start and end with a letter or number",
-    };
-  }
-  const { provider, profile } = payload;
+): { ok: true; selection: ClusterCreateInput } | { ok: false; error: string } {
+  const { provider } = payload;
   if (!isClusterProvider(provider)) {
-    return { ok: false, error: "provider must be one of azure, aws, gcp" };
+    return { ok: false, error: "provider must be one of kind, azure" };
   }
-  if (!isClusterProfile(profile) || !isClusterProviderProfile(provider, profile)) {
-    return {
-      ok: false,
-      error: `profile '${String(profile)}' is not valid for provider '${provider}'`,
-    };
+  const selection: ClusterCreateInput = { provider };
+  // Profile is optional; when blank cimpl applies its per-provider default.
+  const profile = payload.profile;
+  if (profile !== undefined && profile !== "") {
+    if (!isClusterProfile(profile)) {
+      return {
+        ok: false,
+        error: `profile '${String(profile)}' is not one of ${CLUSTER_PROFILES.join(", ")}`,
+      };
+    }
+    selection.profile = profile;
   }
-  return { ok: true, selection: { clusterName, provider, profile } };
+  const env = trimmedField(payload.env);
+  if (env) selection.env = env;
+  const partition = trimmedField(payload.partition);
+  if (partition) selection.partition = partition;
+  const instance = trimmedField(payload.instance);
+  if (instance) selection.instance = instance;
+  // Location and private-network only apply to azure (mirrors buildCreateInput).
+  if (provider === "azure") {
+    const location = trimmedField(payload.location);
+    if (location) selection.location = location;
+    // Accept the form field (`private`) and the normalized boolean the
+    // provision payload round-trips back in (`privateNetwork`).
+    if (payload.privateNetwork === true || trimmedField(payload.private)) {
+      selection.privateNetwork = true;
+    }
+  }
+  return { ok: true, selection };
 }
 
 function buildClusterProvisionBoard(
-  selection: ClusterCreateSelection,
+  selection: ClusterCreateInput,
   payload: ClusterProvisionPayload,
 ): CanvasBoardView {
-  const args = CLUSTER_CREATE_ARGS({
-    provider: selection.provider,
-    profile: selection.profile,
-    name: selection.clusterName,
-  });
-  const command = ["cimpl", ...args].join(" ");
+  const command = clusterCreatePreview(selection);
+  const clusterName = deriveClusterName(selection.env);
   return {
     view: "board",
     title: "Provision cluster",
     header: {
       status: { label: "Ready to provision", tone: "warn" },
-      chip: selection.clusterName,
+      chip: clusterName,
     },
     sections: [
       {
@@ -123,7 +133,7 @@ function buildClusterProvisionBoard(
         items: [
           { glyph: "neutral", text: "Command", trailing: command },
           { glyph: "neutral", text: "Provider", trailing: selection.provider },
-          { glyph: "neutral", text: "Profile", trailing: selection.profile },
+          { glyph: "neutral", text: "Profile", trailing: selection.profile ?? "cimpl default" },
           {
             glyph: "neutral",
             text: "Observed context",
@@ -141,7 +151,7 @@ function buildClusterProvisionBoard(
             glyph: "+",
             tone: "error",
             destructive: true,
-            confirm: { irreversible: true, subject: selection.clusterName },
+            confirm: { irreversible: true, subject: clusterName },
             payload,
           },
         ],
@@ -233,11 +243,7 @@ async function provisionCluster(action: RibAction, ctx: RibContext): Promise<Rib
   if (guard) return { ok: false, error: guard };
   const denial = await verifyCimplContext(exec);
   if (!denial) return { ok: false, error: "refusing Provision: a live CIMPL deployment is active" };
-  const res = await runClusterCreate(exec, {
-    provider: parsed.payload.provider,
-    profile: parsed.payload.profile,
-    name: parsed.payload.clusterName,
-  });
+  const res = await runClusterCreate(exec, parsed.payload);
   if (!res.ok) return { ok: false, error: res.error };
   await ctx.refreshWorkflow?.("osdu-cluster");
   return { ok: true, data: { ran: res.ran } };
@@ -248,6 +254,14 @@ async function switchContext(action: RibAction, ctx: RibContext): Promise<RibAct
   const exec = ctx.getExec();
   const target = typeof payload.target === "string" ? payload.target : "";
   if (!target) return { ok: false, error: "switch-context requires target" };
+  // Server-side refusal of non-cimpl targets, independent of the (already
+  // filtered) list — the UI only hops between cimpl-managed clusters.
+  if (!isCimplManagedContext(target)) {
+    return {
+      ok: false,
+      error: `context '${target}' is not a cimpl-managed context — refusing to switch`,
+    };
+  }
   const contexts = await listContexts(exec);
   if (!contexts.includes(target)) {
     return { ok: false, error: `context '${target}' is no longer available — refresh and retry` };

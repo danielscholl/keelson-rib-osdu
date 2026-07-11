@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { CanvasBoardView, RibContext, RibExec } from "@keelson/shared";
 import { buildClusterBoard, provisionGuardError } from "../src/cluster.ts";
+import { CLUSTER_CREATE_ARGS } from "../src/cluster-actions.ts";
 import rib from "../src/index.ts";
 
 type BoardAction = Extract<
@@ -19,7 +20,6 @@ type ExecOpts = {
 };
 
 const createPayload = {
-  clusterName: "cimpl-stack",
   provider: "azure",
   profile: "minimal",
 } as const;
@@ -65,6 +65,9 @@ function kubectlText(args: string[], contexts: string[] = []): unknown {
   }
   if (command === "config get-contexts -o name") {
     return { ok: true, data: contexts.length > 0 ? `${contexts.join("\n")}\n` : "" };
+  }
+  if (command.startsWith("config use-context ")) {
+    return { ok: true, data: "" };
   }
   return { ok: false, error: `unexpected kubectl ${command}`, code: 1 };
 }
@@ -175,34 +178,12 @@ describe("cluster lifecycle onAction guards", () => {
     expect(commandCalls(calls, "cimpl")).toEqual(["info --json"]);
   });
 
-  test("switch-context rejects a vanished target before running use-context", async () => {
-    setLiveKube("ctx-a", "uid-1");
+  test("switch-context refuses a non-cimpl target before any kubectl call", async () => {
+    setLiveKube("cimpl-a", "uid-1");
     const { exec, calls } = makeExec({
       text: (cmd, args) =>
         cmd === "kubectl"
-          ? kubectlText(args, ["ctx-a"])
-          : { ok: true, data: "unexpected mutation" },
-    });
-
-    const result = await dispatch(
-      {
-        type: "switch-context",
-        payload: { target: "ctx-b", observedCurrent: "ctx-a", observedContexts: ["ctx-a"] },
-      },
-      exec,
-    );
-
-    if (result.ok) throw new Error("expected vanished target refusal");
-    expect(result.error).toBe("context 'ctx-b' is no longer available — refresh and retry");
-    expect(commandCalls(calls, "kubectl")).toEqual(["config get-contexts -o name"]);
-  });
-
-  test("switch-context rejects stale observedCurrent before running use-context", async () => {
-    setLiveKube("ctx-b", "uid-2");
-    const { exec, calls } = makeExec({
-      text: (cmd, args) =>
-        cmd === "kubectl"
-          ? kubectlText(args, ["ctx-a", "ctx-b"])
+          ? kubectlText(args, ["cimpl-a"])
           : { ok: true, data: "unexpected mutation" },
     });
 
@@ -210,9 +191,59 @@ describe("cluster lifecycle onAction guards", () => {
       {
         type: "switch-context",
         payload: {
-          target: "ctx-b",
-          observedCurrent: "ctx-a",
-          observedContexts: ["ctx-a", "ctx-b"],
+          target: "prod-cluster",
+          observedCurrent: "cimpl-a",
+          observedContexts: ["cimpl-a"],
+        },
+      },
+      exec,
+    );
+
+    if (result.ok) throw new Error("expected non-cimpl target refusal");
+    expect(result.error).toBe(
+      "context 'prod-cluster' is not a cimpl-managed context — refusing to switch",
+    );
+    expect(commandCalls(calls, "kubectl")).toEqual([]);
+  });
+
+  test("switch-context rejects a vanished target before running use-context", async () => {
+    setLiveKube("cimpl-a", "uid-1");
+    const { exec, calls } = makeExec({
+      text: (cmd, args) =>
+        cmd === "kubectl"
+          ? kubectlText(args, ["cimpl-a"])
+          : { ok: true, data: "unexpected mutation" },
+    });
+
+    const result = await dispatch(
+      {
+        type: "switch-context",
+        payload: { target: "cimpl-b", observedCurrent: "cimpl-a", observedContexts: ["cimpl-a"] },
+      },
+      exec,
+    );
+
+    if (result.ok) throw new Error("expected vanished target refusal");
+    expect(result.error).toBe("context 'cimpl-b' is no longer available — refresh and retry");
+    expect(commandCalls(calls, "kubectl")).toEqual(["config get-contexts -o name"]);
+  });
+
+  test("switch-context rejects stale observedCurrent before running use-context", async () => {
+    setLiveKube("cimpl-b", "uid-2");
+    const { exec, calls } = makeExec({
+      text: (cmd, args) =>
+        cmd === "kubectl"
+          ? kubectlText(args, ["cimpl-a", "cimpl-b"])
+          : { ok: true, data: "unexpected mutation" },
+    });
+
+    const result = await dispatch(
+      {
+        type: "switch-context",
+        payload: {
+          target: "cimpl-b",
+          observedCurrent: "cimpl-a",
+          observedContexts: ["cimpl-a", "cimpl-b"],
         },
       },
       exec,
@@ -220,12 +251,114 @@ describe("cluster lifecycle onAction guards", () => {
 
     if (result.ok) throw new Error("expected stale observedCurrent refusal");
     expect(result.error).toBe(
-      "current context changed since this view loaded (was ctx-a, now ctx-b) — refresh and retry",
+      "current context changed since this view loaded (was cimpl-a, now cimpl-b) — refresh and retry",
     );
     expect(commandCalls(calls, "kubectl")).toEqual([
       "config get-contexts -o name",
       "config current-context",
     ]);
+  });
+
+  test("cluster-provision runs cimpl up with the expected argv when no live CIMPL cluster", async () => {
+    setLiveKube(null);
+    const { exec, calls } = makeExec({
+      text: (cmd, args) => {
+        if (cmd === "kubectl") return kubectlText(args);
+        const command = args.join(" ");
+        if (command === "info --json") return { ok: false, error: "not a cimpl cluster", code: 1 };
+        return { ok: true, data: "" };
+      },
+    });
+
+    const result = await dispatch(
+      {
+        type: "cluster-provision",
+        payload: {
+          provider: "azure",
+          profile: "graduated",
+          env: "dev",
+          private: "private",
+          observedContext: null,
+        },
+      },
+      exec,
+    );
+
+    if (!result.ok) throw new Error(`expected provision success: ${result.error}`);
+    expect(commandCalls(calls, "cimpl")).toEqual([
+      "info --json",
+      "up --profile graduated --provider azure --env dev",
+    ]);
+  });
+
+  test("switch-context runs kubectl config use-context for an allowed cimpl target", async () => {
+    setLiveKube("cimpl-a", "uid-1");
+    const { exec, calls } = makeExec({
+      text: (cmd, args) =>
+        cmd === "kubectl"
+          ? kubectlText(args, ["cimpl-a", "cimpl-b"])
+          : { ok: false, error: "unexpected cimpl", code: 1 },
+    });
+
+    const result = await dispatch(
+      {
+        type: "switch-context",
+        payload: {
+          target: "cimpl-b",
+          observedCurrent: "cimpl-a",
+          observedContexts: ["cimpl-a", "cimpl-b"],
+        },
+      },
+      exec,
+    );
+
+    if (!result.ok) throw new Error(`expected switch success: ${result.error}`);
+    expect(commandCalls(calls, "kubectl")).toContain("config use-context cimpl-b");
+  });
+});
+
+describe("CLUSTER_CREATE_ARGS argv contract", () => {
+  test("defaults provider to kind and drops every empty optional flag", () => {
+    expect(CLUSTER_CREATE_ARGS({ provider: "kind" })).toEqual({
+      args: ["up", "--provider", "kind"],
+    });
+  });
+
+  test("emits profile/env/partition/instance + azure location and private-network env", () => {
+    expect(
+      CLUSTER_CREATE_ARGS({
+        provider: "azure",
+        profile: "graduated",
+        env: "dev",
+        partition: "opendes",
+        instance: "primary",
+        location: "eastus",
+        privateNetwork: true,
+      }),
+    ).toEqual({
+      args: [
+        "up",
+        "--profile",
+        "graduated",
+        "--provider",
+        "azure",
+        "--env",
+        "dev",
+        "--partition",
+        "opendes",
+        "--instance",
+        "primary",
+        "--location",
+        "eastus",
+      ],
+      env: { CIMPL_AZURE_PRIVATE_NETWORK: "1" },
+    });
+  });
+
+  test("ignores location and private-network for non-azure providers", () => {
+    expect(
+      CLUSTER_CREATE_ARGS({ provider: "kind", location: "eastus", privateNetwork: true }),
+    ).toEqual({ args: ["up", "--provider", "kind"] });
   });
 });
 
@@ -271,7 +404,15 @@ describe("cluster action field/payload bindings", () => {
     expect(boards).toHaveLength(1);
     const provisionAction = actionOf(boards[0] as CanvasBoardView, "cluster-provision");
 
-    expect(fieldNames(previewAction)).toEqual(["clusterName", "provider", "profile"]);
+    expect(fieldNames(previewAction)).toEqual([
+      "provider",
+      "profile",
+      "env",
+      "partition",
+      "instance",
+      "location",
+      "private",
+    ]);
     expect(fieldNames(switchAction)).toEqual(["target"]);
     expect(fieldNames(provisionAction)).toEqual([]);
     expect(payloadKeys(switchAction)).toEqual(["observedCurrent", "observedContexts"]);

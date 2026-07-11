@@ -1,5 +1,5 @@
 import type { CanvasBoardView, RibExec } from "@keelson/shared";
-import { CLUSTER_PROFILES, CLUSTER_PROVIDERS } from "./cluster-create.ts";
+import { CLUSTER_PROFILES, CLUSTER_PROVIDERS, DEFAULT_CLUSTER_PROVIDER } from "./cluster-create.ts";
 import { localExec } from "./exec.ts";
 
 // The subset of `cimpl info --json` the ICC reads. With `--show-secrets` cimpl
@@ -420,27 +420,37 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
       expanded: true,
       fields: [
         {
-          name: "clusterName",
-          label: "Cluster name",
-          required: true,
-          placeholder: "cimpl-stack",
-        },
-        {
           name: "provider",
           label: "Provider",
           required: true,
           options: selectOptions(CLUSTER_PROVIDERS),
+          defaultValue: DEFAULT_CLUSTER_PROVIDER,
         },
         {
+          // Optional: left blank, cimpl applies its per-provider default.
           name: "profile",
           label: "Profile",
-          required: true,
+          placeholder: "cimpl default",
           options: selectOptions(CLUSTER_PROFILES),
+        },
+        { name: "env", label: "Environment", placeholder: "dev" },
+        { name: "partition", label: "Partition" },
+        { name: "instance", label: "Instance" },
+        { name: "location", label: "Location (azure)", placeholder: "eastus" },
+        {
+          // No boolean field kind: a non-required select clears to "" (managed
+          // VNet); "private" opts into azure private subnets.
+          name: "private",
+          label: "Network (azure)",
+          placeholder: "managed VNet",
+          options: [{ value: "private", label: "private subnets" }],
         },
       ],
     });
   }
-  if (contexts.length > 0) {
+  // Only offer switching when there is somewhere else to go: with 0-1 cimpl
+  // contexts the picker would be a single-option, no-op mutation.
+  if (contexts.length >= 2) {
     actionItems.push({
       type: "switch-context",
       label: "Switch active context",

@@ -55,6 +55,30 @@ export async function getClusterFingerprint(exec: RibExec = localExec()): Promis
   return uid.length > 0 ? uid : null;
 }
 
+// kubectl context prefixes cimpl provisions its clusters with. Anything else is
+// a real (non-managed) cluster and is refused for write actions. Env-extensible
+// via CIMPL_CONTEXT_PREFIXES (comma-separated), mirroring cimpl-agent's
+// _maps/context.ts.
+const DEFAULT_CIMPL_PREFIXES = ["cimpl-", "kind-cimpl", "k3d-cimpl", "cimpl_"] as const;
+
+export function getCimplPrefixes(): string[] {
+  const raw = process.env.CIMPL_CONTEXT_PREFIXES;
+  if (!raw) return [...DEFAULT_CIMPL_PREFIXES];
+  const parsed = raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  return parsed.length > 0 ? parsed : [...DEFAULT_CIMPL_PREFIXES];
+}
+
+export function isCimplManagedContext(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return getCimplPrefixes().some((prefix) => name.startsWith(prefix));
+}
+
+// List only the cimpl-managed kube-contexts, so the ICC picker (and the
+// switch-context guard) never offer to hop onto an arbitrary non-cimpl cluster.
+// Degrades to [] when kubectl is absent.
 export async function listContexts(exec: RibExec = localExec()): Promise<string[]> {
   const res = await exec.runText("kubectl", ["config", "get-contexts", "-o", "name"], {
     timeoutMs: 5_000,
@@ -63,7 +87,7 @@ export async function listContexts(exec: RibExec = localExec()): Promise<string[
   return res.data
     .split(/\r?\n/)
     .map((ctx) => ctx.trim())
-    .filter((ctx) => ctx.length > 0);
+    .filter((ctx) => ctx.length > 0 && isCimplManagedContext(ctx));
 }
 
 // A stable per-cluster identity that survives nothing but the cluster's own
