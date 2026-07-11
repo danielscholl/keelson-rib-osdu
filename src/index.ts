@@ -23,7 +23,12 @@ import {
   isClusterProviderProfile,
   validateClusterName,
 } from "./cluster-create.ts";
-import { clusterFingerprint, currentContext, listContexts } from "./kubectl.ts";
+import {
+  currentContext,
+  getClusterFingerprint,
+  getCurrentContext,
+  listContexts,
+} from "./kubectl.ts";
 import { registerOsduTools } from "./tools.ts";
 
 const CLUSTER_KEY = "rib:osdu:cluster";
@@ -198,8 +203,9 @@ async function previewClusterProvision(
   const payload = (action.payload ?? {}) as Record<string, unknown>;
   const selected = clusterCreateSelection(payload);
   if (!selected.ok) return { ok: false, error: selected.error };
-  const observedContext = currentContext();
-  const fingerprint = observedContext ? clusterFingerprint() : null;
+  const exec = ctx.getExec();
+  const observedContext = await getCurrentContext(exec);
+  const fingerprint = observedContext ? await getClusterFingerprint(exec) : null;
   const provisionPayload: ClusterProvisionPayload = {
     ...selected.selection,
     observedContext,
@@ -217,11 +223,17 @@ async function previewClusterProvision(
 async function provisionCluster(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
   const parsed = clusterProvisionPayload((action.payload ?? {}) as Record<string, unknown>);
   if (!parsed.ok) return { ok: false, error: parsed.error };
-  const guard = provisionGuardError(parsed.payload, currentContext(), clusterFingerprint());
+  const exec = ctx.getExec();
+  const liveContext = await getCurrentContext(exec);
+  const guard = provisionGuardError(
+    parsed.payload,
+    liveContext,
+    liveContext ? await getClusterFingerprint(exec) : null,
+  );
   if (guard) return { ok: false, error: guard };
-  const denial = await verifyCimplContext(ctx.getExec());
+  const denial = await verifyCimplContext(exec);
   if (!denial) return { ok: false, error: "refusing Provision: a live CIMPL deployment is active" };
-  const res = await runClusterCreate(ctx.getExec(), {
+  const res = await runClusterCreate(exec, {
     provider: parsed.payload.provider,
     profile: parsed.payload.profile,
     name: parsed.payload.clusterName,
@@ -233,9 +245,10 @@ async function provisionCluster(action: RibAction, ctx: RibContext): Promise<Rib
 
 async function switchContext(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
   const payload = (action.payload ?? {}) as Record<string, unknown>;
+  const exec = ctx.getExec();
   const target = typeof payload.target === "string" ? payload.target : "";
   if (!target) return { ok: false, error: "switch-context requires target" };
-  const contexts = await listContexts(ctx.getExec());
+  const contexts = await listContexts(exec);
   if (!contexts.includes(target)) {
     return { ok: false, error: `context '${target}' is no longer available — refresh and retry` };
   }
@@ -243,16 +256,16 @@ async function switchContext(action: RibAction, ctx: RibContext): Promise<RibAct
   if (observedCurrent !== null && typeof observedCurrent !== "string") {
     return { ok: false, error: "switch-context requires observedCurrent" };
   }
-  const liveCurrent = currentContext();
+  const liveCurrent = await getCurrentContext(exec);
   if (observedCurrent !== liveCurrent) {
     return {
       ok: false,
       error: `current context changed since this view loaded (was ${observedCurrent ?? "none"}, now ${liveCurrent ?? "none"}) — refresh and retry`,
     };
   }
-  const res = await runContextSwitch(ctx.getExec(), { target });
+  const res = await runContextSwitch(exec, { target });
   if (!res.ok) return { ok: false, error: res.error };
-  const current = currentContext();
+  const current = await getCurrentContext(exec);
   await ctx.refreshWorkflow?.("osdu-cluster");
   return { ok: true, data: { ran: res.ran, current } };
 }
@@ -534,8 +547,14 @@ const rib: Rib = {
     // cluster action must match the cluster it was built against (context name
     // and, when captured, the stable fingerprint) — otherwise a stale board
     // could reveal/mutate the wrong cluster (especially Delete).
+    const exec = ctx.getExec();
     const payload = action.payload as { context?: unknown; fingerprint?: unknown } | undefined;
-    const guard = actionGuardError(payload, currentContext(), clusterFingerprint());
+    const liveContext = await getCurrentContext(exec);
+    const guard = actionGuardError(
+      payload,
+      liveContext,
+      liveContext ? await getClusterFingerprint(exec) : null,
+    );
     if (guard) return { ok: false, error: guard };
     if (action.type === "reveal-credential") return revealCredential(action, ctx);
     if (!(action.type in CLUSTER_LIFECYCLE_ARGS)) {
@@ -547,14 +566,14 @@ const rib: Rib = {
     // time over a reachable non-CIMPL cluster). `cimpl down` would otherwise
     // remove fixed namespaces from whatever cluster is current.
     if (verb === "delete") {
-      const denial = await verifyCimplContext(ctx.getExec());
+      const denial = await verifyCimplContext(exec);
       if (denial) return { ok: false, error: `refusing Delete: ${denial}` };
     }
     // Teardown waits on Flux pruning + namespace termination — minutes, not the
     // ~2 min a reconcile/suspend needs. A too-short timeout would abort a delete
     // mid-flight and leave the cluster half-removed.
     const timeoutMs = verb === "delete" ? 600_000 : 120_000;
-    const res = await runClusterLifecycle(ctx.getExec(), verb, timeoutMs);
+    const res = await runClusterLifecycle(exec, verb, timeoutMs);
     return res.ok ? { ok: true, data: { ran: res.ran } } : { ok: false, error: res.error };
   },
 

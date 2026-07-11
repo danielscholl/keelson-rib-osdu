@@ -44,6 +44,17 @@ export async function getCurrentContext(exec: RibExec = localExec()): Promise<st
   return ctx.length > 0 ? ctx : null;
 }
 
+export async function getClusterFingerprint(exec: RibExec = localExec()): Promise<string | null> {
+  const res = await exec.runText(
+    "kubectl",
+    ["get", "namespace", "kube-system", "-o", "jsonpath={.metadata.uid}"],
+    { timeoutMs: 5_000 },
+  );
+  if (!res.ok) return null;
+  const uid = res.data.trim();
+  return uid.length > 0 ? uid : null;
+}
+
 export async function listContexts(exec: RibExec = localExec()): Promise<string[]> {
   const res = await exec.runText("kubectl", ["config", "get-contexts", "-o", "name"], {
     timeoutMs: 5_000,
