@@ -358,6 +358,7 @@ function buildWorstAcceptance(services: ServiceReport[]): CanvasTableView {
   const rows = services
     .map((svc) => ({
       name: svc.display_name || svc.name || "—",
+      pipeline_url: svc.pipeline_url ?? null,
       present: hasCounts(svc.acceptance),
       ...stageCounts(svc.acceptance),
       pct: stageRate(svc.acceptance),
@@ -374,7 +375,7 @@ function buildWorstAcceptance(services: ServiceReport[]): CanvasTableView {
     .map(
       (r) =>
         ({
-          service: r.name,
+          service: serviceCell(r.name, r.pipeline_url),
           pct: r.pct === null ? "—" : { value: `${Math.round(r.pct)}%`, tone: toneRate(r.pct) },
           passed: countCell(r.passed, "ok"),
           skipped: countCell(r.skipped, "warn"),
