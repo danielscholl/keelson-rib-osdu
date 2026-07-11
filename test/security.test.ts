@@ -81,6 +81,87 @@ describe("buildSecurityBoard", () => {
     expect(grid.cells[2]?.badge.tone).toBe("info"); // B
   });
 
+  test("Low security rating links to clean Sonar security measures", () => {
+    const b = buildSecurityBoard({
+      report: {
+        services: [
+          {
+            name: "policy",
+            display_name: "Policy",
+            sonar: {
+              security_rating: "E",
+              sonar_url: "https://user:token@sonar.example.com/dashboard?id=osdu.policy",
+            },
+          },
+          {
+            name: "search",
+            display_name: "Search",
+            sonar: {
+              security_rating: "D",
+              sonar_url: "https://sonar.example.com/dashboard?id=osdu.search-service",
+            },
+          },
+          {
+            name: "storage",
+            display_name: "Storage",
+            sonar: {
+              security_rating: "C",
+              sonar_url: "https://sonar.example.com/dashboard?id=osdu.storage",
+            },
+          },
+          {
+            name: "legal",
+            display_name: "Legal",
+            sonar: {
+              security_rating: "B",
+              sonar_url: "https://sonar.example.com/dashboard?id=osdu%2Flegal%3Asvc",
+            },
+          },
+          {
+            name: "partition",
+            display_name: "Partition",
+            sonar: {
+              security_rating: "A",
+              sonar_url: "https://sonar.example.com/dashboard?id=osdu.partition",
+            },
+          },
+        ],
+      },
+      now: NOW,
+    });
+    const grid = b.sections.find((s) => s.kind === "grid" && s.title === "Low security rating");
+    expect(grid?.kind).toBe("grid");
+    if (grid?.kind !== "grid") return;
+
+    expect(grid.cells.map((c) => [c.label, c.badge.text, c.href])).toEqual([
+      [
+        "Policy",
+        "E",
+        "https://sonar.example.com/component_measures?id=osdu.policy&metric=security_rating&view=list",
+      ],
+      [
+        "Search",
+        "D",
+        "https://sonar.example.com/component_measures?id=osdu.search-service&metric=security_rating&view=list",
+      ],
+      [
+        "Storage",
+        "C",
+        "https://sonar.example.com/component_measures?id=osdu.storage&metric=security_rating&view=list",
+      ],
+      [
+        "Legal",
+        "B",
+        "https://sonar.example.com/component_measures?id=osdu%2Flegal%3Asvc&metric=security_rating&view=list",
+      ],
+    ]);
+    expect(grid.cells[0]?.href?.startsWith("https://sonar.example.com/component_measures?")).toBe(
+      true,
+    );
+    expect(grid.cells[0]?.href).not.toContain("user");
+    expect(grid.cells[0]?.href).not.toContain("token");
+  });
+
   test("Low security rating collapses when every service is rated A", () => {
     const b = buildSecurityBoard({
       report: {
