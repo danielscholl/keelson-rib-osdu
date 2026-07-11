@@ -219,9 +219,19 @@ describe("buildSecurityBoard", () => {
     expect(storageBar?.total).toBe(43);
     expect(storageBar?.tone).toBe("error");
     expect(storageBar?.trailing).toBe("10 crit · 33 high");
+    expect(storageBar?.href).toBe(
+      "https://community.opengroup.org/osdu/platform/system/storage/-/security/vulnerability_report",
+    );
+    const searchBar = bars.items[1];
+    expect(searchBar?.href).toBe(
+      "https://community.opengroup.org/osdu/platform/system/search-service/-/security/vulnerability_report",
+    );
     const legalBar = bars.items[2];
     expect(legalBar?.tone).toBe("warn");
     expect(legalBar?.trailing).toBe("0 crit · 1 high");
+    expect(legalBar?.href).toBe(
+      "https://community.opengroup.org/osdu/platform/security-and-compliance/legal/-/security/vulnerability_report",
+    );
   });
 
   test("aged criticals: red-mono CVE id, hash-toned svc chip, no per-row age", () => {
