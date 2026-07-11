@@ -504,11 +504,11 @@ describe("cluster action field/payload bindings", () => {
     const switchAction = actionOf(
       buildClusterBoard({
         lifecycle: {
-          context: "ctx-a",
+          context: "cimpl-a",
           reachable: true,
           flux: { ready: 1, total: 1 },
           services: { ready: 1, total: 1 },
-          contexts: ["ctx-a", "ctx-b"],
+          contexts: ["cimpl-a", "cimpl-b"],
         },
       }),
       "switch-context",
@@ -531,5 +531,39 @@ describe("cluster action field/payload bindings", () => {
     for (const action of [createAction, switchAction]) {
       expectFieldPayloadDisjoint(action);
     }
+  });
+});
+
+describe("switch-context picker options", () => {
+  function switchActionFor(contexts: string[], context: string | null): BoardAction | undefined {
+    const board = buildClusterBoard({
+      lifecycle: {
+        context,
+        reachable: true,
+        flux: { ready: 1, total: 1 },
+        services: { ready: 1, total: 1 },
+        contexts,
+      },
+    });
+    return actionsOf(board).find((a) => a.type === "switch-context");
+  }
+
+  test("offers only cimpl-managed targets; no default when current is non-cimpl", () => {
+    const action = switchActionFor(["cimpl-a"], "prod-cluster");
+    expect(action).toBeDefined();
+    const field = action?.fields?.[0];
+    expect(field?.options?.map((o) => o.value)).toEqual(["cimpl-a"]);
+    // Current (prod-cluster) isn't a valid option, so no defaultValue is set.
+    expect(field?.defaultValue).toBeUndefined();
+  });
+
+  test("hides the switch when the only cimpl context is already current", () => {
+    expect(switchActionFor(["cimpl-a"], "cimpl-a")).toBeUndefined();
+  });
+
+  test("preselects the current when it is itself a cimpl-managed target", () => {
+    const field = switchActionFor(["cimpl-a", "cimpl-b"], "cimpl-a")?.fields?.[0];
+    expect(field?.options?.map((o) => o.value)).toEqual(["cimpl-a", "cimpl-b"]);
+    expect(field?.defaultValue).toBe("cimpl-a");
   });
 });

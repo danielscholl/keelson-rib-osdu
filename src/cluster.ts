@@ -6,6 +6,7 @@ import {
   PRIVATE_NETWORK_TOKEN,
 } from "./cluster-create.ts";
 import { localExec } from "./exec.ts";
+import { isCimplManagedContext } from "./kubectl.ts";
 
 // The subset of `cimpl info --json` the ICC reads. With `--show-secrets` cimpl
 // also returns each credential's password; the collector discards it — only the
@@ -325,6 +326,10 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
   const { context, reachable, flux, services } = lifecycle;
   const suspended = info?.suspended === true;
   const contexts = observedContexts(lifecycle);
+  // Only cimpl-managed contexts are valid switch targets; a non-cimpl current
+  // context can appear in `contexts` (for the informational rows) but must never
+  // be offered as a target the guard would refuse.
+  const switchTargets = contexts.filter((name) => isCimplManagedContext(name));
 
   // Cluster-identity stamp carried by every action so onAction can reject a
   // stale board. Context is the guard's required key; fingerprint is added when
@@ -431,16 +436,16 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
       ],
     });
   }
-  // Only offer switching when there is somewhere else to go: with 0-1 cimpl
-  // contexts the picker would be a single-option, no-op mutation.
-  if (contexts.length >= 2) {
+  // Offer switching only when there's a cimpl-managed target that isn't already
+  // current — otherwise the picker is a single-option, no-op mutation.
+  if (switchTargets.some((name) => name !== context)) {
     actionItems.push({
       type: "switch-context",
       label: "Switch active context",
       glyph: "⇄",
       payload: {
         observedCurrent: context,
-        observedContexts: contexts,
+        observedContexts: switchTargets,
         ...(stamp.fingerprint ? { fingerprint: stamp.fingerprint } : {}),
       },
       fields: [
@@ -448,8 +453,10 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
           name: "target",
           label: "Target context",
           required: true,
-          options: selectOptions(contexts),
-          ...(context ? { defaultValue: context } : {}),
+          options: selectOptions(switchTargets),
+          // Preselect the current only when it's itself a valid target — the
+          // canvas rejects a defaultValue outside the option set.
+          ...(context && switchTargets.includes(context) ? { defaultValue: context } : {}),
         },
       ],
     });
