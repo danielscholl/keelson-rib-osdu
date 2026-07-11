@@ -301,10 +301,21 @@ describe("cluster lifecycle onAction guards", () => {
 });
 
 describe("cluster create onAction (#61 run-workflow effect)", () => {
-  test("create returns a run-workflow effect and bypasses the stale-context guard", async () => {
-    // No current context — a normal (guarded) action would refuse; create must not.
+  // Preflight probe = `cimpl info --json`; ABSENT (completed non-zero) means no
+  // live deployment, so create may fire the workflow.
+  const ABSENT = { ok: false, error: "no cimpl deployment", code: 1 };
+  const cimplInfoExec = (info: unknown) =>
+    makeExec({
+      text: (cmd, args) =>
+        cmd === "cimpl" && args.join(" ") === "info --json"
+          ? info
+          : { ok: false, error: "unexpected", code: 1 },
+    });
+
+  test("fires the workflow on a confirmed-absent probe and bypasses the identity guard", async () => {
+    // No current context — the context-identity guard would refuse; create must not use it.
     setLiveKube(null);
-    const { exec, calls } = makeExec({ text: () => ({ ok: false, error: "no cluster", code: 1 }) });
+    const { exec, calls } = cimplInfoExec(ABSENT);
 
     const result = await dispatch({ type: "create", payload: { provider: "kind" } }, exec);
 
@@ -314,12 +325,27 @@ describe("cluster create onAction (#61 run-workflow effect)", () => {
       workflow: "osdu-cluster-create",
       args: { provider: "kind" },
     });
-    // Pure client effect — no in-process kubectl/cimpl probing.
-    expect(calls).toEqual([]);
+    // Only the preflight probe ran — no identity-guard kubectl reads.
+    expect(commandCalls(calls, "cimpl")).toEqual(["info --json"]);
+    expect(commandCalls(calls, "kubectl")).toEqual([]);
   });
 
-  test("create maps the form fields to workflow args (azure + profile/env + private)", async () => {
-    const { exec } = makeExec({});
+  test("refuses over a live CIMPL deployment and does not fire the workflow", async () => {
+    const { exec } = cimplInfoExec({ ok: true, data: "{}" });
+    const result = await dispatch({ type: "create", payload: { provider: "kind" } }, exec);
+    if (result.ok) throw new Error("expected create refusal over a live CIMPL deployment");
+    expect(result.error).toMatch(/CIMPL deployment is already active/);
+  });
+
+  test("refuses when the CIMPL probe is indeterminate (fail-safe)", async () => {
+    const { exec } = cimplInfoExec({ ok: false, error: "timed out after 60000ms", code: null });
+    const result = await dispatch({ type: "create", payload: { provider: "kind" } }, exec);
+    if (result.ok) throw new Error("expected create refusal on an indeterminate probe");
+    expect(result.error).toMatch(/could not confirm/);
+  });
+
+  test("maps the form fields to workflow args (azure + profile/env + private)", async () => {
+    const { exec } = cimplInfoExec(ABSENT);
     const result = await dispatch(
       {
         type: "create",
@@ -348,8 +374,8 @@ describe("cluster create onAction (#61 run-workflow effect)", () => {
     });
   });
 
-  test("create drops azure-only fields for a kind provider", async () => {
-    const { exec } = makeExec({});
+  test("drops azure-only fields for a kind provider", async () => {
+    const { exec } = cimplInfoExec(ABSENT);
     const result = await dispatch(
       { type: "create", payload: { provider: "kind", location: "eastus", private: "private" } },
       exec,
@@ -358,11 +384,13 @@ describe("cluster create onAction (#61 run-workflow effect)", () => {
     expect((result.data as { args: Record<string, string> }).args).toEqual({ provider: "kind" });
   });
 
-  test("create rejects an invalid provider", async () => {
-    const { exec } = makeExec({});
+  test("rejects an invalid provider before probing", async () => {
+    const { exec, calls } = cimplInfoExec(ABSENT);
     const result = await dispatch({ type: "create", payload: { provider: "gcp" } }, exec);
     if (result.ok) throw new Error("expected invalid-provider refusal");
     expect(result.error).toMatch(/provider must be one of/);
+    // Validation short-circuits before the preflight probe.
+    expect(calls).toEqual([]);
   });
 });
 

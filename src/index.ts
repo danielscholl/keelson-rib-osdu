@@ -4,6 +4,7 @@ import { actionGuardError, hasRealSecret, parseCimplInfoJson } from "./cluster.t
 import {
   CLUSTER_LIFECYCLE_ARGS,
   type ClusterVerb,
+  refuseCreateOverCimpl,
   runClusterLifecycle,
   switchCimplContext,
   verifyCimplContext,
@@ -43,9 +44,13 @@ interface CimplCredentialSecret {
 
 // Handed to a workflow rather than run inline so the long `cimpl up` streams its
 // node trace; it runs with no current cluster, so it carries no identity guard.
-function launchClusterCreate(action: RibAction): RibActionResult {
+// A bounded preflight probe still refuses to fire the workflow over a live (or
+// indeterminate) CIMPL deployment — the distinct "don't clobber" safety check.
+async function launchClusterCreate(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
   const selected = clusterCreateSelection((action.payload ?? {}) as Record<string, unknown>);
   if (!selected.ok) return { ok: false, error: selected.error };
+  const denial = await refuseCreateOverCimpl(ctx.getExec());
+  if (denial) return { ok: false, error: denial };
   return {
     ok: true,
     data: {
@@ -356,7 +361,7 @@ const rib: Rib = {
   // context. `reveal-credential` is a read that returns one password to the
   // caller for an on-demand clipboard copy — the secret never enters a snapshot.
   onAction: async (action, ctx) => {
-    if (action.type === "create") return launchClusterCreate(action);
+    if (action.type === "create") return launchClusterCreate(action, ctx);
     if (action.type === "switch-context") return switchContext(action, ctx);
 
     // Identity guard: cimpl acts on the live kubectl current-context, so every

@@ -72,6 +72,20 @@ export async function verifyCimplContext(exec: RibExec): Promise<string | null> 
   return `could not confirm the current context is a CIMPL deployment (${probe.detail}) — retry`;
 }
 
+// Create bypasses the context-identity guard (it runs with no current cluster),
+// but must still not clobber an existing deployment. This distinct preflight
+// fires the create workflow only on a confirmed-absent probe; a live CIMPL
+// deployment OR an indeterminate probe refuses (fail closed). Bounded by
+// probeCimplContext's own timeout — the long `cimpl up` runs in the workflow.
+export async function refuseCreateOverCimpl(exec: RibExec): Promise<string | null> {
+  const probe = await probeCimplContext(exec);
+  if (probe.state === "absent") return null;
+  if (probe.state === "live") {
+    return "refusing Create: a CIMPL deployment is already active on this context — delete it or switch context first";
+  }
+  return `refusing Create: could not confirm the current context is free of a CIMPL deployment (${probe.detail})`;
+}
+
 // Run a cimpl lifecycle verb through the async exec surface, so a slow or
 // unreachable cluster never blocks the server event loop. Shared by onAction and
 // the chat tools.
