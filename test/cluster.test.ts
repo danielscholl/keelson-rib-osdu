@@ -235,7 +235,9 @@ describe("buildClusterBoard", () => {
   test("PostgreSQL uses cimpl's port-forward command verbatim", () => {
     const fields = accessByTitle(buildClusterBoard(healthy)).PostgreSQL?.fields ?? [];
     const portForward = fields.find((f) => f.copyable);
-    expect(portForward?.value).toBe("kubectl port-forward -n platform svc/postgresql-rw 15432:5432");
+    expect(portForward?.value).toBe(
+      "kubectl port-forward -n platform svc/postgresql-rw 15432:5432",
+    );
   });
 
   test("Redis synthesizes its default port-forward command", () => {
@@ -256,9 +258,7 @@ describe("buildClusterBoard", () => {
     };
     const fields = accessByTitle(buildClusterBoard(noGateway)).SeaweedFS?.fields ?? [];
     const portForward = fields.find((f) => f.copyable);
-    expect(portForward?.value).toBe(
-      "kubectl port-forward -n platform svc/seaweedfs-s3 8333:8333",
-    );
+    expect(portForward?.value).toBe("kubectl port-forward -n platform svc/seaweedfs-s3 8333:8333");
   });
 
   test("credentials join onto their service card as copy-on-reveal fields (never a password)", () => {
