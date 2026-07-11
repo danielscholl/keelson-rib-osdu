@@ -188,7 +188,7 @@ const rib: Rib = {
       definition: {
         name: "osdu-topology",
         description:
-          'Use when: checking cluster reconciliation health. Triggers: "show the topology", "is the cluster healthy". Does: reads Flux Kustomizations via kubectl and publishes a live node-link graph to the Cluster Topology canvas. NOT for: changing cluster state.',
+          'Use when: checking cluster reconciliation health. Triggers: "show the topology", "is the cluster healthy". Does: reads Flux Kustomizations and HelmReleases via kubectl and publishes a live node-link graph to the Cluster Topology canvas. NOT for: changing cluster state.',
         nodes: [
           {
             id: "collect",
