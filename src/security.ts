@@ -1,5 +1,12 @@
 import type { CanvasBoardView, RibExec } from "@keelson/shared";
-import { GITLAB_GROUP, loadVenusBundle, runGraphql, serviceOf, VENUS_CORE } from "./activity.ts";
+import {
+  GITLAB_GROUP,
+  GITLAB_HOST,
+  loadVenusBundle,
+  runGraphql,
+  serviceOf,
+  VENUS_CORE,
+} from "./activity.ts";
 import { localExec } from "./exec.ts";
 import {
   fetchReleaseReport,
@@ -298,26 +305,51 @@ function sonarSecurityRatingUrl(raw: string | null): string | null {
   }
 }
 
-type BarItem = { label: string; value: number; total: number; tone?: Tone; trailing?: string; href?: string };
+type BarItem = {
+  label: string;
+  value: number;
+  total: number;
+  tone?: Tone;
+  trailing?: string;
+  href?: string;
+};
 // Top services by critical+high count, with a severity bar and crit/high tail.
-function buildOffenders(services: ServiceReport[]): BarItem[] {
+function buildOffenders(services: ServiceReport[], vulns: VulnRecord[]): BarItem[] {
+  const pathByService = new Map<string, string>();
+  for (const v of vulns) {
+    const svc = serviceOf(v.project_path);
+    if (svc && !pathByService.has(svc)) pathByService.set(svc, v.project_path);
+  }
+
   const rows = services
     .filter((svc) => svc.vulnerabilities != null)
     .map((svc) => {
       const t = totals(svc.vulnerabilities);
-      return { name: svc.display_name || svc.name || "—", crit: t.crit, high: t.high };
+      return {
+        label: svc.display_name || svc.name || "—",
+        key: svc.name ?? "",
+        crit: t.crit,
+        high: t.high,
+      };
     })
     .filter((r) => r.crit + r.high > 0)
-    .sort((a, b) => b.crit - a.crit || b.high - a.high || a.name.localeCompare(b.name))
+    .sort((a, b) => b.crit - a.crit || b.high - a.high || a.label.localeCompare(b.label))
     .slice(0, OFFENDERS_CAP);
   const max = rows.reduce((acc, r) => Math.max(acc, r.crit + r.high), 0);
-  return rows.map((r) => ({
-    label: r.name,
-    value: r.crit + r.high,
-    total: max,
-    tone: r.crit > 0 ? "error" : "warn",
-    trailing: `${r.crit} crit · ${r.high} high`,
-  }));
+  return rows.map((r) => {
+    const projectPath = pathByService.get(r.key);
+    const href = projectPath
+      ? `https://${GITLAB_HOST}/${projectPath}/-/security/vulnerability_report`
+      : undefined;
+    return {
+      label: r.label,
+      value: r.crit + r.high,
+      total: max,
+      tone: r.crit > 0 ? "error" : "warn",
+      trailing: `${r.crit} crit · ${r.high} high`,
+      ...(href ? { href } : {}),
+    };
+  });
 }
 
 // Critical CVEs in DETECTED/CONFIRMED state older than the aged threshold,
@@ -501,7 +533,7 @@ export function buildSecurityBoard(inputs: SecurityInputs): CanvasBoardView {
   const agedDays = inputs.agedDays ?? DEFAULT_AGED_DAYS;
 
   const sast = buildSastGrid(services);
-  const offenders = buildOffenders(services);
+  const offenders = buildOffenders(services, vulns);
   const aged = buildAgedCriticals(vulns, now, agedDays);
   const agedTotals = agedSummary(vulns, now, agedDays);
   const quickWins = buildQuickWins(vulns, fixes);
