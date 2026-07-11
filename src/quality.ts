@@ -234,6 +234,23 @@ function buildKpis(services: ServiceReport[]): StatItem[] {
 function pctCell(value: number | null): Cell {
   return value === null ? "—" : { value: `${value.toFixed(1)}%`, tone: toneRate(value) };
 }
+// Emit an href only for http(s) URLs — the base renderer drops unsafe schemes,
+// but keep the producer honest (mirrors the Security lane's protocol guard).
+function httpHref(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const p = new URL(raw);
+    return p.protocol === "http:" || p.protocol === "https:" ? raw : undefined;
+  } catch {
+    return undefined;
+  }
+}
+// A Service cell: linked when a safe URL exists, plain text otherwise so an
+// unscanned / unlinked service stays a bare string.
+function serviceCell(label: string, url: string | null | undefined): Cell {
+  const href = httpHref(url);
+  return href ? { value: label, href } : label;
+}
 function qualityCell(sonar: SonarMetrics | null | undefined): Cell {
   const s = sonar ?? {};
   const coverage = num(s.coverage_pct);
