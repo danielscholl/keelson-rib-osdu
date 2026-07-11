@@ -22,14 +22,6 @@ export interface ClusterCreateInput {
   privateNetwork?: boolean;
 }
 
-// cimpl names the cluster after --env (defaulting to "dev"), so the provision
-// preview names the cluster the operator will actually create rather than a
-// phantom unsuffixed one.
-export function deriveClusterName(env: string | undefined): string {
-  const trimmed = (env ?? "").trim() || "dev";
-  return `cimpl-stack-${trimmed}`;
-}
-
 export function isClusterProvider(value: unknown): value is ClusterProvider {
   return typeof value === "string" && CLUSTER_PROVIDERS.includes(value as ClusterProvider);
 }
@@ -37,3 +29,47 @@ export function isClusterProvider(value: unknown): value is ClusterProvider {
 export function isClusterProfile(value: unknown): value is ClusterProfile {
   return typeof value === "string" && CLUSTER_PROFILES.includes(value as ClusterProfile);
 }
+
+// Map a validated create selection to the run-workflow `args` (the run's
+// `inputs`) the `osdu-cluster-create` bash node reads. Only set keys are emitted
+// so a blank field stays absent and cimpl's default applies; the azure-only
+// private flag rides as "1". Keys must be env-safe identifiers — the bash node
+// reads each as `$KEELSON_INPUTS_<key>`.
+export function clusterCreateArgs(input: ClusterCreateInput): Record<string, string> {
+  const args: Record<string, string> = { provider: input.provider };
+  if (input.profile) args.profile = input.profile;
+  if (input.env) args.env = input.env;
+  if (input.partition) args.partition = input.partition;
+  if (input.instance) args.instance = input.instance;
+  if (input.provider === "azure") {
+    if (input.location) args.location = input.location;
+    if (input.privateNetwork) args.private = "1";
+  }
+  return args;
+}
+
+// The `osdu-cluster-create` workflow's single bash node. It builds the `cimpl up`
+// argv from the run inputs — reached through the safe env channel
+// (`$KEELSON_INPUTS_<key>`), NOT `$inputs.<key>` text substitution, since bash
+// nodes run their raw body for injection safety. Mirrors cimpl-agent
+// _maps/lifecycle.ts TEMPLATES.create: --provider defaults to kind;
+// --profile/--env/--partition/--instance/--location drop when empty so cimpl's
+// per-provider defaults apply; CIMPL_AZURE_PRIVATE_NETWORK=1 only for an azure
+// private-subnet create. Every interpolation is quoted; no `set -u` so an unset
+// (blank) input expands to "" rather than aborting.
+export const CLUSTER_CREATE_BASH = [
+  "set -eo pipefail",
+  'provider="$KEELSON_INPUTS_provider"',
+  '[ -n "$provider" ] || provider=kind',
+  'args=(up --provider "$provider")',
+  '[ -n "$KEELSON_INPUTS_profile" ] && args+=(--profile "$KEELSON_INPUTS_profile")',
+  '[ -n "$KEELSON_INPUTS_env" ] && args+=(--env "$KEELSON_INPUTS_env")',
+  '[ -n "$KEELSON_INPUTS_partition" ] && args+=(--partition "$KEELSON_INPUTS_partition")',
+  '[ -n "$KEELSON_INPUTS_instance" ] && args+=(--instance "$KEELSON_INPUTS_instance")',
+  'if [ "$provider" = azure ]; then',
+  '  [ -n "$KEELSON_INPUTS_location" ] && args+=(--location "$KEELSON_INPUTS_location")',
+  '  [ -n "$KEELSON_INPUTS_private" ] && export CIMPL_AZURE_PRIVATE_NETWORK=1',
+  "fi",
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: bash array expansion, not a JS template
+  'cimpl "${args[@]}"',
+].join("\n");

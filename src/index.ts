@@ -1,25 +1,18 @@
-import type { CanvasBoardView, Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
+import type { Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
 import { errText, expectView } from "@keelson/shared";
-import {
-  actionGuardError,
-  hasRealSecret,
-  parseCimplInfoJson,
-  provisionGuardError,
-} from "./cluster.ts";
+import { actionGuardError, hasRealSecret, parseCimplInfoJson } from "./cluster.ts";
 import {
   CLUSTER_LIFECYCLE_ARGS,
   type ClusterVerb,
-  clusterCreatePreview,
-  refuseProvisionOverCimpl,
-  runClusterCreate,
   runClusterLifecycle,
   runContextSwitch,
   verifyCimplContext,
 } from "./cluster-actions.ts";
 import {
+  CLUSTER_CREATE_BASH,
   CLUSTER_PROFILES,
   type ClusterCreateInput,
-  deriveClusterName,
+  clusterCreateArgs,
   isClusterProfile,
   isClusterProvider,
 } from "./cluster-create.ts";
@@ -33,7 +26,6 @@ import {
 import { registerOsduTools } from "./tools.ts";
 
 const CLUSTER_KEY = "rib:osdu:cluster";
-const CLUSTER_PROVISION_KEY = "rib:osdu:cluster-provision";
 const TOPOLOGY_KEY = "rib:osdu:topology";
 const QUALITY_KEY = "rib:osdu:quality";
 const FEATURES_KEY = "rib:osdu:features";
@@ -57,17 +49,6 @@ interface CimplCredentialSecret {
   service?: string;
   password?: string;
 }
-
-type SnapshotManager = ReturnType<NonNullable<RibContext["getSnapshotManager"]>>;
-
-interface ClusterProvisionPayload extends ClusterCreateInput {
-  observedContext: string | null;
-  fingerprint?: string;
-}
-
-let clusterProvisionBoard: CanvasBoardView | undefined;
-let clusterProvisionSnapshotManager: SnapshotManager | undefined;
-let unregisterClusterProvisionSnapshot: (() => void) | undefined;
 
 function trimmedField(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -113,141 +94,23 @@ function clusterCreateSelection(
   return { ok: true, selection };
 }
 
-function buildClusterProvisionBoard(
-  selection: ClusterCreateInput,
-  payload: ClusterProvisionPayload,
-): CanvasBoardView {
-  const command = clusterCreatePreview(selection);
-  const clusterName = deriveClusterName(selection.env);
-  return {
-    view: "board",
-    title: "Provision cluster",
-    header: {
-      status: { label: "Ready to provision", tone: "warn" },
-      chip: clusterName,
-    },
-    sections: [
-      {
-        kind: "rows",
-        title: "Preview",
-        boxed: true,
-        items: [
-          { glyph: "neutral", text: "Command", trailing: command },
-          { glyph: "neutral", text: "Provider", trailing: selection.provider },
-          { glyph: "neutral", text: "Profile", trailing: selection.profile ?? "cimpl default" },
-          {
-            glyph: "neutral",
-            text: "Observed context",
-            trailing: payload.observedContext ?? "none",
-          },
-        ],
-      },
-      {
-        kind: "actions",
-        title: "Actions",
-        items: [
-          {
-            type: "cluster-provision",
-            label: "Provision",
-            glyph: "+",
-            tone: "error",
-            destructive: true,
-            confirm: { irreversible: true, subject: clusterName },
-            payload,
-          },
-        ],
-      },
-    ],
-  };
-}
-
-async function publishClusterProvisionBoard(
-  ctx: RibContext,
-  board: CanvasBoardView,
-): Promise<string | null> {
-  const manager = ctx.getSnapshotManager?.();
-  if (!manager) return "cluster provision canvas is unavailable";
-  if (clusterProvisionSnapshotManager !== manager) {
-    unregisterClusterProvisionSnapshot?.();
-    clusterProvisionSnapshotManager = manager;
-    unregisterClusterProvisionSnapshot = undefined;
-  }
-  if (!unregisterClusterProvisionSnapshot) {
-    unregisterClusterProvisionSnapshot = manager.register(
-      CLUSTER_PROVISION_KEY,
-      () => {
-        if (!clusterProvisionBoard) throw new Error("cluster provision board is not ready");
-        return clusterProvisionBoard;
-      },
-      { validate: expectView(CLUSTER_PROVISION_KEY, "board") },
-    );
-  }
-  clusterProvisionBoard = board;
-  const frame = await manager.recompose(CLUSTER_PROVISION_KEY);
-  return frame ? null : "failed to publish cluster provision canvas";
-}
-
-function clusterProvisionPayload(
-  payload: Record<string, unknown>,
-): { ok: true; payload: ClusterProvisionPayload } | { ok: false; error: string } {
-  const selected = clusterCreateSelection(payload);
-  if (!selected.ok) return selected;
-  const observedContext = payload.observedContext;
-  if (observedContext !== null && typeof observedContext !== "string") {
-    return { ok: false, error: "cluster-provision requires observedContext" };
-  }
-  const fingerprint = payload.fingerprint;
-  return {
-    ok: true,
-    payload: {
-      ...selected.selection,
-      observedContext,
-      ...(typeof fingerprint === "string" && fingerprint.length > 0 ? { fingerprint } : {}),
-    },
-  };
-}
-
-async function previewClusterProvision(
-  action: RibAction,
-  ctx: RibContext,
-): Promise<RibActionResult> {
-  const payload = (action.payload ?? {}) as Record<string, unknown>;
-  const selected = clusterCreateSelection(payload);
+// Create (#61): a single action that launches the `osdu-cluster-create`
+// workflow via the run-workflow client effect, so the potentially long `cimpl
+// up` streams its node trace in the Workflows surface. It bypasses the
+// stale-context guard entirely — create runs with no current cluster — and
+// carries no board identity stamp; the collected form fields become the run's
+// inputs.
+function launchClusterCreate(action: RibAction): RibActionResult {
+  const selected = clusterCreateSelection((action.payload ?? {}) as Record<string, unknown>);
   if (!selected.ok) return { ok: false, error: selected.error };
-  const exec = ctx.getExec();
-  const observedContext = await getCurrentContext(exec);
-  const fingerprint = observedContext ? await getClusterFingerprint(exec) : null;
-  const provisionPayload: ClusterProvisionPayload = {
-    ...selected.selection,
-    observedContext,
-    ...(fingerprint ? { fingerprint } : {}),
-  };
-  const board = buildClusterProvisionBoard(selected.selection, provisionPayload);
-  const error = await publishClusterProvisionBoard(ctx, board);
-  if (error) return { ok: false, error };
   return {
     ok: true,
-    data: { effect: "open-canvas", key: CLUSTER_PROVISION_KEY, title: "Provision cluster" },
+    data: {
+      effect: "run-workflow",
+      workflow: "osdu-cluster-create",
+      args: clusterCreateArgs(selected.selection),
+    },
   };
-}
-
-async function provisionCluster(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
-  const parsed = clusterProvisionPayload((action.payload ?? {}) as Record<string, unknown>);
-  if (!parsed.ok) return { ok: false, error: parsed.error };
-  const exec = ctx.getExec();
-  const liveContext = await getCurrentContext(exec);
-  const guard = provisionGuardError(
-    parsed.payload,
-    liveContext,
-    liveContext ? await getClusterFingerprint(exec) : null,
-  );
-  if (guard) return { ok: false, error: guard };
-  const denial = await refuseProvisionOverCimpl(exec);
-  if (denial) return { ok: false, error: denial };
-  const res = await runClusterCreate(exec, parsed.payload);
-  if (!res.ok) return { ok: false, error: res.error };
-  await ctx.refreshWorkflow?.("osdu-cluster");
-  return { ok: true, data: { ran: res.ran } };
 }
 
 async function switchContext(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
@@ -347,7 +210,6 @@ const rib: Rib = {
   // buttons appear on the Ribs page; data arrives when the workflows run.
   views: [
     { key: CLUSTER_KEY, canvasKind: "view", title: "Cluster ICC" },
-    { key: CLUSTER_PROVISION_KEY, canvasKind: "view", title: "Provision cluster" },
     { key: TOPOLOGY_KEY, canvasKind: "view", title: "Cluster Topology" },
     { key: QUALITY_KEY, canvasKind: "view", title: "Quality" },
     { key: FEATURES_KEY, canvasKind: "view", title: "Features" },
@@ -439,7 +301,7 @@ const rib: Rib = {
       definition: {
         name: "osdu-cluster",
         description:
-          'Use when: checking the deployment\'s health + access or choosing a kube-context. Triggers: "show the cluster", "is the cluster up", "where is Airflow / the portal", "reconcile the cluster", "switch context". Does: shells `cimpl info --json` plus kubectl Flux/HelmRelease readiness and publishes a Cluster ICC board — lifecycle rows (context / reachable / Flux reconciled / services ready), observed context rows, Reconcile · Suspend/Resume · Delete · Preview provisioning · Switch active context actions, and endpoint + internal-service access cards — to the Cluster ICC canvas. NOT for: bypassing typed confirmations or identity guards.',
+          'Use when: checking the deployment\'s health + access or choosing a kube-context. Triggers: "show the cluster", "is the cluster up", "where is Airflow / the portal", "reconcile the cluster", "switch context". Does: shells `cimpl info --json` plus kubectl Flux/HelmRelease readiness and publishes a Cluster ICC board — lifecycle rows (context / reachable / Flux reconciled / services ready), observed context rows, Reconcile · Suspend/Resume · Delete · Create cluster · Switch active context actions, and endpoint + internal-service access cards — to the Cluster ICC canvas. NOT for: bypassing typed confirmations or identity guards.',
         nodes: [
           {
             id: "collect",
@@ -450,6 +312,23 @@ const rib: Rib = {
       },
       bindSnapshotKey: CLUSTER_KEY,
       validate: expectView(CLUSTER_KEY, "board"),
+    },
+    {
+      // The create action's target (#61): one bash node runs `cimpl up` from the
+      // form fields (passed as run inputs), streaming its trace in the Workflows
+      // surface. No bindSnapshotKey/validate — it acts, it doesn't publish a view.
+      definition: {
+        name: "osdu-cluster-create",
+        description:
+          'Use when: bringing up a new CIMPL dev cluster from an empty or unreachable ICC. Triggers: "create the cluster", "bring up cimpl", "provision a new cluster". Does: runs `cimpl up` with the chosen provider/profile/env/partition/instance (+ azure location/private) as a streaming node in the Workflows surface. NOT for: reconciling, deleting, or switching an existing cluster.',
+        nodes: [
+          {
+            id: "provision",
+            bash: CLUSTER_CREATE_BASH,
+            timeout: 600_000,
+          },
+        ],
+      },
     },
     {
       definition: {
@@ -565,13 +444,14 @@ const rib: Rib = {
     },
   ],
 
-  // Cluster ICC actions: dispatch lifecycle/context/provision verbs via the
-  // async exec surface, so a slow/unreachable cluster can't block the server
-  // event loop. `reveal-credential` is a read that returns one password to the
+  // Cluster ICC actions: dispatch lifecycle/context verbs via the async exec
+  // surface, so a slow/unreachable cluster can't block the server event loop.
+  // `create` and `switch-context` are handled BEFORE the stale-context guard —
+  // create runs with no current cluster (#61) and a switch deliberately changes
+  // the context. `reveal-credential` is a read that returns one password to the
   // caller for an on-demand clipboard copy — the secret never enters a snapshot.
   onAction: async (action, ctx) => {
-    if (action.type === "cluster-preview") return previewClusterProvision(action, ctx);
-    if (action.type === "cluster-provision") return provisionCluster(action, ctx);
+    if (action.type === "create") return launchClusterCreate(action);
     if (action.type === "switch-context") return switchContext(action, ctx);
 
     // Identity guard: cimpl acts on the live kubectl current-context, so every

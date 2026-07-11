@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { CanvasBoardView, RibContext, RibExec } from "@keelson/shared";
-import { buildClusterBoard, provisionGuardError } from "../src/cluster.ts";
-import { CLUSTER_CREATE_ARGS } from "../src/cluster-actions.ts";
+import { buildClusterBoard } from "../src/cluster.ts";
+import { CLUSTER_CREATE_BASH } from "../src/cluster-create.ts";
 import rib from "../src/index.ts";
 import { getCimplPrefixes, isCimplManagedContext, listContexts } from "../src/kubectl.ts";
 
@@ -19,11 +22,6 @@ type ExecOpts = {
   json?: (cmd: string, args: string[]) => unknown;
   text?: (cmd: string, args: string[]) => unknown;
 };
-
-const createPayload = {
-  provider: "azure",
-  profile: "minimal",
-} as const;
 
 let liveContext: string | null = null;
 let liveFingerprint: string | null = null;
@@ -142,43 +140,7 @@ function expectFieldPayloadDisjoint(action: BoardAction) {
   expect(fieldNames(action).filter((name) => payload.has(name))).toEqual([]);
 }
 
-describe("provisionGuardError", () => {
-  test("accepts both-null observed/live context and rejects stale context or fingerprint", () => {
-    expect(provisionGuardError({ observedContext: null }, null, null)).toBeNull();
-    expect(provisionGuardError({ observedContext: "ctx-a" }, "ctx-b", "uid-1")).toMatch(
-      /context changed/,
-    );
-    expect(
-      provisionGuardError({ observedContext: "ctx-a", fingerprint: "uid-1" }, "ctx-a", "uid-2"),
-    ).toMatch(/recreated/);
-  });
-});
-
 describe("cluster lifecycle onAction guards", () => {
-  test("cluster-provision refuses over a live CIMPL deployment and runs no create", async () => {
-    setLiveKube(null);
-    const { exec, calls } = makeExec({
-      text: (cmd, args) =>
-        cmd === "kubectl"
-          ? kubectlText(args)
-          : cmd === "cimpl" && args.join(" ") === "info --json"
-            ? { ok: true, data: "{}" }
-            : { ok: true, data: "unexpected mutation" },
-    });
-
-    const result = await dispatch(
-      {
-        type: "cluster-provision",
-        payload: { ...createPayload, observedContext: null },
-      },
-      exec,
-    );
-
-    if (result.ok) throw new Error("expected cluster-provision refusal");
-    expect(result.error).toBe("refusing Provision: a live CIMPL deployment is active");
-    expect(commandCalls(calls, "cimpl")).toEqual(["info --json"]);
-  });
-
   test("switch-context refuses a non-cimpl target before any kubectl call", async () => {
     setLiveKube("cimpl-a", "uid-1");
     const { exec, calls } = makeExec({
@@ -260,38 +222,6 @@ describe("cluster lifecycle onAction guards", () => {
     ]);
   });
 
-  test("cluster-provision runs cimpl up with the expected argv when no live CIMPL cluster", async () => {
-    setLiveKube(null);
-    const { exec, calls } = makeExec({
-      text: (cmd, args) => {
-        if (cmd === "kubectl") return kubectlText(args);
-        const command = args.join(" ");
-        if (command === "info --json") return { ok: false, error: "not a cimpl cluster", code: 1 };
-        return { ok: true, data: "" };
-      },
-    });
-
-    const result = await dispatch(
-      {
-        type: "cluster-provision",
-        payload: {
-          provider: "azure",
-          profile: "graduated",
-          env: "dev",
-          private: "private",
-          observedContext: null,
-        },
-      },
-      exec,
-    );
-
-    if (!result.ok) throw new Error(`expected provision success: ${result.error}`);
-    expect(commandCalls(calls, "cimpl")).toEqual([
-      "info --json",
-      "up --profile graduated --provider azure --env dev",
-    ]);
-  });
-
   test("switch-context runs kubectl config use-context for an allowed cimpl target", async () => {
     setLiveKube("cimpl-a", "uid-1");
     const { exec, calls } = makeExec({
@@ -345,8 +275,8 @@ describe("cluster lifecycle onAction guards", () => {
     expect(commandCalls(calls, "kubectl")).not.toContain("config use-context cimpl-b");
   });
 
-  test("cluster-provision refuses when the CIMPL probe is indeterminate (fail-safe)", async () => {
-    setLiveKube(null);
+  test("delete refuses when the CIMPL probe is indeterminate (fail-safe)", async () => {
+    setLiveKube("cimpl-a", "uid-1");
     const { exec, calls } = makeExec({
       text: (cmd, args) => {
         if (cmd === "kubectl") return kubectlText(args);
@@ -354,64 +284,153 @@ describe("cluster lifecycle onAction guards", () => {
         if (command === "info --json") {
           return { ok: false, error: "timed out after 60000ms", code: null };
         }
-        return { ok: true, data: "" };
+        return { ok: true, data: "torn down" };
       },
     });
 
     const result = await dispatch(
-      { type: "cluster-provision", payload: { provider: "kind", observedContext: null } },
+      { type: "delete", payload: { context: "cimpl-a", fingerprint: "uid-1" } },
       exec,
     );
 
-    if (result.ok) throw new Error("expected provision refusal on an indeterminate probe");
+    if (result.ok) throw new Error("expected delete refusal on an indeterminate probe");
     expect(result.error).toMatch(/could not confirm/);
-    // The probe ran but `cimpl up` never did — fail closed, no create.
+    // Refused before `cimpl down` — the probe ran, the teardown never did.
     expect(commandCalls(calls, "cimpl")).toEqual(["info --json"]);
   });
 });
 
-describe("CLUSTER_CREATE_ARGS argv contract", () => {
+describe("cluster create onAction (#61 run-workflow effect)", () => {
+  test("create returns a run-workflow effect and bypasses the stale-context guard", async () => {
+    // No current context — a normal (guarded) action would refuse; create must not.
+    setLiveKube(null);
+    const { exec, calls } = makeExec({ text: () => ({ ok: false, error: "no cluster", code: 1 }) });
+
+    const result = await dispatch({ type: "create", payload: { provider: "kind" } }, exec);
+
+    if (!result.ok) throw new Error(`expected create success: ${JSON.stringify(result)}`);
+    expect(result.data).toEqual({
+      effect: "run-workflow",
+      workflow: "osdu-cluster-create",
+      args: { provider: "kind" },
+    });
+    // Pure client effect — no in-process kubectl/cimpl probing.
+    expect(calls).toEqual([]);
+  });
+
+  test("create maps the form fields to workflow args (azure + profile/env + private)", async () => {
+    const { exec } = makeExec({});
+    const result = await dispatch(
+      {
+        type: "create",
+        payload: {
+          provider: "azure",
+          profile: "graduated",
+          env: "dev",
+          partition: "opendes",
+          instance: "primary",
+          location: "eastus",
+          private: "private",
+        },
+      },
+      exec,
+    );
+
+    if (!result.ok) throw new Error("expected create success");
+    expect((result.data as { args: Record<string, string> }).args).toEqual({
+      provider: "azure",
+      profile: "graduated",
+      env: "dev",
+      partition: "opendes",
+      instance: "primary",
+      location: "eastus",
+      private: "1",
+    });
+  });
+
+  test("create drops azure-only fields for a kind provider", async () => {
+    const { exec } = makeExec({});
+    const result = await dispatch(
+      { type: "create", payload: { provider: "kind", location: "eastus", private: "private" } },
+      exec,
+    );
+    if (!result.ok) throw new Error("expected create success");
+    expect((result.data as { args: Record<string, string> }).args).toEqual({ provider: "kind" });
+  });
+
+  test("create rejects an invalid provider", async () => {
+    const { exec } = makeExec({});
+    const result = await dispatch({ type: "create", payload: { provider: "gcp" } }, exec);
+    if (result.ok) throw new Error("expected invalid-provider refusal");
+    expect(result.error).toMatch(/provider must be one of/);
+  });
+});
+
+// The workflow's bash node builds the `cimpl up` argv from the run inputs
+// (reached as $KEELSON_INPUTS_*). Execute the actual node body against a fake
+// `cimpl` on PATH and assert the argv + private-network env it produces.
+describe("osdu-cluster-create workflow bash node argv", () => {
+  function runCreateBash(inputs: Record<string, string>): { args: string[]; privateNet: string } {
+    const dir = mkdtempSync(join(tmpdir(), "osdu-create-"));
+    try {
+      const fake = join(dir, "cimpl");
+      const script =
+        '#!/usr/bin/env bash\nfor a in "$@"; do printf "ARG:%s\\n" "$a"; done\nprintf "PRIVATE:%s\\n" "$CIMPL_AZURE_PRIVATE_NETWORK"\n';
+      writeFileSync(fake, script, { mode: 0o755 });
+      const env: Record<string, string> = { PATH: `${dir}:${process.env.PATH ?? ""}` };
+      for (const [k, v] of Object.entries(inputs)) env[`KEELSON_INPUTS_${k}`] = v;
+      const proc = Bun.spawnSync(["bash", "-c", CLUSTER_CREATE_BASH], { env, stdout: "pipe" });
+      const out = proc.stdout.toString();
+      const args = [...out.matchAll(/^ARG:(.*)$/gm)].map((m) => m[1] as string);
+      const privateNet = out.match(/^PRIVATE:(.*)$/m)?.[1] ?? "";
+      return { args, privateNet };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
   test("defaults provider to kind and drops every empty optional flag", () => {
-    expect(CLUSTER_CREATE_ARGS({ provider: "kind" })).toEqual({
-      args: ["up", "--provider", "kind"],
-    });
+    const { args, privateNet } = runCreateBash({});
+    expect(args).toEqual(["up", "--provider", "kind"]);
+    expect(privateNet).toBe("");
   });
 
-  test("emits profile/env/partition/instance + azure location and private-network env", () => {
-    expect(
-      CLUSTER_CREATE_ARGS({
-        provider: "azure",
-        profile: "graduated",
-        env: "dev",
-        partition: "opendes",
-        instance: "primary",
-        location: "eastus",
-        privateNetwork: true,
-      }),
-    ).toEqual({
-      args: [
-        "up",
-        "--profile",
-        "graduated",
-        "--provider",
-        "azure",
-        "--env",
-        "dev",
-        "--partition",
-        "opendes",
-        "--instance",
-        "primary",
-        "--location",
-        "eastus",
-      ],
-      env: { CIMPL_AZURE_PRIVATE_NETWORK: "1" },
+  test("emits profile/env/partition/instance/location and the private-network env for azure", () => {
+    const { args, privateNet } = runCreateBash({
+      provider: "azure",
+      profile: "graduated",
+      env: "dev",
+      partition: "opendes",
+      instance: "primary",
+      location: "eastus",
+      private: "1",
     });
+    expect(args).toEqual([
+      "up",
+      "--provider",
+      "azure",
+      "--profile",
+      "graduated",
+      "--env",
+      "dev",
+      "--partition",
+      "opendes",
+      "--instance",
+      "primary",
+      "--location",
+      "eastus",
+    ]);
+    expect(privateNet).toBe("1");
   });
 
-  test("ignores location and private-network for non-azure providers", () => {
-    expect(
-      CLUSTER_CREATE_ARGS({ provider: "kind", location: "eastus", privateNetwork: true }),
-    ).toEqual({ args: ["up", "--provider", "kind"] });
+  test("ignores location and private-network for a kind provider", () => {
+    const { args, privateNet } = runCreateBash({
+      provider: "kind",
+      location: "eastus",
+      private: "1",
+    });
+    expect(args).toEqual(["up", "--provider", "kind"]);
+    expect(privateNet).toBe("");
   });
 });
 
@@ -456,8 +475,8 @@ describe("cimpl context filtering", () => {
 });
 
 describe("cluster action field/payload bindings", () => {
-  test("form field names are disjoint from each action's opaque payload keys", async () => {
-    const previewAction = actionOf(
+  test("form field names are disjoint from each action's opaque payload keys", () => {
+    const createAction = actionOf(
       buildClusterBoard({
         lifecycle: {
           context: null,
@@ -466,7 +485,7 @@ describe("cluster action field/payload bindings", () => {
           services: { ready: 0, total: 0 },
         },
       }),
-      "cluster-preview",
+      "create",
     );
 
     const switchAction = actionOf(
@@ -482,22 +501,7 @@ describe("cluster action field/payload bindings", () => {
       "switch-context",
     );
 
-    setLiveKube("ctx-a", "uid-1");
-    const boards: CanvasBoardView[] = [];
-    const { exec } = makeExec({
-      text: (cmd, args) =>
-        cmd === "kubectl" ? kubectlText(args) : { ok: false, error: "unexpected cimpl", code: 1 },
-    });
-    const result = await dispatch(
-      { type: "cluster-preview", payload: createPayload },
-      exec,
-      boards,
-    );
-    expect(result.ok).toBe(true);
-    expect(boards).toHaveLength(1);
-    const provisionAction = actionOf(boards[0] as CanvasBoardView, "cluster-provision");
-
-    expect(fieldNames(previewAction)).toEqual([
+    expect(fieldNames(createAction)).toEqual([
       "provider",
       "profile",
       "env",
@@ -506,11 +510,12 @@ describe("cluster action field/payload bindings", () => {
       "location",
       "private",
     ]);
+    // Create carries no board-time identity stamp — it launches a workflow.
+    expect(payloadKeys(createAction)).toEqual([]);
     expect(fieldNames(switchAction)).toEqual(["target"]);
-    expect(fieldNames(provisionAction)).toEqual([]);
     expect(payloadKeys(switchAction)).toEqual(["observedCurrent", "observedContexts"]);
 
-    for (const action of [previewAction, provisionAction, switchAction]) {
+    for (const action of [createAction, switchAction]) {
       expectFieldPayloadDisjoint(action);
     }
   });
