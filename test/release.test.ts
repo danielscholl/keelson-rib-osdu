@@ -8,12 +8,14 @@ import {
   milestoneToken,
   projectTone,
   type ReleaseMr,
+  resolveReleaseTrain,
   releaseTrain,
 } from "../src/release.ts";
 
 const DECORATIVE_TONES = ["info", "brand", "accent", "caution", "ok"];
 
 const NOW = new Date("2026-06-06T12:00:00Z");
+const PMC_REPORT_URL = "https://community.opengroup.org/osdu/pmc/-/wikis/release-0-30";
 
 // A core service so the MR counts as a platform win.
 const url = (service: string, iid: number) =>
@@ -98,6 +100,35 @@ describe("buildReleaseBoard", () => {
       now: NOW,
     });
     expect(board.header?.chip).toBe("M26 (mode)");
+  });
+
+  test("prepends a linked PMC Report rows section when a report URL is present", () => {
+    const board = buildReleaseBoard({
+      pmcReportUrl: PMC_REPORT_URL,
+      openMrs: [{ iid: 1, title: "a", state: "opened", milestone: "M26 - Release 0.30" }],
+      now: NOW,
+    });
+    expect(canvasViewSchema.safeParse(board).success).toBe(true);
+    expect(board.sections).toHaveLength(2);
+
+    const report = board.sections[0];
+    if (report?.kind !== "rows") throw new Error("expected report rows");
+    expect(report.title).toBe("Report");
+    expect(report.items).toEqual([{ text: "PMC: Report", href: PMC_REPORT_URL }]);
+
+    const columns = board.sections[1];
+    if (columns?.kind !== "columns") throw new Error("expected columns after report");
+    expect(columns.columns).toHaveLength(2);
+  });
+
+  test("omits the PMC Report section when no report URL is present", () => {
+    for (const pmcReportUrl of [undefined, null, ""]) {
+      const board = buildReleaseBoard({ pmcReportUrl, now: NOW });
+      expect(board.sections[0]?.kind).toBe("columns");
+      expect(
+        board.sections.some((section) => section.kind === "rows" && section.title === "Report"),
+      ).toBe(false);
+    }
   });
 
   test("a New MR row carries branch icon, service chip, !iid — title, age, href", () => {
@@ -310,6 +341,15 @@ describe("releaseTrain", () => {
         { milestone: "Future", draft: true },
       ]),
     ).toBe("Real");
+  });
+});
+
+describe("resolveReleaseTrain", () => {
+  test("prefers a non-empty resolved release before falling back to the MR mode", () => {
+    expect(resolveReleaseTrain(" M26 - Release 0.29 ", [{ milestone: "M99" }])).toBe(
+      "M26 - Release 0.29",
+    );
+    expect(resolveReleaseTrain("  ", [{ milestone: "M26" }])).toBe("M26");
   });
 });
 
