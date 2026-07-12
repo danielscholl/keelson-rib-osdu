@@ -301,6 +301,50 @@ describe("cluster lifecycle onAction guards", () => {
   });
 });
 
+describe("cluster delete onAction (run-workflow effect)", () => {
+  test("fires the workflow on a matching identity and live CIMPL probe", async () => {
+    setLiveKube("cimpl-a", "uid-1");
+    const { exec, calls } = makeExec({
+      text: (cmd, args) => {
+        if (cmd === "kubectl") return kubectlText(args);
+        if (cmd === "cimpl" && args.join(" ") === "info --json") return { ok: true, data: "{}" };
+        return { ok: false, error: "unexpected command", code: 1 };
+      },
+    });
+
+    const result = await dispatch(
+      { type: "delete", payload: { context: "cimpl-a", fingerprint: "uid-1" } },
+      exec,
+    );
+
+    if (!result.ok) throw new Error(`expected delete workflow effect: ${result.error}`);
+    expect(result.data).toEqual({
+      effect: "run-workflow",
+      workflow: "osdu-cluster-delete",
+    });
+    expect(commandCalls(calls, "cimpl")).toEqual(["info --json"]);
+  });
+
+  test("refuses a stale fingerprint before probing or firing the workflow", async () => {
+    setLiveKube("cimpl-a", "uid-2");
+    const { exec, calls } = makeExec({
+      text: (cmd, args) => {
+        if (cmd === "kubectl") return kubectlText(args);
+        return { ok: true, data: "{}" };
+      },
+    });
+
+    const result = await dispatch(
+      { type: "delete", payload: { context: "cimpl-a", fingerprint: "uid-1" } },
+      exec,
+    );
+
+    if (result.ok) throw new Error("expected stale-fingerprint delete refusal");
+    expect(result.error).toMatch(/recreated/);
+    expect(commandCalls(calls, "cimpl")).toEqual([]);
+  });
+});
+
 describe("cluster create onAction (#61 run-workflow effect)", () => {
   // Preflight probe = `cimpl info --json`; ABSENT (completed non-zero) means no
   // live deployment, so create may fire the workflow.

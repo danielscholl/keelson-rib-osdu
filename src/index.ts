@@ -410,11 +410,9 @@ const rib: Rib = {
     if (verb === "delete") {
       const denial = await verifyCimplContext(exec);
       if (denial) return { ok: false, error: `refusing Delete: ${denial}` };
+      return { ok: true, data: { effect: "run-workflow", workflow: "osdu-cluster-delete" } };
     }
-    // Teardown waits on Flux pruning + namespace termination — minutes, not the
-    // ~2 min a reconcile/suspend needs. A too-short timeout would abort a delete
-    // mid-flight and leave the cluster half-removed.
-    const timeoutMs = verb === "delete" ? 600_000 : 120_000;
+    const timeoutMs = 120_000;
     const res = await runClusterLifecycle(exec, verb, timeoutMs);
     return res.ok ? { ok: true, data: { ran: res.ran } } : { ok: false, error: res.error };
   },
