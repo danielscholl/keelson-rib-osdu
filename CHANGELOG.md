@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.5.0...v0.6.0) (2026-07-12)
+
+
+### Added
+
+* add osdu setup check tool and doctor view ([#89](https://github.com/danielscholl/keelson-rib-osdu/issues/89)) ([595d2da](https://github.com/danielscholl/keelson-rib-osdu/commit/595d2dab378f9189d7cabc1571c0a17affcabc4e))
+* **cluster:** stream delete via run-workflow effect ([#87](https://github.com/danielscholl/keelson-rib-osdu/issues/87)) ([e568b5c](https://github.com/danielscholl/keelson-rib-osdu/commit/e568b5cc3b37b92b4824eb6e65bdd2c36344b367))
+
 ## [0.5.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.4.0...v0.5.0) (2026-07-11)
 
 
