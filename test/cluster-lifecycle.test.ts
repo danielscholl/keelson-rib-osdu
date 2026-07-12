@@ -469,6 +469,49 @@ describe("osdu-cluster-delete workflow shape", () => {
   });
 });
 
+describe("verify-cimpl-context preflight gate", () => {
+  function runVerifyGate(cimplScript?: string): {
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+  } {
+    const dir = mkdtempSync(join(tmpdir(), "osdu-delete-gate-"));
+    try {
+      if (cimplScript) writeFileSync(join(dir, "cimpl"), cimplScript, { mode: 0o755 });
+      const proc = Bun.spawnSync([process.execPath, "bin/verify-cimpl-context.ts"], {
+        env: { ...process.env, PATH: dir },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      return {
+        exitCode: proc.exitCode ?? -1,
+        stdout: proc.stdout.toString(),
+        stderr: proc.stderr.toString(),
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test("exits zero without stdout when cimpl info confirms a live deployment", () => {
+    const result = runVerifyGate('#!/bin/sh\nprintf "{}"\n');
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  test("exits non-zero when cimpl reports no deployment", () => {
+    const result = runVerifyGate('#!/bin/sh\nexit 1\n');
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("refusing Delete:");
+  });
+
+  test("exits non-zero when the probe is indeterminate", () => {
+    const result = runVerifyGate();
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("refusing Delete:");
+  });
+});
+
 // The workflow's bash node builds the `cimpl up` argv from the run inputs
 // (reached as $KEELSON_INPUTS_*). Execute the actual node body against a fake
 // `cimpl` on PATH and assert the argv + private-network env it produces.
