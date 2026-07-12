@@ -9,6 +9,7 @@ import type {
 import { inferToolFamily } from "@keelson/shared";
 import { registerOsduTools } from "../src/tools.ts";
 import { makeExec } from "./fetch.test.ts";
+import checkFixture from "./fixtures/cimpl-check.json";
 import report from "./fixtures/release-report.json";
 
 type ToolResult = Extract<MessageChunk, { type: "tool_result" }>;
@@ -60,6 +61,7 @@ describe("registerOsduTools", () => {
       "osdu_cluster",
       "osdu_topology",
       "osdu_contexts",
+      "osdu_setup_check",
       "osdu_cluster_reconcile",
       "osdu_cluster_suspend",
       "osdu_cluster_resume",
@@ -75,11 +77,56 @@ describe("registerOsduTools", () => {
     const { exec } = makeExec({});
     const byName = new Map(registerOsduTools(ctxWith(exec)).map((t) => [t.name, t]));
     expect(byName.get("osdu_quality")?.state_changing).toBe(false);
+    expect(byName.get("osdu_setup_check")?.state_changing).toBe(false);
     for (const verb of ["reconcile", "suspend", "resume"]) {
       const t = byName.get(`osdu_cluster_${verb}`);
       expect(t?.state_changing).toBe(true);
       expect(t?.requires_confirmation).toBe(true);
     }
+  });
+});
+
+describe("osdu_setup_check tool", () => {
+  function setupCheck(exec: RibExec) {
+    const tool = registerOsduTools(ctxWith(exec)).find((t) => t.name === "osdu_setup_check");
+    if (!tool) throw new Error("osdu_setup_check missing");
+    return tool;
+  }
+
+  test("fetches the full inventory and emits a single tool_result", async () => {
+    const { exec, calls } = makeExec({ json: () => ({ ok: true, data: checkFixture }) });
+    const { tctx, emits } = fakeToolCtx();
+
+    await setupCheck(exec).execute({}, tctx);
+
+    const r = results(emits);
+    expect(r).toHaveLength(1);
+    expect(r[0]?.isError).toBeUndefined();
+    expect(JSON.parse(r[0]?.content ?? "{}").tools).toHaveLength(checkFixture.tools.length);
+    expect(calls[0]).toEqual({ cmd: "cimpl", args: ["check", "--json"] });
+  });
+
+  test("scopes the inventory to the requested provider", async () => {
+    const { exec, calls } = makeExec({ json: () => ({ ok: true, data: checkFixture }) });
+    const { tctx } = fakeToolCtx();
+
+    await setupCheck(exec).execute({ provider: "aws" }, tctx);
+
+    expect(calls[0]).toEqual({ cmd: "cimpl", args: ["check", "--json", "--provider", "aws"] });
+  });
+
+  test("emits isError rather than throwing when the check fails", async () => {
+    const { exec } = makeExec({
+      json: () => ({ ok: false, error: "cimpl not found", code: null }),
+    });
+    const { tctx, emits } = fakeToolCtx();
+
+    await setupCheck(exec).execute({}, tctx);
+
+    const r = results(emits);
+    expect(r).toHaveLength(1);
+    expect(r[0]?.isError).toBe(true);
+    expect(r[0]?.content).toContain("cimpl not found");
   });
 });
 

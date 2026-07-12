@@ -17,11 +17,17 @@ type ExecOpts = {
 
 // A RibExec whose runJSON/runText return canned results and record their calls,
 // so a fetch's command + degrade paths are testable without a live CLI.
-export function makeExec(opts: ExecOpts): { exec: RibExec; calls: FakeCall[] } {
+export function makeExec(opts: ExecOpts): {
+  exec: RibExec;
+  calls: FakeCall[];
+  jsonOptions: unknown[];
+} {
   const calls: FakeCall[] = [];
+  const jsonOptions: unknown[] = [];
   const exec = {
-    async runJSON(cmd: string, args: string[]) {
+    async runJSON(cmd: string, args: string[], options?: unknown) {
       calls.push({ cmd, args });
+      jsonOptions.push(options);
       return opts.json ? opts.json(cmd, args) : { ok: false, error: "no json handler", code: null };
     },
     async runText(cmd: string, args: string[]) {
@@ -29,7 +35,7 @@ export function makeExec(opts: ExecOpts): { exec: RibExec; calls: FakeCall[] } {
       return opts.text ? opts.text(cmd, args) : { ok: false, error: "no text handler", code: null };
     },
   } as unknown as RibExec;
-  return { exec, calls };
+  return { exec, calls, jsonOptions };
 }
 
 describe("fetchReleaseReport", () => {

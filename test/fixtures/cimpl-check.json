@@ -1,0 +1,66 @@
+{
+  "platform": "darwin-arm64",
+  "provider": "current-context",
+  "total": 8,
+  "installed": 5,
+  "missing": 3,
+  "tools": [
+    {
+      "name": "kubectl",
+      "description": "Kubernetes command-line tool",
+      "installed": true,
+      "version": "v1.31.4",
+      "providers": ["kind", "azure", "aws", "gcp", "openshift"]
+    },
+    {
+      "name": "kind",
+      "description": "Kubernetes in Docker",
+      "installed": true,
+      "version": "v0.26.0",
+      "providers": ["kind"]
+    },
+    {
+      "name": "flux",
+      "description": "Flux CLI",
+      "installed": true,
+      "version": "2.4.0",
+      "providers": ["kind", "azure", "aws", "gcp", "openshift"]
+    },
+    {
+      "name": "docker",
+      "description": "Docker CLI",
+      "installed": true,
+      "version": "27.4.1",
+      "providers": ["kind"]
+    },
+    {
+      "name": "gcloud",
+      "description": "Google Cloud CLI",
+      "installed": true,
+      "version": "510.0.0",
+      "providers": ["gcp"]
+    },
+    {
+      "name": "aws",
+      "description": "AWS CLI",
+      "installed": false,
+      "version": null,
+      "providers": ["aws"]
+    },
+    {
+      "name": "az",
+      "description": "Azure CLI",
+      "installed": false,
+      "version": null,
+      "providers": ["azure"]
+    },
+    {
+      "name": "eksctl",
+      "description": "Amazon EKS CLI",
+      "installed": false,
+      "version": null,
+      "providers": ["aws"]
+    }
+  ],
+  "feature_flags_active": ["local-dev"]
+}
