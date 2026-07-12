@@ -21,6 +21,7 @@ import {
 import { fetchReleaseReport } from "./quality.ts";
 import { extractMilestoneFilter, extractReleaseMrs } from "./release.ts";
 import { fetchSecurityInputs } from "./security.ts";
+import { fetchSetupCheck, SETUP_PROVIDERS } from "./setup.ts";
 import { composeQueue } from "./waiting.ts";
 
 // Tool results stream to chat as `tool_result` chunks; keep each one well under
@@ -65,6 +66,7 @@ function readTool(
 }
 
 const confirmSchema = z.object({ confirm: z.boolean().default(false) });
+const setupProviderSchema = z.object({ provider: z.enum(SETUP_PROVIDERS).optional() });
 
 // A reversible cluster-lifecycle tool, self-gated by an in-tool `confirm` flag
 // (keelson chat does not pause on requires_confirmation yet). Without confirm it
@@ -255,6 +257,27 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
         return { current, contexts };
       },
     ),
+    {
+      name: "osdu_setup_check",
+      description:
+        "Use when: checking whether the local cluster-CLI environment is ready to deploy or what a provider requires. Returns: the cimpl inventory of kubectl, kind, flux, docker, aws, gcloud, oc, az, and eksctl installations and versions; optional provider scopes it to one provider. Read-only. NOT for: installing tools or mutating the cluster.",
+      inputSchema: setupProviderSchema,
+      state_changing: false,
+      async execute(input, toolCtx) {
+        const parsed = setupProviderSchema.safeParse(input);
+        const provider = parsed.success ? parsed.data.provider : undefined;
+        try {
+          const { result, error } = await fetchSetupCheck(exec, provider);
+          if (error || !result) {
+            emitResult(toolCtx, `osdu_setup_check failed: ${error ?? "no inventory returned"}`, true);
+            return;
+          }
+          emitResult(toolCtx, boundedJson(result));
+        } catch (e) {
+          emitResult(toolCtx, `osdu_setup_check failed: ${errText(e)}`, true);
+        }
+      },
+    },
     lifecycleTool(exec, "reconcile", "Reconcile Flux on"),
     lifecycleTool(exec, "suspend", "Suspend Flux reconciliation on"),
     lifecycleTool(exec, "resume", "Resume Flux reconciliation on"),
