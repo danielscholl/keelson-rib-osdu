@@ -26,7 +26,7 @@ const EVENTS_KEY = "rib:osdu:events";
 const RELEASE_KEY = "rib:osdu:release";
 const WAITING_KEY = "rib:osdu:waiting";
 
-// Absolute paths to the deterministic collectors, resolved at module load so a
+// Absolute paths to deterministic bin scripts, resolved at module load so a
 // workflow node runs the right file regardless of the run's cwd.
 const CLUSTER_COLLECTOR = new URL("../bin/collect-cluster.ts", import.meta.url).pathname;
 const TOPOLOGY_COLLECTOR = new URL("../bin/collect-topology.ts", import.meta.url).pathname;
@@ -36,6 +36,7 @@ const SECURITY_COLLECTOR = new URL("../bin/collect-security.ts", import.meta.url
 const EVENTS_COLLECTOR = new URL("../bin/collect-events.ts", import.meta.url).pathname;
 const RELEASE_COLLECTOR = new URL("../bin/collect-release.ts", import.meta.url).pathname;
 const WAITING_COLLECTOR = new URL("../bin/collect-waiting.ts", import.meta.url).pathname;
+const VERIFY_CIMPL_CONTEXT = new URL("../bin/verify-cimpl-context.ts", import.meta.url).pathname;
 
 interface CimplCredentialSecret {
   service?: string;
