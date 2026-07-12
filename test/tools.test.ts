@@ -9,21 +9,8 @@ import type {
 import { inferToolFamily } from "@keelson/shared";
 import { registerOsduTools } from "../src/tools.ts";
 import { makeExec } from "./fetch.test.ts";
+import checkFixture from "./fixtures/cimpl-check.json";
 import report from "./fixtures/release-report.json";
-
-const checkFixture = {
-  platform: "darwin",
-  provider: "current-context",
-  total: 3,
-  installed: 2,
-  missing: 1,
-  tools: [
-    { name: "kubectl", installed: true, version: "1.31.0", providers: ["kind", "aws"] },
-    { name: "flux", installed: true, version: "2.4.0", providers: ["kind", "aws"] },
-    { name: "aws", installed: false, providers: ["aws"] },
-  ],
-  feature_flags_active: [],
-};
 
 type ToolResult = Extract<MessageChunk, { type: "tool_result" }>;
 function results(emits: MessageChunk[]): ToolResult[] {
