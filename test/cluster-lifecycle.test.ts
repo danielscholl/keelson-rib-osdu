@@ -500,7 +500,7 @@ describe("verify-cimpl-context preflight gate", () => {
   });
 
   test("exits non-zero when cimpl reports no deployment", () => {
-    const result = runVerifyGate('#!/bin/sh\nexit 1\n');
+    const result = runVerifyGate("#!/bin/sh\nexit 1\n");
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("refusing Delete:");
   });
