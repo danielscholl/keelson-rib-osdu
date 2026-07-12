@@ -321,6 +321,7 @@ describe("cluster delete onAction (run-workflow effect)", () => {
     expect(result.data).toEqual({
       effect: "run-workflow",
       workflow: "osdu-cluster-delete",
+      args: { context: "cimpl-a", fingerprint: "uid-1" },
     });
     expect(commandCalls(calls, "cimpl")).toEqual(["info --json"]);
   });
@@ -470,16 +471,46 @@ describe("osdu-cluster-delete workflow shape", () => {
 });
 
 describe("verify-cimpl-context preflight gate", () => {
-  function runVerifyGate(cimplScript?: string): {
+  function runVerifyGate({
+    cimplScript,
+    expectedContext = "cimpl-a",
+    expectedFingerprint = "uid-1",
+  }: {
+    cimplScript?: string;
+    expectedContext?: string;
+    expectedFingerprint?: string;
+  } = {}): {
     exitCode: number;
     stdout: string;
     stderr: string;
   } {
     const dir = mkdtempSync(join(tmpdir(), "osdu-delete-gate-"));
     try {
+      writeFileSync(
+        join(dir, "kubectl"),
+        [
+          "#!/bin/sh",
+          'if [ "$1" = "config" ] && [ "$2" = "current-context" ]; then',
+          '  printf "cimpl-a\\n"',
+          "  exit 0",
+          "fi",
+          'if [ "$1" = "get" ] && [ "$2" = "namespace" ] && [ "$3" = "kube-system" ]; then',
+          '  printf "uid-1"',
+          "  exit 0",
+          "fi",
+          "exit 1",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
       if (cimplScript) writeFileSync(join(dir, "cimpl"), cimplScript, { mode: 0o755 });
+      const env: NodeJS.ProcessEnv = { ...process.env, PATH: dir };
+      if (expectedContext !== undefined) env.KEELSON_INPUTS_context = expectedContext;
+      if (expectedFingerprint !== undefined) {
+        env.KEELSON_INPUTS_fingerprint = expectedFingerprint;
+      }
       const proc = Bun.spawnSync([process.execPath, "bin/verify-cimpl-context.ts"], {
-        env: { ...process.env, PATH: dir },
+        env,
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -494,13 +525,13 @@ describe("verify-cimpl-context preflight gate", () => {
   }
 
   test("exits zero without stdout when cimpl info confirms a live deployment", () => {
-    const result = runVerifyGate('#!/bin/sh\nprintf "{}"\n');
+    const result = runVerifyGate({ cimplScript: '#!/bin/sh\nprintf "{}"\n' });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("");
   });
 
   test("exits non-zero when cimpl reports no deployment", () => {
-    const result = runVerifyGate("#!/bin/sh\nexit 1\n");
+    const result = runVerifyGate({ cimplScript: "#!/bin/sh\nexit 1\n" });
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("refusing Delete:");
   });
@@ -509,6 +540,16 @@ describe("verify-cimpl-context preflight gate", () => {
     const result = runVerifyGate();
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("refusing Delete:");
+  });
+
+  test("exits non-zero when the workflow stamp fingerprint is stale", () => {
+    const result = runVerifyGate({
+      cimplScript: '#!/bin/sh\nprintf "{}"\n',
+      expectedFingerprint: "uid-2",
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("refusing Delete:");
+    expect(result.stderr).toContain("recreated");
   });
 });
 

@@ -410,7 +410,13 @@ const rib: Rib = {
     if (verb === "delete") {
       const denial = await verifyCimplContext(exec);
       if (denial) return { ok: false, error: `refusing Delete: ${denial}` };
-      return { ok: true, data: { effect: "run-workflow", workflow: "osdu-cluster-delete" } };
+      const args: { context: string; fingerprint?: string } = {
+        context: typeof payload?.context === "string" ? payload.context : "",
+      };
+      if (typeof payload?.fingerprint === "string" && payload.fingerprint.length > 0) {
+        args.fingerprint = payload.fingerprint;
+      }
+      return { ok: true, data: { effect: "run-workflow", workflow: "osdu-cluster-delete", args } };
     }
     const timeoutMs = 120_000;
     const res = await runClusterLifecycle(exec, verb, timeoutMs);
