@@ -12,12 +12,13 @@ guard.
 
 ## Read tools
 
-Eight read-only tools, one per panel, each returning the live rows behind
+Nine read-only tools, one per panel, each returning the live rows behind
 the board rather than the board itself:
 
 | Tool | Returns |
 |---|---|
 | `osdu_cluster` | kubectl context, Flux and HelmRelease readiness, sanitized `cimpl info` access data. Passwords are never returned. |
+| `osdu_setup_check` | The `cimpl check --json` cluster-CLI inventory, optionally scoped by provider. |
 | `osdu_topology` | The live Flux Kustomizations: name, namespace, ready conditions, dependencies. |
 | `osdu_quality` | The `osdu-quality release` report: per-service pass rates, coverage, Sonar grades, vuln counts. |
 | `osdu_features` | Core-scoped epics with assignees and progress, plus open merge requests. |
@@ -26,7 +27,7 @@ the board rather than the board itself:
 | `osdu_release` | The active milestone, open release MRs, and recently merged core MRs. |
 | `osdu_waiting` | Your priority-sorted queue: MRs needing you, not-ready Flux resources, failed jobs. |
 
-Behavioral contract, shared by all eight:
+Behavioral contract, shared by all nine:
 
 - **Never throws.** A degraded source surfaces as an error tool result, and
   partial degradation rides along in a `notes` array next to the data.

@@ -269,7 +269,11 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
         try {
           const { result, error } = await fetchSetupCheck(exec, provider);
           if (error || !result) {
-            emitResult(toolCtx, `osdu_setup_check failed: ${error ?? "no inventory returned"}`, true);
+            emitResult(
+              toolCtx,
+              `osdu_setup_check failed: ${error ?? "no inventory returned"}`,
+              true,
+            );
             return;
           }
           emitResult(toolCtx, boundedJson(result));

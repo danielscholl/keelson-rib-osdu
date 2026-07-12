@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { canvasViewSchema } from "@keelson/shared";
-import {
-  buildDoctorBoard,
-  fetchSetupCheck,
-  type CimplCheckResult,
-} from "../src/setup.ts";
+import { buildDoctorBoard, type CimplCheckResult, fetchSetupCheck } from "../src/setup.ts";
 import { makeExec } from "./fetch.test.ts";
 import fixture from "./fixtures/cimpl-check.json";
 

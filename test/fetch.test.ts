@@ -17,7 +17,11 @@ type ExecOpts = {
 
 // A RibExec whose runJSON/runText return canned results and record their calls,
 // so a fetch's command + degrade paths are testable without a live CLI.
-export function makeExec(opts: ExecOpts): { exec: RibExec; calls: FakeCall[]; jsonOptions: unknown[] } {
+export function makeExec(opts: ExecOpts): {
+  exec: RibExec;
+  calls: FakeCall[];
+  jsonOptions: unknown[];
+} {
   const calls: FakeCall[] = [];
   const jsonOptions: unknown[] = [];
   const exec = {

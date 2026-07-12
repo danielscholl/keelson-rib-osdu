@@ -48,17 +48,17 @@ export function buildDoctorBoard(result?: CimplCheckResult): CanvasBoardView {
   const missing = result?.missing ?? tools.filter((tool) => !tool.installed).length;
   const total = result?.total ?? tools.length;
   const rows = [...tools]
-    .sort(
-      (a, b) =>
-        Number(a.installed) - Number(b.installed) || a.name.localeCompare(b.name),
-    )
-    .map((tool) => ({
-      tool: tool.name,
-      version: tool.version ?? "—",
-      status: {
-        badges: [{ text: tool.installed ? "●" : "○", tone: tool.installed ? "ok" : "error" }],
-      },
-    }) satisfies Record<string, CanvasCell>);
+    .sort((a, b) => Number(a.installed) - Number(b.installed) || a.name.localeCompare(b.name))
+    .map(
+      (tool) =>
+        ({
+          tool: tool.name,
+          version: tool.version ?? "—",
+          status: {
+            badges: [{ text: tool.installed ? "●" : "○", tone: tool.installed ? "ok" : "error" }],
+          },
+        }) satisfies Record<string, CanvasCell>,
+    );
 
   return {
     view: "board",
