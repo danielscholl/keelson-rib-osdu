@@ -18,6 +18,7 @@ import { currentContext, getClusterFingerprint, getCurrentContext } from "./kube
 import { registerOsduTools } from "./tools.ts";
 
 const CLUSTER_KEY = "rib:osdu:cluster";
+const DOCTOR_KEY = "rib:osdu:doctor";
 const TOPOLOGY_KEY = "rib:osdu:topology";
 const QUALITY_KEY = "rib:osdu:quality";
 const FEATURES_KEY = "rib:osdu:features";
@@ -29,6 +30,7 @@ const WAITING_KEY = "rib:osdu:waiting";
 // Absolute paths to deterministic bin scripts, resolved at module load so a
 // workflow node runs the right file regardless of the run's cwd.
 const CLUSTER_COLLECTOR = new URL("../bin/collect-cluster.ts", import.meta.url).pathname;
+const DOCTOR_COLLECTOR = new URL("../bin/collect-doctor.ts", import.meta.url).pathname;
 const TOPOLOGY_COLLECTOR = new URL("../bin/collect-topology.ts", import.meta.url).pathname;
 const QUALITY_COLLECTOR = new URL("../bin/collect-quality.ts", import.meta.url).pathname;
 const FEATURES_COLLECTOR = new URL("../bin/collect-features.ts", import.meta.url).pathname;
@@ -122,6 +124,7 @@ const rib: Rib = {
   // buttons appear on the Ribs page; data arrives when the workflows run.
   views: [
     { key: CLUSTER_KEY, canvasKind: "view", title: "Cluster ICC" },
+    { key: DOCTOR_KEY, canvasKind: "view", title: "Cluster Doctor" },
     { key: TOPOLOGY_KEY, canvasKind: "view", title: "Cluster Topology" },
     { key: QUALITY_KEY, canvasKind: "view", title: "Quality" },
     { key: FEATURES_KEY, canvasKind: "view", title: "Features" },
@@ -240,6 +243,22 @@ const rib: Rib = {
           },
         ],
       },
+    },
+    {
+      definition: {
+        name: "osdu-doctor",
+        description:
+          'Use when: checking whether the local cluster-CLI toolchain is ready to deploy. Triggers: "check my environment", "what tools are missing", "is AWS ready". Does: runs `cimpl check --json` and publishes a Cluster Doctor board with installed versus missing cluster CLI tools. NOT for: installing tools or changing cluster state.',
+        nodes: [
+          {
+            id: "collect",
+            bash: `bun ${DOCTOR_COLLECTOR}`,
+            output_schema: { type: "object", required: ["view", "sections"] },
+          },
+        ],
+      },
+      bindSnapshotKey: DOCTOR_KEY,
+      validate: expectView(DOCTOR_KEY, "board"),
     },
     {
       definition: {
