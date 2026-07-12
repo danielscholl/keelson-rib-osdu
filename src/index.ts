@@ -243,6 +243,26 @@ const rib: Rib = {
     },
     {
       definition: {
+        name: "osdu-cluster-delete",
+        description:
+          "Use when: tearing down the current CIMPL dev cluster after the ICC's typed-confirm Delete. Triggers: Delete from the Cluster ICC after the identity guard and destructive confirm pass. Does: re-verifies the live CIMPL context, then runs `cimpl down --provider current-context` as a streaming node in the Workflows surface. NOT for: bypassing the ICC identity guard or destructive confirm.",
+        nodes: [
+          {
+            id: "verify",
+            bash: `bun ${VERIFY_CIMPL_CONTEXT}`,
+            timeout: 60_000,
+          },
+          {
+            id: "down",
+            bash: `cimpl ${CLUSTER_LIFECYCLE_ARGS.delete.join(" ")}`,
+            depends_on: ["verify"],
+            timeout: 600_000,
+          },
+        ],
+      },
+    },
+    {
+      definition: {
         name: "osdu-topology",
         description:
           'Use when: checking cluster reconciliation health. Triggers: "show the topology", "is the cluster healthy". Does: reads Flux Kustomizations and HelmReleases via kubectl and publishes a live node-link graph to the Cluster Topology canvas. NOT for: changing cluster state.',

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CanvasBoardView, RibContext, RibExec } from "@keelson/shared";
 import { buildClusterBoard } from "../src/cluster.ts";
+import { CLUSTER_LIFECYCLE_ARGS } from "../src/cluster-actions.ts";
 import { CLUSTER_CREATE_BASH } from "../src/cluster-create.ts";
 import rib from "../src/index.ts";
 import { getCimplPrefixes, isCimplManagedContext, listContexts } from "../src/kubectl.ts";
@@ -391,6 +392,36 @@ describe("cluster create onAction (#61 run-workflow effect)", () => {
     expect(result.error).toMatch(/provider must be one of/);
     // Validation short-circuits before the preflight probe.
     expect(calls).toEqual([]);
+  });
+});
+
+describe("osdu-cluster-delete workflow shape", () => {
+  test("is action-only and gates cimpl down behind the preflight node", () => {
+    const ctx = {} as Parameters<NonNullable<typeof rib.contributeWorkflows>>[0];
+    const contribution = (rib.contributeWorkflows?.(ctx) ?? []).find(
+      (workflow) => (workflow.definition as { name: string }).name === "osdu-cluster-delete",
+    );
+    if (!contribution) throw new Error("expected osdu-cluster-delete workflow");
+
+    expect(contribution.bindSnapshotKey).toBeUndefined();
+    expect(contribution.validate).toBeUndefined();
+    const definition = contribution.definition as {
+      description: string;
+      nodes: Array<{ id: string; bash?: string; depends_on?: string[]; timeout?: number }>;
+    };
+    expect(definition.description).toContain("Use when:");
+    expect(definition.description).toContain("Triggers:");
+    expect(definition.description).toContain("Does:");
+    expect(definition.description).toContain("NOT for:");
+    expect(definition.nodes.map((node) => node.id)).toEqual(["verify", "down"]);
+
+    const [verify, down] = definition.nodes;
+    expect(verify?.bash).toContain("bun ");
+    expect(verify?.bash).toContain("verify-cimpl-context.ts");
+    expect(verify?.timeout).toBe(60_000);
+    expect(down?.depends_on).toEqual(["verify"]);
+    expect(down?.bash).toBe(`cimpl ${CLUSTER_LIFECYCLE_ARGS.delete.join(" ")}`);
+    expect(down?.timeout).toBe(600_000);
   });
 });
 
