@@ -26,7 +26,7 @@ const EVENTS_KEY = "rib:osdu:events";
 const RELEASE_KEY = "rib:osdu:release";
 const WAITING_KEY = "rib:osdu:waiting";
 
-// Absolute paths to the deterministic collectors, resolved at module load so a
+// Absolute paths to deterministic bin scripts, resolved at module load so a
 // workflow node runs the right file regardless of the run's cwd.
 const CLUSTER_COLLECTOR = new URL("../bin/collect-cluster.ts", import.meta.url).pathname;
 const TOPOLOGY_COLLECTOR = new URL("../bin/collect-topology.ts", import.meta.url).pathname;
@@ -36,6 +36,7 @@ const SECURITY_COLLECTOR = new URL("../bin/collect-security.ts", import.meta.url
 const EVENTS_COLLECTOR = new URL("../bin/collect-events.ts", import.meta.url).pathname;
 const RELEASE_COLLECTOR = new URL("../bin/collect-release.ts", import.meta.url).pathname;
 const WAITING_COLLECTOR = new URL("../bin/collect-waiting.ts", import.meta.url).pathname;
+const VERIFY_CIMPL_CONTEXT = new URL("../bin/verify-cimpl-context.ts", import.meta.url).pathname;
 
 interface CimplCredentialSecret {
   service?: string;
@@ -242,6 +243,26 @@ const rib: Rib = {
     },
     {
       definition: {
+        name: "osdu-cluster-delete",
+        description:
+          "Use when: tearing down the current CIMPL dev cluster after the ICC's typed-confirm Delete. Triggers: Delete from the Cluster ICC after the identity guard and destructive confirm pass. Does: re-verifies the live CIMPL context, then runs `cimpl down --provider current-context` as a streaming node in the Workflows surface. NOT for: bypassing the ICC identity guard or destructive confirm.",
+        nodes: [
+          {
+            id: "verify",
+            bash: `bun ${VERIFY_CIMPL_CONTEXT}`,
+            timeout: 60_000,
+          },
+          {
+            id: "down",
+            bash: `cimpl ${CLUSTER_LIFECYCLE_ARGS.delete.join(" ")}`,
+            depends_on: ["verify"],
+            timeout: 600_000,
+          },
+        ],
+      },
+    },
+    {
+      definition: {
         name: "osdu-topology",
         description:
           'Use when: checking cluster reconciliation health. Triggers: "show the topology", "is the cluster healthy". Does: reads Flux Kustomizations and HelmReleases via kubectl and publishes a live node-link graph to the Cluster Topology canvas. NOT for: changing cluster state.',
@@ -389,11 +410,15 @@ const rib: Rib = {
     if (verb === "delete") {
       const denial = await verifyCimplContext(exec);
       if (denial) return { ok: false, error: `refusing Delete: ${denial}` };
+      const args: { context: string; fingerprint?: string } = {
+        context: typeof payload?.context === "string" ? payload.context : "",
+      };
+      if (typeof payload?.fingerprint === "string" && payload.fingerprint.length > 0) {
+        args.fingerprint = payload.fingerprint;
+      }
+      return { ok: true, data: { effect: "run-workflow", workflow: "osdu-cluster-delete", args } };
     }
-    // Teardown waits on Flux pruning + namespace termination — minutes, not the
-    // ~2 min a reconcile/suspend needs. A too-short timeout would abort a delete
-    // mid-flight and leave the cluster half-removed.
-    const timeoutMs = verb === "delete" ? 600_000 : 120_000;
+    const timeoutMs = 120_000;
     const res = await runClusterLifecycle(exec, verb, timeoutMs);
     return res.ok ? { ok: true, data: { ran: res.ran } } : { ok: false, error: res.error };
   },

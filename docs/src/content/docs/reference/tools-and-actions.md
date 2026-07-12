@@ -64,12 +64,14 @@ See [Guardrails](../../concepts/guardrails/) for the stamp's mechanics.
 | `reconcile` | `cimpl reconcile` | none | 2 min |
 | `suspend` | `cimpl reconcile --suspend` | none | 2 min |
 | `resume` | `cimpl reconcile --resume` | none | 2 min |
-| `delete` | `cimpl down --provider current-context` | UI destructive confirm + a fresh `verifyCimplContext` probe | 10 min |
+| `delete` | launches `osdu-cluster-delete`, which re-checks context and then runs `cimpl down --provider current-context` | UI destructive confirm + a fresh `verifyCimplContext` probe | 10 min on the `down` node |
 | `reveal-credential` | `cimpl info --json --show-secrets` | rejects advisory values (`hasRealSecret`) | 1 min |
 
-Delete's long timeout is deliberate: teardown waits on Flux pruning and
-namespace termination, and aborting mid-flight would leave the cluster
-half-removed.
+Delete now streams its teardown in the Workflows tab, like Create. The
+workflow re-checks the CIMPL context in its first node before the 10 min
+`down` node starts. The long timeout is deliberate: teardown waits on Flux
+pruning and namespace termination, and aborting mid-flight would leave the
+cluster half-removed.
 
 `reveal-credential` is a read, not a mutation: it re-fetches one service's
 password and returns it to the caller for a clipboard copy. The secret is

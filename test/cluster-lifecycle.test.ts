@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CanvasBoardView, RibContext, RibExec } from "@keelson/shared";
 import { buildClusterBoard } from "../src/cluster.ts";
+import { CLUSTER_LIFECYCLE_ARGS } from "../src/cluster-actions.ts";
 import { CLUSTER_CREATE_BASH } from "../src/cluster-create.ts";
 import rib from "../src/index.ts";
 import { getCimplPrefixes, isCimplManagedContext, listContexts } from "../src/kubectl.ts";
@@ -300,6 +301,51 @@ describe("cluster lifecycle onAction guards", () => {
   });
 });
 
+describe("cluster delete onAction (run-workflow effect)", () => {
+  test("fires the workflow on a matching identity and live CIMPL probe", async () => {
+    setLiveKube("cimpl-a", "uid-1");
+    const { exec, calls } = makeExec({
+      text: (cmd, args) => {
+        if (cmd === "kubectl") return kubectlText(args);
+        if (cmd === "cimpl" && args.join(" ") === "info --json") return { ok: true, data: "{}" };
+        return { ok: false, error: "unexpected command", code: 1 };
+      },
+    });
+
+    const result = await dispatch(
+      { type: "delete", payload: { context: "cimpl-a", fingerprint: "uid-1" } },
+      exec,
+    );
+
+    if (!result.ok) throw new Error(`expected delete workflow effect: ${result.error}`);
+    expect(result.data).toEqual({
+      effect: "run-workflow",
+      workflow: "osdu-cluster-delete",
+      args: { context: "cimpl-a", fingerprint: "uid-1" },
+    });
+    expect(commandCalls(calls, "cimpl")).toEqual(["info --json"]);
+  });
+
+  test("refuses a stale fingerprint before probing or firing the workflow", async () => {
+    setLiveKube("cimpl-a", "uid-2");
+    const { exec, calls } = makeExec({
+      text: (cmd, args) => {
+        if (cmd === "kubectl") return kubectlText(args);
+        return { ok: true, data: "{}" };
+      },
+    });
+
+    const result = await dispatch(
+      { type: "delete", payload: { context: "cimpl-a", fingerprint: "uid-1" } },
+      exec,
+    );
+
+    if (result.ok) throw new Error("expected stale-fingerprint delete refusal");
+    expect(result.error).toMatch(/recreated/);
+    expect(commandCalls(calls, "cimpl")).toEqual([]);
+  });
+});
+
 describe("cluster create onAction (#61 run-workflow effect)", () => {
   // Preflight probe = `cimpl info --json`; ABSENT (completed non-zero) means no
   // live deployment, so create may fire the workflow.
@@ -391,6 +437,119 @@ describe("cluster create onAction (#61 run-workflow effect)", () => {
     expect(result.error).toMatch(/provider must be one of/);
     // Validation short-circuits before the preflight probe.
     expect(calls).toEqual([]);
+  });
+});
+
+describe("osdu-cluster-delete workflow shape", () => {
+  test("is action-only and gates cimpl down behind the preflight node", () => {
+    const ctx = {} as Parameters<NonNullable<typeof rib.contributeWorkflows>>[0];
+    const contribution = (rib.contributeWorkflows?.(ctx) ?? []).find(
+      (workflow) => (workflow.definition as { name: string }).name === "osdu-cluster-delete",
+    );
+    if (!contribution) throw new Error("expected osdu-cluster-delete workflow");
+
+    expect(contribution.bindSnapshotKey).toBeUndefined();
+    expect(contribution.validate).toBeUndefined();
+    const definition = contribution.definition as {
+      description: string;
+      nodes: Array<{ id: string; bash?: string; depends_on?: string[]; timeout?: number }>;
+    };
+    expect(definition.description).toContain("Use when:");
+    expect(definition.description).toContain("Triggers:");
+    expect(definition.description).toContain("Does:");
+    expect(definition.description).toContain("NOT for:");
+    expect(definition.nodes.map((node) => node.id)).toEqual(["verify", "down"]);
+
+    const [verify, down] = definition.nodes;
+    expect(verify?.bash).toContain("bun ");
+    expect(verify?.bash).toContain("verify-cimpl-context.ts");
+    expect(verify?.timeout).toBe(60_000);
+    expect(down?.depends_on).toEqual(["verify"]);
+    expect(down?.bash).toBe(`cimpl ${CLUSTER_LIFECYCLE_ARGS.delete.join(" ")}`);
+    expect(down?.timeout).toBe(600_000);
+  });
+});
+
+describe("verify-cimpl-context preflight gate", () => {
+  function runVerifyGate({
+    cimplScript,
+    expectedContext = "cimpl-a",
+    expectedFingerprint = "uid-1",
+  }: {
+    cimplScript?: string;
+    expectedContext?: string;
+    expectedFingerprint?: string;
+  } = {}): {
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+  } {
+    const dir = mkdtempSync(join(tmpdir(), "osdu-delete-gate-"));
+    try {
+      writeFileSync(
+        join(dir, "kubectl"),
+        [
+          "#!/bin/sh",
+          'if [ "$1" = "config" ] && [ "$2" = "current-context" ]; then',
+          '  printf "cimpl-a\\n"',
+          "  exit 0",
+          "fi",
+          'if [ "$1" = "get" ] && [ "$2" = "namespace" ] && [ "$3" = "kube-system" ]; then',
+          '  printf "uid-1"',
+          "  exit 0",
+          "fi",
+          "exit 1",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      if (cimplScript) writeFileSync(join(dir, "cimpl"), cimplScript, { mode: 0o755 });
+      const env: NodeJS.ProcessEnv = { ...process.env, PATH: dir };
+      if (expectedContext !== undefined) env.KEELSON_INPUTS_context = expectedContext;
+      if (expectedFingerprint !== undefined) {
+        env.KEELSON_INPUTS_fingerprint = expectedFingerprint;
+      }
+      const proc = Bun.spawnSync([process.execPath, "bin/verify-cimpl-context.ts"], {
+        env,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      return {
+        exitCode: proc.exitCode ?? -1,
+        stdout: proc.stdout.toString(),
+        stderr: proc.stderr.toString(),
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test("exits zero without stdout when cimpl info confirms a live deployment", () => {
+    const result = runVerifyGate({ cimplScript: '#!/bin/sh\nprintf "{}"\n' });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  test("exits non-zero when cimpl reports no deployment", () => {
+    const result = runVerifyGate({ cimplScript: "#!/bin/sh\nexit 1\n" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("refusing Delete:");
+  });
+
+  test("exits non-zero when the probe is indeterminate", () => {
+    const result = runVerifyGate();
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("refusing Delete:");
+  });
+
+  test("exits non-zero when the workflow stamp fingerprint is stale", () => {
+    const result = runVerifyGate({
+      cimplScript: '#!/bin/sh\nprintf "{}"\n',
+      expectedFingerprint: "uid-2",
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("refusing Delete:");
+    expect(result.stderr).toContain("recreated");
   });
 });
 
