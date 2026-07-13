@@ -360,30 +360,45 @@ describe("buildClusterBoard", () => {
     expect(canvasViewSchema.safeParse(board).success).toBe(true);
     // Caution "No clusters yet", not a red error pill.
     expect(board.header?.status).toEqual({ label: "⚠ No clusters yet", tone: "caution" });
-    // Only the create action — no inert reconcile/suspend/delete to operate.
-    expect(actionsOf(board).items.map((a) => a.type)).toEqual(["create"]);
-    // The create action carries no guard payload (no cluster to guard yet).
-    expect(actionsOf(board).items[0]?.payload).toBeUndefined();
+    // One "Create cluster" frame: provider tabs beside the plan rail — only
+    // create actions, no inert reconcile/suspend/delete to operate.
+    expect(columnsSection(board).title).toBe("Create cluster");
+    expect(actionsOf(board).items.every((a) => a.type === "create")).toBe(true);
+    // No guard stamp (no cluster to guard yet): the payload names the provider only.
+    expect(actionsOf(board).items[0]?.payload).toEqual({ provider: "kind" });
   });
 
-  test("the create surface shows a provider gallery with aws/gcp marked Soon", () => {
-    const gallery = buildClusterBoard(noCluster).sections.find(
-      (s) => s.kind === "cards" && s.title === "Provider",
+  test("the provider strip is a single-select tabs picker with aws/gcp disabled as Soon", () => {
+    const tabs = actionsOf(buildClusterBoard(noCluster));
+    expect(tabs.tabs).toBe(true);
+    expect(tabs.title).toBe("Provider");
+    expect(tabs.items.map((a) => a.label)).toEqual(["kind", "azure", "aws", "gcp"]);
+    const byLabel = Object.fromEntries(tabs.items.map((a) => [a.label, a]));
+    expect(byLabel.kind?.disabled).toBeUndefined();
+    expect(byLabel.azure?.disabled).toBeUndefined();
+    expect(byLabel.aws?.disabled).toBe(true);
+    expect(byLabel.aws?.reason).toBe("coming soon");
+    expect(byLabel.gcp?.disabled).toBe(true);
+    expect(byLabel.gcp?.reason).toBe("coming soon");
+    // The tagline rides the tab as its subtitle line; a disabled tab opens no form.
+    expect(byLabel.kind?.subtitle).toBe("Fast · no cloud cost");
+    expect(byLabel.aws?.fields).toBeUndefined();
+  });
+
+  test("each enabled tab carries its provider as static payload and provider-scoped fields", () => {
+    const byLabel = Object.fromEntries(
+      actionsOf(buildClusterBoard(noCluster)).items.map((a) => [a.label, a]),
     );
-    if (gallery?.kind !== "cards") throw new Error("expected a Provider gallery");
-    expect(gallery.items.map((c) => c.title)).toEqual(["kind", "azure", "aws", "gcp"]);
-    const byTitle = Object.fromEntries(gallery.items.map((c) => [c.title, c]));
-    expect(byTitle.kind?.pill).toBeUndefined();
-    expect(byTitle.azure?.pill).toBeUndefined();
-    expect(byTitle.aws?.pill?.label).toBe("Soon");
-    expect(byTitle.gcp?.pill?.label).toBe("Soon");
-  });
-
-  test("the create form carries the provider/profile/env/partition/instance/azure fields", () => {
-    const create = actionsOf(buildClusterBoard(noCluster)).items.find((a) => a.type === "create");
-    expect(create?.expanded).toBe(true);
-    expect(create?.fields?.map((f) => f.name)).toEqual([
-      "provider",
+    expect(byLabel.kind?.payload).toEqual({ provider: "kind" });
+    expect(byLabel.kind?.fields?.map((f) => f.name)).toEqual([
+      "profile",
+      "env",
+      "partition",
+      "instance",
+    ]);
+    // The azure-only Location/Network fields exist solely on the azure tab.
+    expect(byLabel.azure?.payload).toEqual({ provider: "azure" });
+    expect(byLabel.azure?.fields?.map((f) => f.name)).toEqual([
       "profile",
       "env",
       "partition",
@@ -391,7 +406,9 @@ describe("buildClusterBoard", () => {
       "location",
       "private",
     ]);
-    expect(create?.fields?.find((f) => f.name === "provider")?.defaultValue).toBe("kind");
+    // The submit is the verb, not the tab's provider name.
+    expect(byLabel.kind?.submitLabel).toBe("Create cluster");
+    expect(byLabel.azure?.submitLabel).toBe("Create cluster");
   });
 
   test("a default cluster plan + truthful command preview accompany the form", () => {
@@ -480,5 +497,31 @@ describe("buildClusterBoard", () => {
     expect(types).toContain("delete");
     // No access cards when cimpl info is absent.
     expect(board.sections.some((s) => s.kind === "cards")).toBe(false);
+  });
+
+  test("a context without a cimpl deployment offers the provider tabs, not an inline create", () => {
+    const board = buildClusterBoard({
+      lifecycle: {
+        context: "kind-other",
+        reachable: true,
+        flux: { ready: 0, total: 0 },
+        services: { ready: 0, total: 0 },
+      },
+    });
+    expect(canvasViewSchema.safeParse(board).success).toBe(true);
+    // Create leaves the lifecycle actions column…
+    expect(actionsOf(board).items.map((a) => a.type)).not.toContain("create");
+    // …and rides its own full-width tabs strip, same shape as the empty state.
+    const tabs = board.sections.find((s) => s.kind === "actions");
+    if (tabs?.kind !== "actions") throw new Error("expected a create tabs section");
+    expect(tabs.title).toBe("Create cluster");
+    expect(tabs.tabs).toBe(true);
+    expect(tabs.items.map((a) => a.label)).toEqual(["kind", "azure", "aws", "gcp"]);
+  });
+
+  test("a live cimpl deployment offers no create surface at all", () => {
+    const board = buildClusterBoard(healthy);
+    expect(actionsOf(board).items.map((a) => a.type)).not.toContain("create");
+    expect(board.sections.some((s) => s.kind === "actions")).toBe(false);
   });
 });

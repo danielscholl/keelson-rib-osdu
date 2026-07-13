@@ -6,10 +6,11 @@ export type ClusterProvider = (typeof CLUSTER_PROVIDERS)[number];
 
 export const DEFAULT_CLUSTER_PROVIDER: ClusterProvider = "kind";
 
-// Provider gallery for the create-focused empty state. `kind`/`azure` are the
-// providers cimpl can bring up today (CLUSTER_PROVIDERS); `aws`/`gcp` render as
-// non-selectable "Soon" placeholders so the row reads as a real choice set.
-// `longName` labels the plan rail; `tagline` is the muted card sub-line.
+// Provider choice set for the create surfaces' tab strip. `kind`/`azure` are
+// the providers cimpl can bring up today (CLUSTER_PROVIDERS); `aws`/`gcp`
+// render as disabled "coming soon" tabs so the strip reads as the real choice
+// set. `longName` labels the plan rail and hover hints; `tagline` is the tab's
+// muted subtitle.
 export interface ProviderCard {
   id: string;
   label: string;
