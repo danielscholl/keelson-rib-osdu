@@ -731,8 +731,8 @@ describe("cluster action field/payload bindings", () => {
     expect(enabledTabs).toHaveLength(2);
     for (const tab of enabledTabs) expect(payloadKeys(tab)).toEqual(["provider"]);
     expect(enabledTabs.map(fieldNames)).toEqual([
-      ["profile", "env", "partition", "instance"],
-      ["profile", "env", "partition", "instance", "location", "private"],
+      ["env", "profile", "partition", "instance"],
+      ["env", "profile", "partition", "instance", "location", "private"],
     ]);
     expect(fieldNames(switchAction)).toEqual(["target"]);
     expect(payloadKeys(switchAction)).toEqual(["observedCurrent", "observedContexts"]);
