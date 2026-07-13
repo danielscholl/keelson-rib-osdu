@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.6.0...v0.7.0) (2026-07-13)
+
+
+### Added
+
+* **cluster:** add create-cluster ICC board with provider gallery ([#97](https://github.com/danielscholl/keelson-rib-osdu/issues/97)) ([540e720](https://github.com/danielscholl/keelson-rib-osdu/commit/540e720291fdbe1bf1bdee36c74103c1124af60d))
+
 ## [0.6.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.5.0...v0.6.0) (2026-07-12)
 
 
