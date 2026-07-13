@@ -362,20 +362,23 @@ function observedContexts(lifecycle: ClusterLifecycle): string[] {
 // defaults apply.
 function createClusterFields(provider: string): ActionField[] {
   const fields: ActionField[] = [
+    { name: "env", label: "Environment", placeholder: "dev", half: true },
     {
-      // Optional: left blank, cimpl applies its per-provider default.
+      // Optional: left blank, cimpl applies its per-provider default — the
+      // segmented strip's clear segment carries that as its label.
       name: "profile",
       label: "Profile",
       placeholder: "cimpl default",
       options: selectOptions(CLUSTER_PROFILES),
+      segmented: true,
+      half: true,
     },
-    { name: "env", label: "Environment", placeholder: "dev" },
-    { name: "partition", label: "Partition" },
-    { name: "instance", label: "Instance" },
+    { name: "partition", label: "Partition", half: true },
+    { name: "instance", label: "Instance", half: true },
   ];
   if (provider === "azure") {
     fields.push(
-      { name: "location", label: "Location", placeholder: "eastus" },
+      { name: "location", label: "Location", placeholder: "eastus", half: true },
       {
         // No boolean field kind: a non-required select clears to "" (managed
         // VNet); "private" opts into azure private subnets.
@@ -383,6 +386,7 @@ function createClusterFields(provider: string): ActionField[] {
         label: "Network",
         placeholder: "managed VNet",
         options: [{ value: PRIVATE_NETWORK_TOKEN, label: "private subnets" }],
+        half: true,
       },
     );
   }
@@ -409,7 +413,12 @@ function createClusterTabs(title: string): ActionsSection {
             hint: p.longName,
             payload: { provider: p.id },
             fields: createClusterFields(p.id),
+            // The default provider's form opens with the strip, so a bare
+            // create is zero clicks away; the submit is the board's one
+            // primary (filled) verb without tinting the tab itself.
+            defaultOpen: p.id === DEFAULT_CLUSTER_PROVIDER,
             submitLabel: "Create cluster",
+            submitTone: "brand",
           }
         : {
             type: "create",

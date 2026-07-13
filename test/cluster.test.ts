@@ -391,16 +391,16 @@ describe("buildClusterBoard", () => {
     );
     expect(byLabel.kind?.payload).toEqual({ provider: "kind" });
     expect(byLabel.kind?.fields?.map((f) => f.name)).toEqual([
-      "profile",
       "env",
+      "profile",
       "partition",
       "instance",
     ]);
     // The azure-only Location/Network fields exist solely on the azure tab.
     expect(byLabel.azure?.payload).toEqual({ provider: "azure" });
     expect(byLabel.azure?.fields?.map((f) => f.name)).toEqual([
-      "profile",
       "env",
+      "profile",
       "partition",
       "instance",
       "location",
@@ -409,6 +409,34 @@ describe("buildClusterBoard", () => {
     // The submit is the verb, not the tab's provider name.
     expect(byLabel.kind?.submitLabel).toBe("Create cluster");
     expect(byLabel.azure?.submitLabel).toBe("Create cluster");
+  });
+
+  test("the default provider's form opens with the strip and submits as the primary verb", () => {
+    const byLabel = Object.fromEntries(
+      actionsOf(buildClusterBoard(noCluster)).items.map((a) => [a.label, a]),
+    );
+    // Only kind (the bare `cimpl up` default) seeds the open slot.
+    expect(byLabel.kind?.defaultOpen).toBe(true);
+    expect(byLabel.azure?.defaultOpen).toBe(false);
+    expect(byLabel.aws?.defaultOpen).toBeUndefined();
+    // The filled submit never tints the tab: submitTone, not tone.
+    expect(byLabel.kind?.submitTone).toBe("brand");
+    expect(byLabel.kind?.tone).toBeUndefined();
+    expect(byLabel.azure?.submitTone).toBe("brand");
+  });
+
+  test("the create form reads as two-up rows with a segmented Profile", () => {
+    const byLabel = Object.fromEntries(
+      actionsOf(buildClusterBoard(noCluster)).items.map((a) => [a.label, a]),
+    );
+    for (const tab of [byLabel.kind, byLabel.azure]) {
+      expect(tab?.fields?.every((f) => f.half === true)).toBe(true);
+    }
+    const profile = byLabel.kind?.fields?.find((f) => f.name === "profile");
+    expect(profile?.segmented).toBe(true);
+    // The clear segment wears the cimpl-default placeholder as its label.
+    expect(profile?.placeholder).toBe("cimpl default");
+    expect(profile?.required).toBeUndefined();
   });
 
   test("a default cluster plan + truthful command preview accompany the form", () => {
