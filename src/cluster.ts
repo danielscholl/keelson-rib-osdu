@@ -2,7 +2,6 @@ import type { CanvasBoardView, RibExec } from "@keelson/shared";
 import {
   buildCreateCommand,
   CLUSTER_PROFILES,
-  CLUSTER_PROVIDERS,
   type ClusterCreateInput,
   DEFAULT_CLUSTER_PROVIDER,
   deriveClusterName,
@@ -357,19 +356,12 @@ function observedContexts(lifecycle: ClusterLifecycle): string[] {
   return contexts;
 }
 
-// The create-cluster form fields, shared by the operating board's Create action
-// (offered when there's no cimpl deployment) and the create-focused empty state.
-// Provider/profile are selects; the azure-only Location/Network trail the core
-// fields. Blank optional fields drop so cimpl's per-provider defaults apply.
-function createClusterFields(): ActionField[] {
-  return [
-    {
-      name: "provider",
-      label: "Provider",
-      required: true,
-      options: selectOptions(CLUSTER_PROVIDERS),
-      defaultValue: DEFAULT_CLUSTER_PROVIDER,
-    },
+// One provider tab's create-form fields. The provider itself rides the tab's
+// static payload (never a field), so azure-only Location/Network exist solely
+// on the azure tab. Blank optional fields drop so cimpl's per-provider
+// defaults apply.
+function createClusterFields(provider: string): ActionField[] {
+  const fields: ActionField[] = [
     {
       // Optional: left blank, cimpl applies its per-provider default.
       name: "profile",
@@ -380,61 +372,74 @@ function createClusterFields(): ActionField[] {
     { name: "env", label: "Environment", placeholder: "dev" },
     { name: "partition", label: "Partition" },
     { name: "instance", label: "Instance" },
-    { name: "location", label: "Location (azure)", placeholder: "eastus" },
-    {
-      // No boolean field kind: a non-required select clears to "" (managed
-      // VNet); "private" opts into azure private subnets.
-      name: "private",
-      label: "Network (azure)",
-      placeholder: "managed VNet",
-      options: [{ value: PRIVATE_NETWORK_TOKEN, label: "private subnets" }],
-    },
   ];
+  if (provider === "azure") {
+    fields.push(
+      { name: "location", label: "Location", placeholder: "eastus" },
+      {
+        // No boolean field kind: a non-required select clears to "" (managed
+        // VNet); "private" opts into azure private subnets.
+        name: "private",
+        label: "Network",
+        placeholder: "managed VNet",
+        options: [{ value: PRIVATE_NETWORK_TOKEN, label: "private subnets" }],
+      },
+    );
+  }
+  return fields;
+}
+
+// The provider strip IS the picker: a single-select tabs row (label over
+// tagline) where each enabled tab opens its own create form and carries the
+// provider as static payload, merged under the collected fields on dispatch.
+// aws/gcp stay visible but disabled so the row reads as the real choice set.
+// Shared by the empty state and the operating board's no-deployment case so
+// the two create surfaces can't drift.
+function createClusterTabs(title: string): ActionsSection {
+  return {
+    kind: "actions",
+    title,
+    tabs: true,
+    items: PROVIDER_CARDS.map((p) =>
+      p.enabled
+        ? {
+            type: "create",
+            label: p.label,
+            subtitle: p.tagline,
+            hint: p.longName,
+            payload: { provider: p.id },
+            fields: createClusterFields(p.id),
+            submitLabel: "Create cluster",
+          }
+        : {
+            type: "create",
+            label: p.label,
+            subtitle: p.tagline,
+            hint: p.longName,
+            disabled: true,
+            reason: "coming soon",
+          },
+    ),
+  };
 }
 
 /**
  * The create-focused empty state: no cimpl deployment and no current context, so
- * the ICC becomes a provisioning surface — a provider gallery, the `cimpl up`
- * form, and a default plan + command preview — instead of empty lifecycle rows
- * and inert reconcile/delete. Static like every board: the preview reflects the
- * form's defaults, not live edits (a snapshot can't recompute as the operator types).
+ * the ICC becomes a provisioning surface — one "Create cluster" frame where the
+ * provider tab strip opens per-provider `cimpl up` forms beside a default plan +
+ * command preview — instead of empty lifecycle rows and inert reconcile/delete.
+ * Static like every board: the plan and preview reflect the defaults, not live
+ * edits (a snapshot can't recompute as the operator types).
  */
 function buildCreateClusterBoard(): CanvasBoardView {
-  const providerGallery: CardsSection = {
-    kind: "cards",
-    title: "Provider",
-    grid: true,
-    columns: 4,
-    items: PROVIDER_CARDS.map((p) => {
-      const card: CardItem = { title: p.label, footnote: p.tagline };
-      if (!p.enabled) card.pill = { label: "Soon", tone: "neutral" };
-      return card;
-    }),
-  };
-
-  const createActions: ActionsSection = {
-    kind: "actions",
-    title: "Create cluster",
-    items: [
-      {
-        type: "create",
-        label: "Create cluster",
-        glyph: "+",
-        expanded: true,
-        fields: createClusterFields(),
-      },
-    ],
-  };
-
   const defaults: ClusterCreateInput = { provider: DEFAULT_CLUSTER_PROVIDER };
   const planRows: LeafSection = {
     kind: "rows",
     title: "Cluster plan",
-    boxed: true,
     items: [
-      { glyph: "neutral", text: "Name", trailing: deriveClusterName() },
-      { glyph: "neutral", text: "Provider", trailing: providerLongName(DEFAULT_CLUSTER_PROVIDER) },
-      { glyph: "neutral", text: "Profile", trailing: "cimpl default" },
+      { text: "Name", trailing: deriveClusterName() },
+      { text: "Provider", trailing: providerLongName(DEFAULT_CLUSTER_PROVIDER) },
+      { text: "Profile", trailing: "cimpl default" },
     ],
   };
   const commandPreview: CardsSection = {
@@ -457,11 +462,11 @@ function buildCreateClusterBoard(): CanvasBoardView {
       chip: "no context",
     },
     sections: [
-      providerGallery,
       {
         kind: "columns",
+        title: "Create cluster",
         columns: [
-          { weight: 1.5, sections: [createActions] },
+          { weight: 2.5, sections: [createClusterTabs("Provider")] },
           { weight: 1, sections: [planRows, commandPreview] },
         ],
       },
@@ -557,18 +562,6 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
       destructive: true,
     }),
   ];
-  // Offer Create whenever there is no live CIMPL deployment to manage — keyed on
-  // the absence of `cimpl info`, not generic reachability, so a reachable
-  // non-CIMPL context still surfaces the only bring-up affordance.
-  if (!info) {
-    actionItems.push({
-      type: "create",
-      label: "Create cluster",
-      glyph: "+",
-      expanded: true,
-      fields: createClusterFields(),
-    });
-  }
   // Offer switching only when there's a cimpl-managed target that isn't already
   // current — otherwise the picker is a single-option, no-op mutation.
   if (switchTargets.some((name) => name !== context)) {
@@ -611,6 +604,11 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
       ],
     },
   ];
+
+  // Offer Create whenever there is no live CIMPL deployment to manage — keyed on
+  // the absence of `cimpl info`, not generic reachability, so a reachable
+  // non-CIMPL context still surfaces the only bring-up affordance.
+  if (!info) sections.push(createClusterTabs("Create cluster"));
 
   const access = info ? buildAccessCards(info, stamp) : [];
   if (access.length > 0) {

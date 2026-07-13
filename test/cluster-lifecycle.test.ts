@@ -699,7 +699,7 @@ describe("cimpl context filtering", () => {
 
 describe("cluster action field/payload bindings", () => {
   test("form field names are disjoint from each action's opaque payload keys", () => {
-    const createAction = actionOf(
+    const createTabs = actionsOf(
       buildClusterBoard({
         lifecycle: {
           context: null,
@@ -708,8 +708,7 @@ describe("cluster action field/payload bindings", () => {
           services: { ready: 0, total: 0 },
         },
       }),
-      "create",
-    );
+    ).filter((a) => a.type === "create");
 
     const switchAction = actionOf(
       buildClusterBoard({
@@ -724,21 +723,21 @@ describe("cluster action field/payload bindings", () => {
       "switch-context",
     );
 
-    expect(fieldNames(createAction)).toEqual([
-      "provider",
-      "profile",
-      "env",
-      "partition",
-      "instance",
-      "location",
-      "private",
+    // The provider rides each tab's static payload; the form must never
+    // re-collect it — a field named "provider" would overwrite the tab's
+    // identity when the collected values merge over the payload. Create still
+    // carries no board-time identity stamp (it launches a workflow).
+    const enabledTabs = createTabs.filter((a) => a.fields !== undefined);
+    expect(enabledTabs).toHaveLength(2);
+    for (const tab of enabledTabs) expect(payloadKeys(tab)).toEqual(["provider"]);
+    expect(enabledTabs.map(fieldNames)).toEqual([
+      ["profile", "env", "partition", "instance"],
+      ["profile", "env", "partition", "instance", "location", "private"],
     ]);
-    // Create carries no board-time identity stamp — it launches a workflow.
-    expect(payloadKeys(createAction)).toEqual([]);
     expect(fieldNames(switchAction)).toEqual(["target"]);
     expect(payloadKeys(switchAction)).toEqual(["observedCurrent", "observedContexts"]);
 
-    for (const action of [createAction, switchAction]) {
+    for (const action of [...createTabs, switchAction]) {
       expectFieldPayloadDisjoint(action);
     }
   });
