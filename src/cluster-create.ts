@@ -6,6 +6,53 @@ export type ClusterProvider = (typeof CLUSTER_PROVIDERS)[number];
 
 export const DEFAULT_CLUSTER_PROVIDER: ClusterProvider = "kind";
 
+// Provider gallery for the create-focused empty state. `kind`/`azure` are the
+// providers cimpl can bring up today (CLUSTER_PROVIDERS); `aws`/`gcp` render as
+// non-selectable "Soon" placeholders so the row reads as a real choice set.
+// `longName` labels the plan rail; `tagline` is the muted card sub-line.
+export interface ProviderCard {
+  id: string;
+  label: string;
+  longName: string;
+  tagline: string;
+  enabled: boolean;
+}
+
+export const PROVIDER_CARDS: readonly ProviderCard[] = [
+  {
+    id: "kind",
+    label: "kind",
+    longName: "Local KinD cluster",
+    tagline: "Fast · no cloud cost",
+    enabled: true,
+  },
+  {
+    id: "azure",
+    label: "azure",
+    longName: "Azure Kubernetes Service",
+    tagline: "Cloud · persistent",
+    enabled: true,
+  },
+  {
+    id: "aws",
+    label: "aws",
+    longName: "Elastic Kubernetes Service",
+    tagline: "Cloud · persistent",
+    enabled: false,
+  },
+  {
+    id: "gcp",
+    label: "gcp",
+    longName: "Google Kubernetes Engine",
+    tagline: "Cloud · persistent",
+    enabled: false,
+  },
+];
+
+export function providerLongName(id: string): string {
+  return PROVIDER_CARDS.find((p) => p.id === id)?.longName ?? id;
+}
+
 export const CLUSTER_PROFILES = ["minimal", "core", "core-plus", "graduated", "full"] as const;
 export type ClusterProfile = (typeof CLUSTER_PROFILES)[number];
 
@@ -95,6 +142,30 @@ export function clusterCreateArgs(input: ClusterCreateInput): Record<string, str
     if (input.privateNetwork) args.private = "1";
   }
   return args;
+}
+
+// cimpl defaults a blank env to "dev", so a bare create comes up as
+// cimpl-stack-dev — the plan rail names the cluster the operator will actually get.
+export function deriveClusterName(env?: string): string {
+  const trimmed = (env ?? "").trim() || "dev";
+  return `cimpl-stack-${trimmed}`;
+}
+
+// The `cimpl up` command a create selection runs — same flag order and rules as
+// clusterCreateArgs / CLUSTER_CREATE_BASH, so a rendered preview matches what the
+// workflow actually executes.
+export function buildCreateCommand(input: ClusterCreateInput): string {
+  const flags = [`--provider ${input.provider}`];
+  if (input.profile) flags.push(`--profile ${input.profile}`);
+  if (input.env) flags.push(`--env ${input.env}`);
+  if (input.partition) flags.push(`--partition ${input.partition}`);
+  if (input.instance) flags.push(`--instance ${input.instance}`);
+  if (input.provider === "azure" && input.location) flags.push(`--location ${input.location}`);
+  const head =
+    input.provider === "azure" && input.privateNetwork
+      ? "CIMPL_AZURE_PRIVATE_NETWORK=1 cimpl up"
+      : "cimpl up";
+  return `${head} ${flags.join(" ")}`;
 }
 
 // The `osdu-cluster-create` workflow's single bash node. It builds the `cimpl up`
