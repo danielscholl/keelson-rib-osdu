@@ -19,14 +19,15 @@ const services = await getReadiness("helmreleases", ["-A"]);
 if (flux.error) console.error(`[rib-osdu] flux readiness degraded: ${flux.error}`);
 if (services.error) console.error(`[rib-osdu] services readiness degraded: ${services.error}`);
 
+const fingerprint = clusterFingerprint();
 const lifecycle: ClusterLifecycle = {
   context,
-  fingerprint: clusterFingerprint(),
-  // Reachable if cimpl info OR any kubectl read succeeded; only treat the
-  // cluster as unreachable when every probe failed. A live cluster whose Flux
-  // CRDs/RBAC degraded still rendered its access data, so it isn't "down" — the
-  // Flux/Services rows report their own degraded counts.
-  reachable: Boolean(info) || !flux.error || !services.error,
+  fingerprint,
+  // Reachable if any probe got an answer from the API server: cimpl info, the
+  // kube-system fingerprint read, or either Flux read. The Flux probes alone
+  // must not decide — a cluster without Flux CRDs fails both with "no resource
+  // type" while being fully up (the foreign-context case).
+  reachable: Boolean(info) || Boolean(fingerprint) || !flux.error || !services.error,
   flux: { ready: flux.ready, total: flux.total },
   services: { ready: services.ready, total: services.total },
   contexts,

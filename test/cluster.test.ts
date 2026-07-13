@@ -527,16 +527,18 @@ describe("buildClusterBoard", () => {
     expect(board.sections.some((s) => s.kind === "cards")).toBe(false);
   });
 
-  test("a context without a cimpl deployment offers the provider tabs, not an inline create", () => {
+  test("a cimpl context without a deployment reads No deployment and offers the provider tabs", () => {
     const board = buildClusterBoard({
       lifecycle: {
-        context: "kind-other",
+        context: "kind-cimpl-lab",
         reachable: true,
         flux: { ready: 0, total: 0 },
         services: { ready: 0, total: 0 },
       },
     });
     expect(canvasViewSchema.safeParse(board).success).toBe(true);
+    // A reachable cimpl cluster with nothing on it is absence, not an outage.
+    expect(board.header?.status).toEqual({ label: "⚠ No deployment", tone: "warn" });
     // Create leaves the lifecycle actions column…
     expect(actionsOf(board).items.map((a) => a.type)).not.toContain("create");
     // …and rides its own full-width tabs strip, same shape as the empty state.
@@ -551,5 +553,74 @@ describe("buildClusterBoard", () => {
     const board = buildClusterBoard(healthy);
     expect(actionsOf(board).items.map((a) => a.type)).not.toContain("create");
     expect(board.sections.some((s) => s.kind === "actions")).toBe(false);
+  });
+
+  const foreign: ClusterInput = {
+    lifecycle: {
+      context: "osdu-mvp-aks",
+      reachable: true,
+      flux: { ready: 0, total: 0 },
+      services: { ready: 0, total: 0 },
+      contexts: [],
+    },
+  };
+
+  function allActions(b: Board) {
+    return leafSections(b).flatMap((s) => (s.kind === "actions" ? s.items : []));
+  }
+
+  test("a reachable non-cimpl context reads Not a CIMPL stack, not Unreachable", () => {
+    const board = buildClusterBoard(foreign);
+    expect(canvasViewSchema.safeParse(board).success).toBe(true);
+    expect(board.header?.status).toEqual({ label: "⚠ Not a CIMPL stack", tone: "caution" });
+    expect(board.header?.chip).toBe("osdu-mvp-aks");
+    // Flux/Services counts are stack concepts — no red 0/0 segments here.
+    expect(board.header?.segments).toBeUndefined();
+  });
+
+  test("a foreign context offers no lifecycle verbs — create is the only recourse", () => {
+    const board = buildClusterBoard(foreign);
+    expect(allActions(board).every((a) => a.type === "create")).toBe(true);
+    // The create hero is the same frame as the empty state, default form open.
+    expect(columnsSection(board).title).toBe("Create cluster");
+    const tabs = actionsOf(board);
+    expect(tabs.tabs).toBe(true);
+    expect(tabs.items.find((a) => a.label === "kind")?.defaultOpen).toBe(true);
+  });
+
+  test("the foreign board's rail leads with the current-context panel", () => {
+    const board = buildClusterBoard(foreign);
+    const panel = columnsSection(board).columns[1]?.sections[0];
+    if (panel?.kind !== "rows") throw new Error("expected the context panel");
+    expect(panel.title).toBe("Current context");
+    expect(panel.items[0]?.text).toBe("osdu-mvp-aks");
+    expect(panel.items[0]?.trailing).toBe("not cimpl-managed");
+    // The CLI guard's explanation rides the row's on-demand disclosure.
+    expect(panel.items[0]?.detail).toContain("cimpl-stack deployment");
+    expect(panel.items[1]).toMatchObject({ glyph: "ok", text: "Cluster", trailing: "reachable" });
+  });
+
+  test("an unreachable foreign context keeps the caution pill but reports the dead cluster", () => {
+    const board = buildClusterBoard({ lifecycle: { ...foreign.lifecycle, reachable: false } });
+    expect(board.header?.status).toEqual({ label: "⚠ Not a CIMPL stack", tone: "caution" });
+    const panel = columnsSection(board).columns[1]?.sections[0];
+    if (panel?.kind !== "rows") throw new Error("expected the context panel");
+    expect(panel.items[1]).toMatchObject({ glyph: "error", trailing: "unreachable" });
+  });
+
+  test("the foreign board offers switch-context when a cimpl-managed target exists", () => {
+    const board = buildClusterBoard({
+      lifecycle: { ...foreign.lifecycle, contexts: ["cimpl-a"], fingerprint: "uid-9" },
+    });
+    const switchAction = allActions(board).find((a) => a.type === "switch-context");
+    expect(switchAction?.payload).toEqual({
+      observedCurrent: "osdu-mvp-aks",
+      observedContexts: ["cimpl-a"],
+      fingerprint: "uid-9",
+    });
+    expect(switchAction?.fields?.[0]?.options?.map((o) => o.value)).toEqual(["cimpl-a"]);
+    // Every other action is still a create tab — never reconcile/suspend/delete.
+    const others = allActions(board).filter((a) => a.type !== "switch-context");
+    expect(others.every((a) => a.type === "create")).toBe(true);
   });
 });
