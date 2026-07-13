@@ -339,18 +339,75 @@ describe("buildClusterBoard", () => {
     }
   });
 
-  test("with no context, actions carry no payload (nothing to guard)", () => {
-    const board = buildClusterBoard({
-      lifecycle: {
-        context: null,
-        reachable: false,
-        flux: { ready: 0, total: 0 },
-        services: { ready: 0, total: 0 },
-      },
-    });
-    for (const action of actionsOf(board).items) {
-      expect(action.payload).toBeUndefined();
-    }
+  const noCluster: ClusterInput = {
+    lifecycle: {
+      context: null,
+      reachable: false,
+      flux: { ready: 0, total: 0 },
+      services: { ready: 0, total: 0 },
+      contexts: [],
+    },
+  };
+
+  function leafSections(b: Board) {
+    return b.sections.flatMap((s) =>
+      s.kind === "columns" ? s.columns.flatMap((c) => c.sections) : [s],
+    );
+  }
+
+  test("no cluster + no context leads with the create surface, not empty lifecycle rows", () => {
+    const board = buildClusterBoard(noCluster);
+    expect(canvasViewSchema.safeParse(board).success).toBe(true);
+    // Caution "No clusters yet", not a red error pill.
+    expect(board.header?.status).toEqual({ label: "⚠ No clusters yet", tone: "caution" });
+    // Only the create action — no inert reconcile/suspend/delete to operate.
+    expect(actionsOf(board).items.map((a) => a.type)).toEqual(["create"]);
+    // The create action carries no guard payload (no cluster to guard yet).
+    expect(actionsOf(board).items[0]?.payload).toBeUndefined();
+  });
+
+  test("the create surface shows a provider gallery with aws/gcp marked Soon", () => {
+    const gallery = buildClusterBoard(noCluster).sections.find(
+      (s) => s.kind === "cards" && s.title === "Provider",
+    );
+    if (gallery?.kind !== "cards") throw new Error("expected a Provider gallery");
+    expect(gallery.items.map((c) => c.title)).toEqual(["kind", "azure", "aws", "gcp"]);
+    const byTitle = Object.fromEntries(gallery.items.map((c) => [c.title, c]));
+    expect(byTitle.kind?.pill).toBeUndefined();
+    expect(byTitle.azure?.pill).toBeUndefined();
+    expect(byTitle.aws?.pill?.label).toBe("Soon");
+    expect(byTitle.gcp?.pill?.label).toBe("Soon");
+  });
+
+  test("the create form carries the provider/profile/env/partition/instance/azure fields", () => {
+    const create = actionsOf(buildClusterBoard(noCluster)).items.find((a) => a.type === "create");
+    expect(create?.expanded).toBe(true);
+    expect(create?.fields?.map((f) => f.name)).toEqual([
+      "provider",
+      "profile",
+      "env",
+      "partition",
+      "instance",
+      "location",
+      "private",
+    ]);
+    expect(create?.fields?.find((f) => f.name === "provider")?.defaultValue).toBe("kind");
+  });
+
+  test("a default cluster plan + truthful command preview accompany the form", () => {
+    const sections = leafSections(buildClusterBoard(noCluster));
+    const plan = sections.find((s) => s.kind === "rows" && s.title === "Cluster plan");
+    if (plan?.kind !== "rows") throw new Error("expected a Cluster plan rows section");
+    expect(plan.items.map((r) => [r.text, r.trailing])).toEqual([
+      ["Name", "cimpl-stack-dev"],
+      ["Provider", "Local KinD cluster"],
+      ["Profile", "cimpl default"],
+    ]);
+    const preview = sections.find((s) => s.kind === "cards" && s.title === "Command preview");
+    if (preview?.kind !== "cards") throw new Error("expected a Command preview card");
+    // Mirrors what osdu-cluster-create actually runs for the defaults.
+    expect(preview.items[0]?.title).toBe("cimpl up --provider kind");
+    expect(preview.items[0]?.mono).toBe(true);
   });
 
   test("parseCimplInfoJson skips a Rich/log preamble before the JSON object", () => {
@@ -405,10 +462,10 @@ describe("buildClusterBoard", () => {
     expect(hasRealSecret(null)).toBe(false);
   });
 
-  test("an unreachable cluster still yields a valid board (degrades, never crashes)", () => {
+  test("a known context that went unreachable keeps the operating board + lifecycle recourse", () => {
     const board = buildClusterBoard({
       lifecycle: {
-        context: null,
+        context: "cimpl-stack-ms",
         reachable: false,
         flux: { ready: 0, total: 0 },
         services: { ready: 0, total: 0 },
@@ -417,6 +474,10 @@ describe("buildClusterBoard", () => {
     expect(canvasViewSchema.safeParse(board).success).toBe(true);
     expect(board.header?.status).toEqual({ label: "✕ Unreachable", tone: "error" });
     expect(rowsOf(board).items[1]?.trailing).toBe("unreachable");
+    // Reconcile/Delete stay so a dead-but-known cluster isn't stranded.
+    const types = actionsOf(board).items.map((a) => a.type);
+    expect(types).toContain("reconcile");
+    expect(types).toContain("delete");
     // No access cards when cimpl info is absent.
     expect(board.sections.some((s) => s.kind === "cards")).toBe(false);
   });

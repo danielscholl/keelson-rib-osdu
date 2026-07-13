@@ -1,9 +1,14 @@
 import type { CanvasBoardView, RibExec } from "@keelson/shared";
 import {
+  buildCreateCommand,
   CLUSTER_PROFILES,
   CLUSTER_PROVIDERS,
+  type ClusterCreateInput,
   DEFAULT_CLUSTER_PROVIDER,
+  deriveClusterName,
   PRIVATE_NETWORK_TOKEN,
+  PROVIDER_CARDS,
+  providerLongName,
 } from "./cluster-create.ts";
 import { localExec } from "./exec.ts";
 import { isCimplManagedContext } from "./kubectl.ts";
@@ -61,6 +66,8 @@ type BoardSection = CanvasBoardView["sections"][number];
 type ColumnsSection = Extract<BoardSection, { kind: "columns" }>;
 type LeafSection = ColumnsSection["columns"][number]["sections"][number];
 type ActionsSection = Extract<BoardSection, { kind: "actions" }>;
+type ActionItem = ActionsSection["items"][number];
+type ActionField = NonNullable<ActionItem["fields"]>[number];
 type CardsSection = Extract<BoardSection, { kind: "cards" }>;
 type CardItem = CardsSection["items"][number];
 type FieldItem = NonNullable<CardItem["fields"]>[number];
@@ -350,13 +357,131 @@ function observedContexts(lifecycle: ClusterLifecycle): string[] {
   return contexts;
 }
 
+// The create-cluster form fields, shared by the operating board's Create action
+// (offered when there's no cimpl deployment) and the create-focused empty state.
+// Provider/profile are selects; the azure-only Location/Network trail the core
+// fields. Blank optional fields drop so cimpl's per-provider defaults apply.
+function createClusterFields(): ActionField[] {
+  return [
+    {
+      name: "provider",
+      label: "Provider",
+      required: true,
+      options: selectOptions(CLUSTER_PROVIDERS),
+      defaultValue: DEFAULT_CLUSTER_PROVIDER,
+    },
+    {
+      // Optional: left blank, cimpl applies its per-provider default.
+      name: "profile",
+      label: "Profile",
+      placeholder: "cimpl default",
+      options: selectOptions(CLUSTER_PROFILES),
+    },
+    { name: "env", label: "Environment", placeholder: "dev" },
+    { name: "partition", label: "Partition" },
+    { name: "instance", label: "Instance" },
+    { name: "location", label: "Location (azure)", placeholder: "eastus" },
+    {
+      // No boolean field kind: a non-required select clears to "" (managed
+      // VNet); "private" opts into azure private subnets.
+      name: "private",
+      label: "Network (azure)",
+      placeholder: "managed VNet",
+      options: [{ value: PRIVATE_NETWORK_TOKEN, label: "private subnets" }],
+    },
+  ];
+}
+
+/**
+ * The create-focused empty state: no cimpl deployment and no current context, so
+ * the ICC becomes a provisioning surface — a provider gallery, the `cimpl up`
+ * form, and a default plan + command preview — instead of empty lifecycle rows
+ * and inert reconcile/delete. Static like every board: the preview reflects the
+ * form's defaults, not live edits (a snapshot can't recompute as the operator types).
+ */
+function buildCreateClusterBoard(): CanvasBoardView {
+  const providerGallery: CardsSection = {
+    kind: "cards",
+    title: "Provider",
+    grid: true,
+    columns: 4,
+    items: PROVIDER_CARDS.map((p) => {
+      const card: CardItem = { title: p.label, footnote: p.tagline };
+      if (!p.enabled) card.pill = { label: "Soon", tone: "neutral" };
+      return card;
+    }),
+  };
+
+  const createActions: ActionsSection = {
+    kind: "actions",
+    title: "Create cluster",
+    items: [
+      {
+        type: "create",
+        label: "Create cluster",
+        glyph: "+",
+        expanded: true,
+        fields: createClusterFields(),
+      },
+    ],
+  };
+
+  const defaults: ClusterCreateInput = { provider: DEFAULT_CLUSTER_PROVIDER };
+  const planRows: LeafSection = {
+    kind: "rows",
+    title: "Cluster plan",
+    boxed: true,
+    items: [
+      { glyph: "neutral", text: "Name", trailing: deriveClusterName() },
+      { glyph: "neutral", text: "Provider", trailing: providerLongName(DEFAULT_CLUSTER_PROVIDER) },
+      { glyph: "neutral", text: "Profile", trailing: "cimpl default" },
+    ],
+  };
+  const commandPreview: CardsSection = {
+    kind: "cards",
+    title: "Command preview",
+    items: [
+      {
+        title: buildCreateCommand(defaults),
+        mono: true,
+        footnote: "reflects the defaults — edit the form, then Create",
+      },
+    ],
+  };
+
+  return {
+    view: "board",
+    title: "Cluster ICC",
+    header: {
+      status: { label: "⚠ No clusters yet", tone: "caution" },
+      chip: "no context",
+    },
+    sections: [
+      providerGallery,
+      {
+        kind: "columns",
+        columns: [
+          { weight: 1.5, sections: [createActions] },
+          { weight: 1, sections: [planRows, commandPreview] },
+        ],
+      },
+    ],
+  };
+}
+
 /**
  * Build the Cluster ICC board from `cimpl info` access data + kubectl-derived
- * lifecycle counts. Pure — no I/O. Always emits a valid board: a degraded
- * (unreachable) cluster still renders the health pill, two-column body, and
- * actions, just with no access cards.
+ * lifecycle counts. Pure — no I/O. With no deployment AND no current context it
+ * leads with the create-cluster surface; otherwise it renders the operating
+ * board (a degraded/unreachable cluster keeps its lifecycle recourse). Always
+ * emits a valid board.
  */
 export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
+  if (!input.info && !input.lifecycle.context) return buildCreateClusterBoard();
+  return buildOperatingClusterBoard(input);
+}
+
+function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
   const { info, lifecycle } = input;
   const { context, reachable, flux, services } = lifecycle;
   const suspended = info?.suspended === true;
@@ -441,34 +566,7 @@ export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
       label: "Create cluster",
       glyph: "+",
       expanded: true,
-      fields: [
-        {
-          name: "provider",
-          label: "Provider",
-          required: true,
-          options: selectOptions(CLUSTER_PROVIDERS),
-          defaultValue: DEFAULT_CLUSTER_PROVIDER,
-        },
-        {
-          // Optional: left blank, cimpl applies its per-provider default.
-          name: "profile",
-          label: "Profile",
-          placeholder: "cimpl default",
-          options: selectOptions(CLUSTER_PROFILES),
-        },
-        { name: "env", label: "Environment", placeholder: "dev" },
-        { name: "partition", label: "Partition" },
-        { name: "instance", label: "Instance" },
-        { name: "location", label: "Location (azure)", placeholder: "eastus" },
-        {
-          // No boolean field kind: a non-required select clears to "" (managed
-          // VNet); "private" opts into azure private subnets.
-          name: "private",
-          label: "Network (azure)",
-          placeholder: "managed VNet",
-          options: [{ value: PRIVATE_NETWORK_TOKEN, label: "private subnets" }],
-        },
-      ],
+      fields: createClusterFields(),
     });
   }
   // Offer switching only when there's a cimpl-managed target that isn't already
