@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.7.0...v0.8.0) (2026-07-13)
+
+
+### Added
+
+* **cluster:** adopt canvas create-form affordances on the provider tabs ([#101](https://github.com/danielscholl/keelson-rib-osdu/issues/101)) ([768ed79](https://github.com/danielscholl/keelson-rib-osdu/commit/768ed791f5b5b02ae259268eb7b608101d31212b))
+* **cluster:** implement provider tabs create surface for cluster creation ([#99](https://github.com/danielscholl/keelson-rib-osdu/issues/99)) ([b714b93](https://github.com/danielscholl/keelson-rib-osdu/commit/b714b9368cb1454fe81e20e73f80f479acee3875))
+
 ## [0.7.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.6.0...v0.7.0) (2026-07-13)
 
 
