@@ -9,7 +9,7 @@
 import { buildClusterBoard, type ClusterLifecycle, fetchClusterInfo } from "../src/cluster.ts";
 import { clusterFingerprint, currentContext, getReadiness, listContexts } from "../src/kubectl.ts";
 
-const { info, error: infoError } = await fetchClusterInfo();
+const { info, error: infoError, deployment } = await fetchClusterInfo();
 if (infoError) console.error(`[rib-osdu] cluster info degraded: ${infoError}`);
 
 const context = currentContext();
@@ -33,4 +33,4 @@ const lifecycle: ClusterLifecycle = {
   contexts,
 };
 
-process.stdout.write(JSON.stringify(buildClusterBoard({ info, lifecycle })));
+process.stdout.write(JSON.stringify(buildClusterBoard({ info, deployment, lifecycle })));

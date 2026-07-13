@@ -509,6 +509,7 @@ describe("buildClusterBoard", () => {
 
   test("a known context that went unreachable keeps the operating board + lifecycle recourse", () => {
     const board = buildClusterBoard({
+      deployment: "absent",
       lifecycle: {
         context: "cimpl-stack-ms",
         reachable: false,
@@ -529,6 +530,7 @@ describe("buildClusterBoard", () => {
 
   test("a cimpl context without a deployment reads No deployment and offers the provider tabs", () => {
     const board = buildClusterBoard({
+      deployment: "absent",
       lifecycle: {
         context: "kind-cimpl-lab",
         reachable: true,
@@ -556,6 +558,7 @@ describe("buildClusterBoard", () => {
   });
 
   const foreign: ClusterInput = {
+    deployment: "absent",
     lifecycle: {
       context: "osdu-mvp-aks",
       reachable: true,
@@ -601,7 +604,10 @@ describe("buildClusterBoard", () => {
   });
 
   test("an unreachable foreign context keeps the caution pill but reports the dead cluster", () => {
-    const board = buildClusterBoard({ lifecycle: { ...foreign.lifecycle, reachable: false } });
+    const board = buildClusterBoard({
+      ...foreign,
+      lifecycle: { ...foreign.lifecycle, reachable: false },
+    });
     expect(board.header?.status).toEqual({ label: "⚠ Not a CIMPL stack", tone: "caution" });
     const panel = columnsSection(board).columns[1]?.sections[0];
     if (panel?.kind !== "rows") throw new Error("expected the context panel");
@@ -610,6 +616,7 @@ describe("buildClusterBoard", () => {
 
   test("the foreign board offers switch-context when a cimpl-managed target exists", () => {
     const board = buildClusterBoard({
+      ...foreign,
       lifecycle: { ...foreign.lifecycle, contexts: ["cimpl-a"], fingerprint: "uid-9" },
     });
     const switchAction = allActions(board).find((a) => a.type === "switch-context");
@@ -622,5 +629,18 @@ describe("buildClusterBoard", () => {
     // Every other action is still a create tab — never reconcile/suspend/delete.
     const others = allActions(board).filter((a) => a.type !== "switch-context");
     expect(others.every((a) => a.type === "create")).toBe(true);
+  });
+
+  test("an indeterminate cimpl probe keeps the operating board — new states need confirmed absence", () => {
+    // Same foreign-named context, but the probe never completed (deployment
+    // omitted → unknown): a transient cimpl failure over a live stack must not
+    // hide the lifecycle recourse or claim absence.
+    const board = buildClusterBoard({ lifecycle: foreign.lifecycle });
+    expect(board.header?.status).toEqual({ label: "⚠ Degraded", tone: "warn" });
+    const types = actionsOf(board).items.map((a) => a.type);
+    expect(types).toContain("reconcile");
+    expect(types).toContain("delete");
+    // …and bring-up is not offered over an unconfirmed absence.
+    expect(board.sections.find((s) => s.kind === "actions")).toBeUndefined();
   });
 });

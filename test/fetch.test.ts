@@ -86,16 +86,32 @@ describe("fetchClusterInfo", () => {
       suspended: false,
     });
     const { exec } = makeExec({ text: () => ({ ok: true, data: cimplJson }) });
-    const { info } = await fetchClusterInfo(exec);
+    const { info, deployment } = await fetchClusterInfo(exec);
     // Real-secret cred kept (no password field); "n/a" placeholder dropped.
     expect(info?.credentials).toEqual([{ service: "Airflow", username: "admin" }]);
     expect(JSON.stringify(info)).not.toContain("s3cret-value");
+    expect(deployment).toBe("live");
   });
 
-  test("degrades to an error when cimpl fails", async () => {
+  test("a probe that never completed degrades to an indeterminate deployment", async () => {
     const { exec } = makeExec({ text: () => ({ ok: false, error: "cimpl missing", code: null }) });
-    const { info, error } = await fetchClusterInfo(exec);
+    const { info, error, deployment } = await fetchClusterInfo(exec);
     expect(info).toBeUndefined();
     expect(error).toBe("cimpl missing");
+    // Timeout / cimpl not on PATH is no verdict — must not read as absence.
+    expect(deployment).toBe("unknown");
+  });
+
+  test("a completed non-zero exit is cimpl's own verdict of absence", async () => {
+    const { exec } = makeExec({ text: () => ({ ok: false, error: "exit 1", code: 1 }) });
+    const { deployment } = await fetchClusterInfo(exec);
+    expect(deployment).toBe("absent");
+  });
+
+  test("unparseable cimpl output degrades to an indeterminate deployment", async () => {
+    const { exec } = makeExec({ text: () => ({ ok: true, data: "not json at all" }) });
+    const { info, deployment } = await fetchClusterInfo(exec);
+    expect(info).toBeUndefined();
+    expect(deployment).toBe("unknown");
   });
 });

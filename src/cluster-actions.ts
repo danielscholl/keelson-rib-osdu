@@ -1,6 +1,9 @@
 import type { RibExec } from "@keelson/shared";
 import { errText } from "@keelson/shared";
-import { parseCimplInfoJson } from "./cluster.ts";
+import { type CimplContextState, parseCimplInfoJson } from "./cluster.ts";
+
+export type { CimplContextState } from "./cluster.ts";
+
 import {
   getClusterFingerprint,
   getCurrentContext,
@@ -26,9 +29,8 @@ const CONTEXT_SWITCH_TIMEOUT_MS = 5_000;
 export type ClusterVerb = keyof typeof CLUSTER_LIFECYCLE_ARGS;
 
 // Tri-state result of probing whether the live current-context hosts a CIMPL
-// deployment. `unknown` is deliberately distinct from `absent` so callers can
-// fail closed on an indeterminate probe rather than treat it as "no cluster".
-export type CimplContextState = "live" | "absent" | "unknown";
+// deployment — the CimplContextState defined beside fetchClusterInfo, which
+// applies the same classification.
 export interface CimplContextProbe {
   state: CimplContextState;
   detail: string;
