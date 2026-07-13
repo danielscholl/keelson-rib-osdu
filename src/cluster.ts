@@ -358,9 +358,8 @@ function observedContexts(lifecycle: ClusterLifecycle): string[] {
 
 // One provider tab's create-form fields. The provider itself rides the tab's
 // static payload (never a field), so azure-only Location/Network exist solely
-// on the azure tab. Every field is half-width so the form reads as two-up rows
-// (Environment | Profile, Partition | Instance, and Location | Network on
-// azure). Blank optional fields drop so cimpl's per-provider defaults apply.
+// on the azure tab. Blank optional fields drop so cimpl's per-provider
+// defaults apply.
 function createClusterFields(provider: string): ActionField[] {
   const fields: ActionField[] = [
     { name: "env", label: "Environment", placeholder: "dev", half: true },
