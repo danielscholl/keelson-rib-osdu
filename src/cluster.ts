@@ -10,7 +10,7 @@ import {
   providerLongName,
 } from "./cluster-create.ts";
 import { localExec } from "./exec.ts";
-import { isCimplManagedContext } from "./kubectl.ts";
+import { getCimplPrefixes, isCimplManagedContext } from "./kubectl.ts";
 
 // The subset of `cimpl info --json` the ICC reads. With `--show-secrets` cimpl
 // also returns each credential's password; the collector discards it — only the
@@ -57,6 +57,11 @@ export type ClusterStamp = { context?: string; fingerprint?: string };
 
 export interface ClusterInput {
   info?: CimplInfo;
+  // cimpl's deployment verdict for the current context. Only a confirmed
+  // "absent" unlocks the absence-only surfaces (the foreign-context board, the
+  // "No deployment" status, the create tabs); omitted or "unknown" keeps the
+  // operating board's lifecycle recourse.
+  deployment?: CimplContextState;
   lifecycle: ClusterLifecycle;
 }
 
@@ -122,20 +127,29 @@ export function sanitizeCimplInfo(raw: unknown): CimplInfo {
   };
 }
 
+// Tri-state deployment verdict for the current context. `unknown` is
+// deliberately distinct from `absent` so consumers fail closed on an
+// indeterminate probe rather than treat a transient cimpl failure as "no
+// cluster". Shared with probeCimplContext (cluster-actions.ts).
+export type CimplContextState = "live" | "absent" | "unknown";
+
 // Fetch `cimpl info` (sanitized) for the Cluster ICC collector and the
 // `osdu_cluster` chat tool. `--show-secrets` only enumerates which services have
 // a credential; sanitizeCimplInfo discards the password before it returns.
+// `deployment` mirrors probeCimplContext's classification: a completed non-zero
+// exit is cimpl's own verdict that no deployment exists; a call that never
+// completed (timeout, cimpl not on PATH) or unparseable output is indeterminate.
 export async function fetchClusterInfo(
   exec: RibExec = localExec(),
-): Promise<{ info?: CimplInfo; error?: string }> {
+): Promise<{ info?: CimplInfo; error?: string; deployment: CimplContextState }> {
   const res = await exec.runText("cimpl", ["info", "--json", "--show-secrets"], {
     timeoutMs: 30_000,
   });
-  if (!res.ok) return { error: res.error };
+  if (!res.ok) return { error: res.error, deployment: res.code === null ? "unknown" : "absent" };
   try {
-    return { info: sanitizeCimplInfo(parseCimplInfoJson(res.data)) };
+    return { info: sanitizeCimplInfo(parseCimplInfoJson(res.data)), deployment: "live" };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
+    return { error: e instanceof Error ? e.message : String(e), deployment: "unknown" };
   }
 }
 
@@ -184,15 +198,20 @@ function baseName(name: string): string {
 }
 
 // The header's overall health pill. Glyph is baked into the label (the base
-// renders the label verbatim); tone drives the colour.
+// renders the label verbatim); tone drives the colour. A reachable cluster
+// whose deployment is cimpl-confirmed absent reads "No deployment" — its 0/0
+// counts are absence, not degradation. An indeterminate probe falls through to
+// the ordinary health labels.
 function clusterStatus(
   lifecycle: ClusterLifecycle,
   suspended: boolean,
+  noDeployment: boolean,
 ): {
   label: string;
   tone: Tone;
 } {
   if (!lifecycle.reachable) return { label: "✕ Unreachable", tone: "error" };
+  if (noDeployment) return { label: "⚠ No deployment", tone: "warn" };
   if (suspended) return { label: "⏸ Suspended", tone: "warn" };
   const allReady =
     lifecycle.flux.total > 0 &&
@@ -356,6 +375,40 @@ function observedContexts(lifecycle: ClusterLifecycle): string[] {
   return contexts;
 }
 
+// Offer switching only when there's a cimpl-managed target that isn't already
+// current — otherwise the picker is a single-option, no-op mutation. Only
+// cimpl-managed contexts are valid targets; a non-cimpl context can appear in
+// the observed list but must never be offered as a target the guard would
+// refuse. Shared by the operating and foreign-context boards.
+function switchContextAction(lifecycle: ClusterLifecycle): ActionItem | undefined {
+  const { context } = lifecycle;
+  const targets = observedContexts(lifecycle).filter((name) => isCimplManagedContext(name));
+  if (!targets.some((name) => name !== context)) return undefined;
+  return {
+    type: "switch-context",
+    label: "Switch active context",
+    glyph: "⇄",
+    // Render the picker always-open so the target select shows directly in the ICC.
+    expanded: true,
+    payload: {
+      observedCurrent: context,
+      observedContexts: targets,
+      ...(lifecycle.fingerprint ? { fingerprint: lifecycle.fingerprint } : {}),
+    },
+    fields: [
+      {
+        name: "target",
+        label: "Target context",
+        required: true,
+        options: selectOptions(targets),
+        // Preselect the current only when it's itself a valid target — the
+        // canvas rejects a defaultValue outside the option set.
+        ...(context && targets.includes(context) ? { defaultValue: context } : {}),
+      },
+    ],
+  };
+}
+
 // One provider tab's create-form fields. The provider itself rides the tab's
 // static payload (never a field), so azure-only Location/Network exist solely
 // on the azure tab. Blank optional fields drop so cimpl's per-provider
@@ -433,14 +486,15 @@ function createClusterTabs(title: string): ActionsSection {
 }
 
 /**
- * The create-focused empty state: no cimpl deployment and no current context, so
- * the ICC becomes a provisioning surface — one "Create cluster" frame where the
- * provider tab strip opens per-provider `cimpl up` forms beside a default plan +
- * command preview — instead of empty lifecycle rows and inert reconcile/delete.
- * Static like every board: the plan and preview reflect the defaults, not live
- * edits (a snapshot can't recompute as the operator types).
+ * The "Create cluster" hero frame shared by the empty state and the
+ * foreign-context board — the provider tab strip opening per-provider
+ * `cimpl up` forms beside a default plan + command preview — so the two create
+ * surfaces can't drift. Extra rail sections (a context panel, a switch action)
+ * slot in above the plan via `railLead`. Static like every board: the plan and
+ * preview reflect the defaults, not live edits (a snapshot can't recompute as
+ * the operator types).
  */
-function buildCreateClusterBoard(): CanvasBoardView {
+function createClusterFrame(railLead: LeafSection[] = []): ColumnsSection {
   const defaults: ClusterCreateInput = { provider: DEFAULT_CLUSTER_PROVIDER };
   const planRows: LeafSection = {
     kind: "rows",
@@ -464,34 +518,96 @@ function buildCreateClusterBoard(): CanvasBoardView {
   };
 
   return {
+    kind: "columns",
+    title: "Create cluster",
+    columns: [
+      { weight: 2.5, sections: [createClusterTabs("Provider")] },
+      { weight: 1, sections: [...railLead, planRows, commandPreview] },
+    ],
+  };
+}
+
+/**
+ * The create-focused empty state: no cimpl deployment and no current context,
+ * so the ICC becomes a provisioning surface — the create frame instead of
+ * empty lifecycle rows and inert reconcile/delete.
+ */
+function buildCreateClusterBoard(): CanvasBoardView {
+  return {
     view: "board",
     title: "Cluster ICC",
     header: {
       status: { label: "⚠ No clusters yet", tone: "caution" },
       chip: "no context",
     },
-    sections: [
+    sections: [createClusterFrame()],
+  };
+}
+
+/**
+ * The foreign-context state: kubectl points at a context that is not
+ * cimpl-managed and hosts no cimpl-stack deployment — the case cimpl's own
+ * guard refuses. Nothing is broken (the pill is a caution, not an error) and
+ * no lifecycle verbs render: cimpl would refuse them, and offering Delete
+ * against a foreign cluster misleads. The recourses are the shared create
+ * frame and, when a cimpl-managed target exists, switching context; the rail
+ * leads with a context panel that carries the guard's explanation.
+ */
+function buildForeignContextBoard(lifecycle: ClusterLifecycle): CanvasBoardView {
+  const context = lifecycle.context ?? "unknown";
+  const contextPanel: LeafSection = {
+    kind: "rows",
+    title: "Current context",
+    boxed: true,
+    items: [
       {
-        kind: "columns",
-        title: "Create cluster",
-        columns: [
-          { weight: 2.5, sections: [createClusterTabs("Provider")] },
-          { weight: 1, sections: [planRows, commandPreview] },
-        ],
+        glyph: "warn",
+        text: context,
+        trailing: "not cimpl-managed",
+        detail:
+          `cimpl manages clusters it provisioned (contexts prefixed ${getCimplPrefixes().join(", ")}) ` +
+          "or any cluster running a cimpl-stack deployment. This context is neither, so lifecycle " +
+          "verbs are hidden — cimpl would refuse them. Create a new stack, or switch kubectl to a " +
+          "cimpl-managed context.",
+      },
+      {
+        glyph: lifecycle.reachable ? "ok" : "error",
+        text: "Cluster",
+        trailing: lifecycle.reachable ? "reachable" : "unreachable",
       },
     ],
+  };
+  const railLead: LeafSection[] = [contextPanel];
+  const switchAction = switchContextAction(lifecycle);
+  if (switchAction) railLead.push({ kind: "actions", items: [switchAction] });
+
+  return {
+    view: "board",
+    title: "Cluster ICC",
+    header: {
+      status: { label: "⚠ Not a CIMPL stack", tone: "caution" },
+      chip: context,
+    },
+    sections: [createClusterFrame(railLead)],
   };
 }
 
 /**
  * Build the Cluster ICC board from `cimpl info` access data + kubectl-derived
- * lifecycle counts. Pure — no I/O. With no deployment AND no current context it
- * leads with the create-cluster surface; otherwise it renders the operating
- * board (a degraded/unreachable cluster keeps its lifecycle recourse). Always
- * emits a valid board.
+ * lifecycle counts. Pure — no I/O. Routes on the deployment + context signals:
+ * no info and no context → the create empty state; a cimpl-confirmed-absent
+ * deployment on a non-cimpl context → the foreign-context board (create +
+ * switch, no cluster verbs); otherwise the operating board (a degraded /
+ * unreachable / indeterminately-probed cimpl cluster keeps its lifecycle
+ * recourse). Always emits a valid board.
  */
 export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
-  if (!input.info && !input.lifecycle.context) return buildCreateClusterBoard();
+  if (!input.info) {
+    const { context } = input.lifecycle;
+    if (!context) return buildCreateClusterBoard();
+    if (input.deployment === "absent" && !isCimplManagedContext(context))
+      return buildForeignContextBoard(input.lifecycle);
+  }
   return buildOperatingClusterBoard(input);
 }
 
@@ -500,10 +616,6 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
   const { context, reachable, flux, services } = lifecycle;
   const suspended = info?.suspended === true;
   const contexts = observedContexts(lifecycle);
-  // Only cimpl-managed contexts are valid switch targets; a non-cimpl current
-  // context can appear in `contexts` (for the informational rows) but must never
-  // be offered as a target the guard would refuse.
-  const switchTargets = contexts.filter((name) => isCimplManagedContext(name));
 
   // Cluster-identity stamp carried by every action so onAction can reject a
   // stale board. Context is the guard's required key; fingerprint is added when
@@ -571,33 +683,8 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
       destructive: true,
     }),
   ];
-  // Offer switching only when there's a cimpl-managed target that isn't already
-  // current — otherwise the picker is a single-option, no-op mutation.
-  if (switchTargets.some((name) => name !== context)) {
-    actionItems.push({
-      type: "switch-context",
-      label: "Switch active context",
-      glyph: "⇄",
-      // Render the picker always-open so the target select shows directly in the ICC.
-      expanded: true,
-      payload: {
-        observedCurrent: context,
-        observedContexts: switchTargets,
-        ...(stamp.fingerprint ? { fingerprint: stamp.fingerprint } : {}),
-      },
-      fields: [
-        {
-          name: "target",
-          label: "Target context",
-          required: true,
-          options: selectOptions(switchTargets),
-          // Preselect the current only when it's itself a valid target — the
-          // canvas rejects a defaultValue outside the option set.
-          ...(context && switchTargets.includes(context) ? { defaultValue: context } : {}),
-        },
-      ],
-    });
-  }
+  const switchAction = switchContextAction(lifecycle);
+  if (switchAction) actionItems.push(switchAction);
   const actions: ActionsSection = {
     kind: "actions",
     title: "Actions",
@@ -614,10 +701,10 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
     },
   ];
 
-  // Offer Create whenever there is no live CIMPL deployment to manage — keyed on
-  // the absence of `cimpl info`, not generic reachability, so a reachable
-  // non-CIMPL context still surfaces the only bring-up affordance.
-  if (!info) sections.push(createClusterTabs("Create cluster"));
+  // Offer Create only on cimpl's confirmed-absent verdict — never on a merely
+  // failed probe, so a transient cimpl failure over a live stack can't surface
+  // a bring-up affordance (refuseCreateOverCimpl would refuse it anyway).
+  if (!info && input.deployment === "absent") sections.push(createClusterTabs("Create cluster"));
 
   const access = info ? buildAccessCards(info, stamp) : [];
   if (access.length > 0) {
@@ -628,7 +715,7 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
     view: "board",
     title: "Cluster ICC",
     header: {
-      status: clusterStatus(lifecycle, suspended),
+      status: clusterStatus(lifecycle, suspended, !info && input.deployment === "absent"),
       chip: context ?? "no context",
       segments: [
         { label: "Flux", n: flux.ready, tone: countTone(flux.ready, flux.total) },
