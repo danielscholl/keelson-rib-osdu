@@ -12,12 +12,12 @@ export interface PmcLink {
 // page rather than a page of their own; the per-service Allure reports it links
 // are job artifacts elsewhere, so the anchor is the only stable entry point.
 const PMC_SURFACES: ReadonlyArray<{ text: string; path: string }> = [
-  { text: "PMC: Status Summary", path: "/" },
-  { text: "PMC: Analytics", path: "/analytics/index.html" },
-  { text: "PMC: Release Reports", path: "/analytics/release-reports.html" },
-  { text: "PMC: Status Reports", path: "/analytics/status-reports.html" },
-  { text: "PMC: History", path: "/history.html" },
-  { text: "PMC: Smoke Tests", path: "/#smoke-tests-section" },
+  { text: "Status Summary", path: "/" },
+  { text: "Analytics", path: "/analytics/index.html" },
+  { text: "Release Reports", path: "/analytics/release-reports.html" },
+  { text: "Status Reports", path: "/analytics/status-reports.html" },
+  { text: "History", path: "/history.html" },
+  { text: "Smoke Tests", path: "/#smoke-tests-section" },
 ];
 
 export function pmcSite(): string {

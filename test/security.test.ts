@@ -69,16 +69,16 @@ describe("buildSecurityBoard", () => {
     if (grid?.kind !== "grid") return;
     // Confirmed-A services (Legal, Partition, Register) drop out; only the
     // below-A grades remain, worst-first.
-    expect(grid.cells.map((c) => [c.label, c.badge.text])).toEqual([
+    expect(grid.cells.map((c) => [c.label, c.badge?.text])).toEqual([
       ["Policy", "D"],
       ["Storage", "C"],
       ["Search", "B"],
     ]);
     // The 5-step grade ramp (B info · C warn · D caution), not the 3-step
     // health bucket.
-    expect(grid.cells[0]?.badge.tone).toBe("caution"); // D
-    expect(grid.cells[1]?.badge.tone).toBe("warn"); // C
-    expect(grid.cells[2]?.badge.tone).toBe("info"); // B
+    expect(grid.cells[0]?.badge?.tone).toBe("caution"); // D
+    expect(grid.cells[1]?.badge?.tone).toBe("warn"); // C
+    expect(grid.cells[2]?.badge?.tone).toBe("info"); // B
   });
 
   test("Low security rating links to clean Sonar security measures", () => {
@@ -133,7 +133,7 @@ describe("buildSecurityBoard", () => {
     expect(grid?.kind).toBe("grid");
     if (grid?.kind !== "grid") return;
 
-    expect(grid.cells.map((c) => [c.label, c.badge.text, c.href])).toEqual([
+    expect(grid.cells.map((c) => [c.label, c.badge?.text, c.href])).toEqual([
       [
         "Policy",
         "E",
@@ -188,7 +188,7 @@ describe("buildSecurityBoard", () => {
     expect(grid?.kind).toBe("grid");
     if (grid?.kind !== "grid") return;
 
-    expect(grid.cells.map((c) => [c.label, c.badge.text, c.href])).toEqual([
+    expect(grid.cells.map((c) => [c.label, c.badge?.text, c.href])).toEqual([
       ["NoUrl", "E", undefined],
       ["JsUrl", "D", undefined],
       ["FtpUrl", "C", undefined],
@@ -431,7 +431,7 @@ describe("buildSecurityBoard edge cases", () => {
     if (grid?.kind !== "grid") return;
     // Rated-A drops; the worst real grade (D) leads, unscanned ("—") sorts last
     // by name — a missing scan is still surfaced as a gap.
-    expect(grid.cells.map((c) => c.badge.text)).toEqual(["D", "—", "—"]);
+    expect(grid.cells.map((c) => c.badge?.text)).toEqual(["D", "—", "—"]);
     expect(grid.cells.map((c) => c.label)).toEqual(["Rated D", "unscanned-a", "unscanned-b"]);
   });
 });

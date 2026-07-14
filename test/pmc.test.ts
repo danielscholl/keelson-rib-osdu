@@ -29,18 +29,18 @@ describe("pmcSite", () => {
 describe("pmcReportLinks", () => {
   test("links every dashboard surface off the given site", () => {
     expect(pmcReportLinks("https://pmc.example.test")).toEqual([
-      { text: "PMC: Status Summary", href: "https://pmc.example.test/" },
-      { text: "PMC: Analytics", href: "https://pmc.example.test/analytics/index.html" },
+      { text: "Status Summary", href: "https://pmc.example.test/" },
+      { text: "Analytics", href: "https://pmc.example.test/analytics/index.html" },
       {
-        text: "PMC: Release Reports",
+        text: "Release Reports",
         href: "https://pmc.example.test/analytics/release-reports.html",
       },
       {
-        text: "PMC: Status Reports",
+        text: "Status Reports",
         href: "https://pmc.example.test/analytics/status-reports.html",
       },
-      { text: "PMC: History", href: "https://pmc.example.test/history.html" },
-      { text: "PMC: Smoke Tests", href: "https://pmc.example.test/#smoke-tests-section" },
+      { text: "History", href: "https://pmc.example.test/history.html" },
+      { text: "Smoke Tests", href: "https://pmc.example.test/#smoke-tests-section" },
     ]);
   });
 
