@@ -1,6 +1,7 @@
 import type { CanvasBoardView } from "@keelson/shared";
 import { VENUS_CORE } from "./activity.ts";
 import type { FeedRelatedMr } from "./events.ts";
+import type { PmcLink } from "./pmc.ts";
 
 export type Tone = "ok" | "warn" | "error" | "neutral" | "info" | "caution" | "brand" | "accent";
 
@@ -22,7 +23,7 @@ export interface ReleaseInput {
   // The CLI's resolved release identity; preferred over the MR mode and present
   // even when the open-MR queue is empty.
   release?: string | null;
-  pmcReportUrl?: string | null;
+  pmcLinks?: PmcLink[];
   now: Date;
 }
 
@@ -193,12 +194,11 @@ export function buildReleaseBoard(input: ReleaseInput): CanvasBoardView {
       },
     ],
   };
-  const pmcReportUrl = input.pmcReportUrl?.trim();
-  const sections: CanvasBoardView["sections"] = pmcReportUrl
-    ? [
-        { kind: "rows", title: "Report", items: [{ text: "PMC: Report", href: pmcReportUrl }] },
-        columns,
-      ]
+  const pmcRows: RowItem[] = (input.pmcLinks ?? [])
+    .filter((link) => link.text.trim() && link.href.trim())
+    .map((link) => ({ text: link.text, href: link.href }));
+  const sections: CanvasBoardView["sections"] = pmcRows.length
+    ? [{ kind: "rows", title: "Report", items: pmcRows }, columns]
     : [columns];
   return {
     view: "board",

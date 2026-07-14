@@ -108,7 +108,9 @@ schemathesis tests — achahan`, `Job minio-bootstrap started (platform)`) + rel
 
 ### 3.6 Release Train
 A full-width panel below the cluster header. **Header** — `🏴 Release Train` + milestone
-(`M27 — Release 0.30 (Venus · Preview 2)`) + a `PMC: REPORT ↗` link. Two columns:
+(`M27 — Release 0.30 (Venus · Preview 2)`). A **Report** section links the PMC dashboard's
+surfaces (`Status Summary`, `Analytics`, `Release Reports`, `Status Reports`, `History`,
+`Smoke Tests`). Two columns:
 - **New Merge Requests** — rows: service chip (`entitle…`, `qa`, `file`) + MR title + age (`0d`).
 - **Platform Wins** — short status lines (`✓ 1 MR merged to main this week`).
 - **Source:** `osdu-activity mr --output json` (open + recently-merged MRs); milestone from release metadata.

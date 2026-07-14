@@ -1,26 +1,52 @@
-import { describe, expect, test } from "bun:test";
-import { derivePmcReleaseSlug } from "../src/pmc.ts";
+import { afterEach, describe, expect, test } from "bun:test";
+import { pmcReportLinks, pmcSite } from "../src/pmc.ts";
 
-describe("derivePmcReleaseSlug", () => {
-  test("maps release tokens to wiki slugs", () => {
-    expect(derivePmcReleaseSlug("Release 0.30")).toBe("release-0-30");
-    expect(derivePmcReleaseSlug("Release 0.29")).toBe("release-0-29");
-    expect(derivePmcReleaseSlug("v0.30")).toBe("release-0-30");
+const ENV_KEY = "KEELSON_OSDU_PMC_URL";
+const original = process.env[ENV_KEY];
+
+afterEach(() => {
+  if (original === undefined) delete process.env[ENV_KEY];
+  else process.env[ENV_KEY] = original;
+});
+
+describe("pmcSite", () => {
+  test("defaults to the Pages dashboard", () => {
+    delete process.env[ENV_KEY];
+    expect(pmcSite()).toBe("https://pmc-report-generator-c7606f.pages.opengroup.org");
   });
 
-  test("maps milestone tokens to wiki slugs", () => {
-    expect(derivePmcReleaseSlug("M26")).toBe("releases/release-m26");
+  test("honours the env override and trims trailing slashes", () => {
+    process.env[ENV_KEY] = "https://pmc.example.test///";
+    expect(pmcSite()).toBe("https://pmc.example.test");
   });
 
-  test("prefers numeric release tokens in compound milestones", () => {
-    expect(derivePmcReleaseSlug("M26 - Release 0.30")).toBe("release-0-30");
-    expect(derivePmcReleaseSlug("M26 - Release 0.29 (Venus - Preview 1)")).toBe("release-0-29");
+  test("falls back to the default when the override is blank", () => {
+    process.env[ENV_KEY] = "   ";
+    expect(pmcSite()).toBe("https://pmc-report-generator-c7606f.pages.opengroup.org");
+  });
+});
+
+describe("pmcReportLinks", () => {
+  test("links every dashboard surface off the given site", () => {
+    expect(pmcReportLinks("https://pmc.example.test")).toEqual([
+      { text: "PMC: Status Summary", href: "https://pmc.example.test/" },
+      { text: "PMC: Analytics", href: "https://pmc.example.test/analytics/index.html" },
+      {
+        text: "PMC: Release Reports",
+        href: "https://pmc.example.test/analytics/release-reports.html",
+      },
+      {
+        text: "PMC: Status Reports",
+        href: "https://pmc.example.test/analytics/status-reports.html",
+      },
+      { text: "PMC: History", href: "https://pmc.example.test/history.html" },
+      { text: "PMC: Smoke Tests", href: "https://pmc.example.test/#smoke-tests-section" },
+    ]);
   });
 
-  test("returns null when no slug can be derived", () => {
-    expect(derivePmcReleaseSlug("random")).toBeNull();
-    expect(derivePmcReleaseSlug("")).toBeNull();
-    expect(derivePmcReleaseSlug(null)).toBeNull();
-    expect(derivePmcReleaseSlug(undefined)).toBeNull();
+  test("does not double the slash when the site carries one", () => {
+    for (const link of pmcReportLinks("https://pmc.example.test/")) {
+      expect(link.href).not.toContain(".test//");
+    }
   });
 });

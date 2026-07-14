@@ -15,7 +15,10 @@ import {
 const DECORATIVE_TONES = ["info", "brand", "accent", "caution", "ok"];
 
 const NOW = new Date("2026-06-06T12:00:00Z");
-const PMC_REPORT_URL = "https://community.opengroup.org/osdu/pmc/-/wikis/release-0-30";
+const PMC_LINKS = [
+  { text: "PMC: Status Summary", href: "https://pmc.example.test/" },
+  { text: "PMC: Analytics", href: "https://pmc.example.test/analytics/index.html" },
+];
 
 // A core service so the MR counts as a platform win.
 const url = (service: string, iid: number) =>
@@ -102,9 +105,9 @@ describe("buildReleaseBoard", () => {
     expect(board.header?.chip).toBe("M26 (mode)");
   });
 
-  test("prepends a linked PMC Report rows section when a report URL is present", () => {
+  test("prepends a linked PMC Report rows section when links are present", () => {
     const board = buildReleaseBoard({
-      pmcReportUrl: PMC_REPORT_URL,
+      pmcLinks: PMC_LINKS,
       openMrs: [{ iid: 1, title: "a", state: "opened", milestone: "M26 - Release 0.30" }],
       now: NOW,
     });
@@ -114,16 +117,16 @@ describe("buildReleaseBoard", () => {
     const report = board.sections[0];
     if (report?.kind !== "rows") throw new Error("expected report rows");
     expect(report.title).toBe("Report");
-    expect(report.items).toEqual([{ text: "PMC: Report", href: PMC_REPORT_URL }]);
+    expect(report.items).toEqual(PMC_LINKS);
 
     const columns = board.sections[1];
     if (columns?.kind !== "columns") throw new Error("expected columns after report");
     expect(columns.columns).toHaveLength(2);
   });
 
-  test("omits the PMC Report section when no report URL is present", () => {
-    for (const pmcReportUrl of [undefined, null, ""]) {
-      const board = buildReleaseBoard({ pmcReportUrl, now: NOW });
+  test("omits the PMC Report section when no links are present", () => {
+    for (const pmcLinks of [undefined, [], [{ text: "PMC: Status Summary", href: "  " }]]) {
+      const board = buildReleaseBoard({ pmcLinks, now: NOW });
       expect(board.sections[0]?.kind).toBe("columns");
       expect(
         board.sections.some((section) => section.kind === "rows" && section.title === "Report"),

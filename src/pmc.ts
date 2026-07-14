@@ -1,46 +1,31 @@
-import { GITLAB_HOST } from "./activity.ts";
+// The PMC report generator publishes its dashboard to GitLab Pages under a
+// unique (hashed) domain, so unlike a project URL it can't be derived from
+// GITLAB_HOST. The readable osdu.pages.opengroup.org/... form 308s here.
+const PMC_SITE_DEFAULT = "https://pmc-report-generator-c7606f.pages.opengroup.org";
 
-const PMC_PROJECT = "osdu/platform/deployment-and-operations/pmc-report-generator";
-const PMC_PROJECT_ENC = encodeURIComponent(PMC_PROJECT);
-const PMC_MASTER_SLUG = "master";
-const FETCH_TIMEOUT_MS = 5_000;
-// Only the exact slug shapes derivePmcReleaseSlug emits (plus the master
-// fallback) may reach the outbound wiki fetch, so release-token-derived data
-// can't steer the request path.
-const PMC_SLUG_ALLOWLIST = /^(?:master|release-\d+-\d+|releases\/release-m\d+)$/;
-
-export function derivePmcReleaseSlug(token: string | null | undefined): string | null {
-  const release = token?.match(/(?:\brelease\s+|\bv)(\d+)\.(\d+)/i);
-  if (release) return `release-${release[1]}-${release[2]}`;
-
-  const milestone = token?.match(/\bM(\d+)\b/i);
-  if (milestone) return `releases/release-m${milestone[1]}`;
-
-  return null;
+export interface PmcLink {
+  text: string;
+  href: string;
 }
 
-export async function fetchPmcReport(slug: string, host = GITLAB_HOST): Promise<string | null> {
-  if (!PMC_SLUG_ALLOWLIST.test(slug)) return null;
-  try {
-    const r = await fetch(
-      `https://${host}/api/v4/projects/${PMC_PROJECT_ENC}/wikis/${encodeURIComponent(slug)}`,
-      { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
-    );
-    return r.ok ? `https://${host}/${PMC_PROJECT}/-/wikis/${slug}` : null;
-  } catch {
-    return null;
-  }
+// Mirrors the dashboard's own nav. Smoke tests are a section of the landing
+// page rather than a page of their own; the per-service Allure reports it links
+// are job artifacts elsewhere, so the anchor is the only stable entry point.
+const PMC_SURFACES: ReadonlyArray<{ text: string; path: string }> = [
+  { text: "PMC: Status Summary", path: "/" },
+  { text: "PMC: Analytics", path: "/analytics/index.html" },
+  { text: "PMC: Release Reports", path: "/analytics/release-reports.html" },
+  { text: "PMC: Status Reports", path: "/analytics/status-reports.html" },
+  { text: "PMC: History", path: "/history.html" },
+  { text: "PMC: Smoke Tests", path: "/#smoke-tests-section" },
+];
+
+export function pmcSite(): string {
+  const override = process.env.KEELSON_OSDU_PMC_URL?.trim();
+  return (override || PMC_SITE_DEFAULT).replace(/\/+$/, "");
 }
 
-export async function resolvePmcReportUrl(
-  train: string | null | undefined,
-  host = GITLAB_HOST,
-): Promise<string | null> {
-  const slug = derivePmcReleaseSlug(train);
-  if (slug) {
-    const url = await fetchPmcReport(slug, host);
-    if (url) return url;
-  }
-
-  return fetchPmcReport(PMC_MASTER_SLUG, host);
+export function pmcReportLinks(site = pmcSite()): PmcLink[] {
+  const base = site.replace(/\/+$/, "");
+  return PMC_SURFACES.map(({ text, path }) => ({ text, href: `${base}${path}` }));
 }
