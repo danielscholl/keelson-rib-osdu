@@ -42,7 +42,7 @@ composed layout, top to bottom:
 
 ![Full bridge layout](./design/full-layout.png)
 
-1. **Cluster header** — the ICC (§3.1), **collapsed by default** to a one-line status strip
+1. **Cluster header** — the Cluster board (§3.1), **collapsed by default** to a one-line status strip
    (`✓ Healthy · CLUSTER · cimpl-stack-ms ⌄ · updated 27m ago ⟳`); expands to lifecycle + actions + access.
 2. **Waiting on You** (§3.7) — a single prominent priority row (`P1 !1287 … · 116d`).
 3. **Release Train** (§3.6) — release header + New Merge Requests + Platform Wins.
@@ -56,11 +56,11 @@ itself — see [ARCHITECTURE.md](./ARCHITECTURE.md) gaps **G1** (board) and **G4
 
 The per-surface cimpl-agent UI/UX targets (reference screenshots in [`docs/design/`](./design)):
 
-| Cluster ICC | Quality | Security | Features | Current Events |
+| Cluster | Quality | Security | Features | Current Events |
 |---|---|---|---|---|
-| ![](./design/cluster-icc.png) | ![](./design/quality-lane.png) | ![](./design/security-lane.png) | ![](./design/features-lane.png) | ![](./design/current-events.png) |
+| ![](./design/cluster.png) | ![](./design/quality-lane.png) | ![](./design/security-lane.png) | ![](./design/features-lane.png) | ![](./design/current-events.png) |
 
-### 3.1 Cluster — "Instance Control Center"
+### 3.1 Cluster
 The deployment's health + access panel. Three regions:
 - **Lifecycle summary** — 4 status rows: Context (`cimpl-stack-ms · azure`), Cluster
   (`reachable`), Flux (`29/29 reconciled`), Services (`8/8 ready`), each with a health glyph.
@@ -150,7 +150,7 @@ are kubectl-derived. CLIs handle their own auth (e.g. `glab` fallback) — no to
   are next — each a contributed workflow + board payload, still in the drawer.
 - **Phase 3 — top-level CIMPL surface + region layout (Keelson base, G4).** Compose the lane boards
   into the full page (collapsed cluster header · banner · 3 columns · collapsed feed) as a primary nav tab.
-- **Phase 4 — Cluster ICC.** Access cards + lifecycle + actions (depends on card link/copy + action round-trip primitives, G2/G3).
+- **Phase 4 — Cluster board.** Access cards + lifecycle + actions (depends on card link/copy + action round-trip primitives, G2/G3).
 - **Phase 5 — remaining regions.** Release Train, Waiting-on-You queue, Current Events feed — each a board slotted into a layout region.
 
 ## 7. Non-goals

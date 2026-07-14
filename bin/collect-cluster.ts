@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Cluster ICC collector — the producer behind the `osdu-cluster` workflow.
+ * Cluster board collector — the producer behind the `osdu-cluster` workflow.
  * Fetches `cimpl info` (sanitized — passwords stripped) plus Flux/HelmRelease
  * readiness via kubectl — the same fetch the `osdu_cluster` chat tool reuses —
  * shapes them into a canvas board-view JSON object, and prints that (and nothing

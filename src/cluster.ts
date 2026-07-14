@@ -13,10 +13,11 @@ import { type CreateMarker, formatAge, markerAgeMs, markerInFlight } from "./cre
 import { localExec } from "./exec.ts";
 import { getCimplPrefixes, isCimplManagedContext } from "./kubectl.ts";
 
-// The subset of `cimpl info --json` the ICC reads. With `--show-secrets` cimpl
-// also returns each credential's password; the collector discards it — only the
-// service + username reach this builder. The password is fetched on demand by
-// the `reveal-credential` action and must never enter the board payload.
+// The subset of `cimpl info --json` the Cluster board reads. With
+// `--show-secrets` cimpl also returns each credential's password; the collector
+// discards it — only the service + username reach this builder. The password is
+// fetched on demand by the `reveal-credential` action and must never enter the
+// board payload.
 export interface CimplEndpoint {
   name: string;
   url?: string;
@@ -143,7 +144,7 @@ export function sanitizeCimplInfo(raw: unknown): CimplInfo {
 // cluster". Shared with probeCimplContext (cluster-actions.ts).
 export type CimplContextState = "live" | "absent" | "unknown";
 
-// Fetch `cimpl info` (sanitized) for the Cluster ICC collector and the
+// Fetch `cimpl info` (sanitized) for the Cluster board collector and the
 // `osdu_cluster` chat tool. `--show-secrets` only enumerates which services have
 // a credential; sanitizeCimplInfo discards the password before it returns.
 // `deployment` mirrors probeCimplContext's classification: a completed non-zero
@@ -297,8 +298,8 @@ function portForwardField(
 // The operator-facing services the ACCESS grid surfaces, in display order.
 // cimpl info enumerates every Kubernetes service (the gateway, API-only
 // endpoints like minio-api, the per-namespace Redis variants, an OIDC client
-// secret); the ICC curates that down to the services an operator interacts
-// with. `portal` → a browser UI (green dot + ↗ from its endpoint URL);
+// secret); the Cluster board curates that down to the services an operator
+// interacts with. `portal` → a browser UI (green dot + ↗ from its endpoint URL);
 // otherwise a cluster-local service (cyan dot, no link). `creds` lists the
 // cimpl credential `service` names to join, in order — Kibana intentionally
 // carries the Elasticsearch credential (Kibana fronts Elasticsearch, so there
@@ -421,7 +422,7 @@ function switchContextAction(lifecycle: ClusterLifecycle): ActionItem | undefine
     type: "switch-context",
     label: "Switch active context",
     glyph: "⇄",
-    // Render the picker always-open so the target select shows directly in the ICC.
+    // Render the picker always-open so the target select shows directly in the board.
     expanded: true,
     payload: {
       observedCurrent: context,
@@ -562,13 +563,13 @@ function createClusterFrame(railLead: LeafSection[] = []): ColumnsSection {
 
 /**
  * The create-focused empty state: no cimpl deployment and no current context,
- * so the ICC becomes a provisioning surface — the create frame instead of
+ * so the board becomes a provisioning surface — the create frame instead of
  * empty lifecycle rows and inert reconcile/delete.
  */
 function buildCreateClusterBoard(): CanvasBoardView {
   return {
     view: "board",
-    title: "Cluster ICC",
+    title: "Cluster",
     header: {
       status: { label: "⚠ No clusters yet", tone: "caution" },
       chip: "no context",
@@ -616,7 +617,7 @@ function buildForeignContextBoard(lifecycle: ClusterLifecycle): CanvasBoardView 
 
   return {
     view: "board",
-    title: "Cluster ICC",
+    title: "Cluster",
     header: {
       status: { label: "⚠ Not a CIMPL stack", tone: "caution" },
       chip: context,
@@ -627,7 +628,7 @@ function buildForeignContextBoard(lifecycle: ClusterLifecycle): CanvasBoardView 
 
 /**
  * The provisioning state: a create was dispatched and no deployment has
- * appeared yet, so the ICC's whole job is to say so — the plan the operator
+ * appeared yet, so the board's whole job is to say so — the plan the operator
  * chose, the elapsed time, the exact command, and where the live output
  * streams. Deliberately verb-free: no create tabs (a second create is refused
  * anyway while the dispatch is in flight), no lifecycle verbs, no
@@ -661,7 +662,7 @@ function buildProvisioningBoard(marker: CreateMarker, now: number): CanvasBoardV
   };
   return {
     view: "board",
-    title: "Cluster ICC",
+    title: "Cluster",
     header: {
       status: { label: "◌ Bootstrapping…", tone: "info" },
       chip: marker.cluster,
@@ -707,7 +708,7 @@ function createAttentionSection(marker: CreateMarker, now: number): LeafSection 
 }
 
 /**
- * Build the Cluster ICC board from `cimpl info` access data + kubectl-derived
+ * Build the Cluster board from `cimpl info` access data + kubectl-derived
  * lifecycle counts. Pure — no I/O. Routes on the deployment + context signals:
  * a live deployment → the operating board (Bootstrapping while a create
  * marker is still in flight); an in-flight create dispatch with no live
@@ -745,7 +746,6 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
   const bootstrapping = Boolean(
     input.createMarker && markerInFlight(input.createMarker, input.now ?? Date.now()),
   );
-  const contexts = observedContexts(lifecycle);
 
   // Cluster-identity stamp carried by every action so onAction can reject a
   // stale board. Context is the guard's required key; fingerprint is added when
@@ -777,20 +777,6 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
       },
     ],
   };
-
-  const contextRows: LeafSection | undefined =
-    contexts.length > 0
-      ? {
-          kind: "rows",
-          title: "Contexts",
-          boxed: true,
-          items: contexts.map((name) => ({
-            glyph: name === context ? ("ok" as const) : ("neutral" as const),
-            text: name,
-            ...(name === context ? { trailing: "current" } : {}),
-          })),
-        }
-      : undefined;
 
   // Each action carries the cluster stamp so onAction can refuse to act on a
   // different cluster than the board was built against. Omitted when there's no
@@ -825,7 +811,7 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
     {
       kind: "columns",
       columns: [
-        { weight: 1.4, sections: contextRows ? [lifecycleRows, contextRows] : [lifecycleRows] },
+        { weight: 1.4, sections: [lifecycleRows] },
         { weight: 1, sections: [actions] },
       ],
     },
@@ -843,7 +829,7 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
 
   return {
     view: "board",
-    title: "Cluster ICC",
+    title: "Cluster",
     header: {
       status: clusterStatus(lifecycle, !info && input.deployment === "absent", bootstrapping),
       chip: context ?? "no context",

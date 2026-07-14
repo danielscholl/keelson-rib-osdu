@@ -1,13 +1,13 @@
 ---
 title: Tools and actions
-description: "The chat tools the rib registers and the Cluster ICC action verbs, with the guard each one passes before touching the cluster."
+description: "The chat tools the rib registers and the Cluster board action verbs, with the guard each one passes before touching the cluster."
 sidebar:
   order: 5
 ---
 
 The rib exposes its data layer twice: as boards on the CIMPL surface, and
 as chat tools over the same sources. It also handles the action verbs the
-Cluster ICC board dispatches. This page is the contract for both, guard by
+Cluster board dispatches. This page is the contract for both, guard by
 guard.
 
 ## Read tools
@@ -54,7 +54,7 @@ destructive-confirm flow.
 
 ## Board actions
 
-The Cluster ICC board dispatches five verbs to the rib's `onAction`
+The Cluster board dispatches five verbs to the rib's `onAction`
 handler. Every one first passes the cluster-stamp guard: the action's
 captured context (and fingerprint, when captured) must match the live
 kubectl context, or the action is refused with a refresh-and-retry error.
@@ -84,7 +84,7 @@ than copied.
 
 - [Guardrails](../../concepts/guardrails/): the identity guard and secret
   handling these verbs enforce.
-- [Surface](../surface/): where the Cluster ICC and its actions live in
+- [Surface](../surface/): where the Cluster board and its actions live in
   the layout.
 - [Snapshot keys](../snapshot-keys/): the published views these tools
   mirror as raw data.

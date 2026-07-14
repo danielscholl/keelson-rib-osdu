@@ -48,8 +48,8 @@ The whole rib is one `Rib` object exported from `src/index.ts`. It contributes a
 **CIMPL** nav surface composed of eight views, each bound to a `rib:osdu:*`
 snapshot key and fed by a deterministic workflow:
 
-- **Views + the surface** — `cluster` (ICC), `topology` (graph), `quality`,
-  `features`, `security`, `events`, `release`, `waiting`. The Cluster ICC is the
+- **Views + the surface** — `cluster` (board), `topology` (graph), `quality`,
+  `features`, `security`, `events`, `release`, `waiting`. The Cluster board is the
   collapsible header; the rest fill the banner / rows / footer regions. No
   hand-coded UI: every view is a board (or graph) a workflow publishes.
 - **Workflows** (`contributeWorkflows`) — one per view (`osdu-cluster`,
@@ -62,7 +62,7 @@ snapshot key and fed by a deterministic workflow:
   shapes its JSON with a **pure builder** (`src/topology.ts`, `quality.ts`,
   `features.ts`, `security.ts`, …). No domain logic in the rib glue; no analyzer
   reimplemented.
-- **Actions** (`onAction`) — the Cluster ICC's lifecycle verbs
+- **Actions** (`onAction`) — the Cluster board's lifecycle verbs
   (Reconcile / Suspend / Resume / Delete) dispatch to `cimpl` via the async exec
   surface; `reveal-credential` re-fetches one password and returns it to the
   caller (loopback) for a clipboard copy.

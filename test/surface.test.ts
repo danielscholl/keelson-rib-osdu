@@ -11,7 +11,7 @@ describe("CIMPL surface", () => {
     expect(ribSurfaceDescriptorSchema.safeParse(surface).success).toBe(true);
   });
 
-  test("the Cluster ICC is the collapsible header region", () => {
+  test("the Cluster board is the collapsible header region", () => {
     const header = rib.surfaces?.[0]?.layout.header;
     expect(header?.key).toBe("rib:osdu:cluster");
     expect(header?.collapsible).toBe(true);
@@ -48,7 +48,7 @@ describe("CIMPL surface", () => {
     expect(columns.map((c) => c.title)).toEqual(["Features", "Quality", "Security"]);
     expect(columns.map((c) => c.glyph?.tone)).toEqual(["brand", "info", "caution"]);
     expect(columns.every((c) => typeof c.glyph?.char === "string")).toBe(true);
-    expect(rib.surfaces?.[0]?.layout.header?.title).toBe("Cluster ICC");
+    expect(rib.surfaces?.[0]?.layout.header?.title).toBe("Cluster");
   });
 
   test("each region names the workflow its refresh re-runs", () => {

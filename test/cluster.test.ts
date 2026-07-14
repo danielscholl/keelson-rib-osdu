@@ -14,7 +14,7 @@ import type { CreateMarker } from "../src/create-marker.ts";
 // appear in the board or a committed fixture.
 // Mirrors the raw `cimpl info` shape: the gateway, an Elasticsearch endpoint,
 // the MinIO S3 API, SeaweedFS variants, per-namespace Redis, and an OIDC client
-// secret all appear here — the ICC must curate them down to the eight
+// secret all appear here — the Cluster board must curate them down to the eight
 // operator-facing services. Credentials carry service + username ONLY (never a
 // password — that's fetched on demand by reveal-credential).
 const healthy: ClusterInput = {
@@ -131,8 +131,19 @@ describe("buildClusterBoard", () => {
   test("the body is a two-column Lifecycle | Actions layout", () => {
     const col = columnsSection(buildClusterBoard(healthy));
     expect(col.columns).toHaveLength(2);
-    expect(col.columns[0]?.sections[0]?.kind).toBe("rows");
-    expect(col.columns[1]?.sections[0]?.kind).toBe("actions");
+    expect(col.columns[0]?.sections.map((s) => s.kind)).toEqual(["rows"]);
+    expect(col.columns[1]?.sections.map((s) => s.kind)).toEqual(["actions"]);
+  });
+
+  // The context lives in the header chip and the switch-context picker; a
+  // Contexts rows section beside Lifecycle would be a third copy of it.
+  test("the lifecycle column carries no Contexts section beside the lifecycle rows", () => {
+    const col = columnsSection(buildClusterBoard(healthy));
+    expect(col.columns[0]?.sections).toHaveLength(1);
+    expect(rowsOf(buildClusterBoard(healthy)).title).toBe("Lifecycle");
+    expect(
+      col.columns.flatMap((c) => c.sections).some((s) => "title" in s && s.title === "Contexts"),
+    ).toBe(false);
   });
 
   test("lifecycle rows cover context / cluster / flux / services with reconciled counts", () => {

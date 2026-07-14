@@ -13,7 +13,7 @@ security. Each view is fed by a deterministic workflow whose structured output
 drives a canvas snapshot. The harness stays domain-free: all OSDU and cluster
 knowledge lives in the rib, and it ships **zero React** into the trusted SPA.
 
-> Status: **early / under active design.** The Cluster ICC, topology graph,
+> Status: **early / under active design.** The Cluster board, topology graph,
 > Quality, Features, and Security boards work end-to-end. Release Train, Waiting
 > on You, and Events are still planned. See [docs/PRD.md](docs/PRD.md) for scope
 > and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it works.
@@ -24,7 +24,7 @@ A **CIMPL** surface composed of five views, each backed by a workflow:
 
 | View | Source | Shows |
 |---|---|---|
-| **Cluster ICC** | `cimpl info`, kubectl Flux | health pill, lifecycle, access grid + copy-on-reveal credentials |
+| **Cluster** | `cimpl info`, kubectl Flux | health pill, lifecycle, access grid + copy-on-reveal credentials |
 | **Topology** | kubectl Flux Kustomizations | dependency graph |
 | **Quality** | `osdu-quality release` | per-service quality board |
 | **Features** | `osdu-activity` epic / MR | epic and MR activity board |
@@ -71,14 +71,14 @@ Open `http://127.0.0.1:7878` → the **CIMPL** surface, then run the workflows t
 feed it:
 
 ```bash
-keelson workflow run osdu-cluster    # Cluster ICC
+keelson workflow run osdu-cluster    # Cluster
 keelson workflow run osdu-topology   # dependency graph
 keelson workflow run osdu-quality    # quality board
 keelson workflow run osdu-features    # epic / MR activity
 keelson workflow run osdu-security   # CVE board
 ```
 
-The CIMPL surface composes the lanes into one nav tab, with the Cluster ICC as
+The CIMPL surface composes the lanes into one nav tab, with the Cluster board as
 its collapsible header.
 
 ## How it works
@@ -89,7 +89,7 @@ stdout to structured output, which the rib publishes (fail-closed, through
 `canvasViewSchema`) to the `rib:osdu:*` snapshot key the view is bound to:
 
 ```
-osdu-cluster    →  collect-cluster.ts    →  board view  →  rib:osdu:cluster   →  "Cluster ICC"
+osdu-cluster    →  collect-cluster.ts    →  board view  →  rib:osdu:cluster   →  "Cluster"
 osdu-topology   →  collect-topology.ts   →  graph view  →  rib:osdu:topology  →  "Cluster Topology"
 osdu-quality    →  collect-quality.ts    →  board view  →  rib:osdu:quality   →  "Quality"
 osdu-features   →  collect-features.ts   →  board view  →  rib:osdu:features  →  "Features"
@@ -98,7 +98,7 @@ osdu-security   →  collect-security.ts   →  board view  →  rib:osdu:securi
 
 Each collector is a thin Bun script that shells a domain CLI and shapes its
 output with a pure builder — no domain logic in the rib glue, no analyzer
-reimplemented. The Cluster ICC also wires in-board **actions**
+reimplemented. The Cluster board also wires in-board **actions**
 (Reconcile / Suspend / Delete → `cimpl`, plus a `reveal-credential` action that
 re-fetches one password on demand so secrets never enter the board snapshot).
 
@@ -133,7 +133,7 @@ bun run collect:security | jq .   # osdu-quality release + glab group vulns + OS
 
 ## Roadmap
 
-The Cluster ICC, topology, Quality, Features, and Security boards render today.
+The Cluster board, topology, Quality, Features, and Security boards render today.
 Still ahead: the **Release Train**, **Waiting on You**, and **Current Events**
 boards that fill out the surface's banner and footer regions. Each lane wraps an
 existing OSDU / CIMPL CLI plus public CVE lookups (GitLab / OSV) — no
@@ -147,7 +147,7 @@ shell these CLIs (installed on `PATH`) and shape their JSON into generic,
 domain-free Keelson views:
 
 - **[CIMPL Stack](https://community.opengroup.org/osdu/platform/deployment-and-operations/cimpl-stack)**
-  (Apache-2.0): the `cimpl` CLI behind the **Cluster ICC** and **topology** —
+  (Apache-2.0): the `cimpl` CLI behind the **Cluster** and **topology** —
   cluster bootstrap and Flux GitOps for OSDU on Kubernetes.
 - **[AI DevOps Agent](https://community.opengroup.org/osdu/ui/ai-devops-agent/community)**
   (Apache-2.0): the `osdu-activity` and `osdu-quality` CLIs behind the

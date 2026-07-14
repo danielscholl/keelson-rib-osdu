@@ -34,7 +34,7 @@ body:
       label: Area
       description: Which part of the rib does this touch?
       options:
-        - Cluster ICC / topology
+        - Cluster / topology
         - Quality lane
         - Features lane
         - Security lane

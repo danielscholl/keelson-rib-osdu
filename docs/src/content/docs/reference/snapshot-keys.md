@@ -17,7 +17,7 @@ snapshot manager enforces: the rib cannot write outside it.
 
 | Key | Workflow | View kind | Canvas title | Renders |
 |---|---|---|---|---|
-| `rib:osdu:cluster` | `osdu-cluster` | `board` | Cluster ICC | Health pill, lifecycle rows, lifecycle actions, and the curated access grid with copy-on-reveal credentials. |
+| `rib:osdu:cluster` | `osdu-cluster` | `board` | Cluster | Health pill, lifecycle rows, lifecycle actions, and the curated access grid with copy-on-reveal credentials. |
 | `rib:osdu:topology` | `osdu-topology` | `graph` | Cluster Topology | The Flux Kustomization dependency graph, one node per Kustomization with its health as the badge. |
 | `rib:osdu:quality` | `osdu-quality` | `board` | Quality | Pass/flaky/fail KPI tiles, the per-service Sonar table, and the test-performance block. |
 | `rib:osdu:features` | `osdu-features` | `board` | Features | MR KPI tiles, mover cards with progress bars, and stalled rows with a why-flagged note. |

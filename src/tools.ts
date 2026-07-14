@@ -110,7 +110,7 @@ function lifecycleTool(exec: RibExec, verb: ClusterVerb, action: string): ToolDe
         if (res.ok) {
           emitResult(
             ctx,
-            `Ran \`${res.ran}\` on "${context}". The Cluster ICC board will reflect the new state on its next refresh.`,
+            `Ran \`${res.ran}\` on "${context}". The Cluster board will reflect the new state on its next refresh.`,
           );
         } else {
           emitResult(ctx, `\`${cmd}\` failed: ${res.error}`, true);
