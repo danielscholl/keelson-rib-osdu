@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { CanvasBoardView, RibContext, RibExec } from "@keelson/shared";
 import { buildClusterBoard } from "../src/cluster.ts";
 import { CLUSTER_LIFECYCLE_ARGS } from "../src/cluster-actions.ts";
-import { CLUSTER_CREATE_BASH } from "../src/cluster-create.ts";
+import { buildCreateCommand, CLUSTER_CREATE_BASH } from "../src/cluster-create.ts";
 import { readCreateMarker, writeCreateMarker } from "../src/create-marker.ts";
 import rib from "../src/index.ts";
 import { getCimplPrefixes, isCimplManagedContext, listContexts } from "../src/kubectl.ts";
@@ -536,6 +536,43 @@ describe("cluster create onAction (#61 run-workflow effect)", () => {
 
     if (result.ok) throw new Error("expected create refusal over a live CIMPL deployment");
     expect(readCreateMarker(dir)).toBeUndefined();
+  });
+
+  test("two concurrent creates dispatch exactly one workflow", async () => {
+    // Both pass the early marker check before either awaits the preflight; the
+    // post-preflight recheck (no await between recheck and write) must let only
+    // the first writer through.
+    const dir = scratchDataDir();
+    const { exec } = cimplInfoExec(ABSENT);
+    const ctx = ctxWithDataDir(exec, dir, []);
+    if (!rib.onAction) throw new Error("rib.onAction missing");
+
+    const [a, b] = await Promise.all([
+      rib.onAction({ type: "create", payload: { provider: "kind" } }, ctx),
+      rib.onAction({ type: "create", payload: { provider: "kind" } }, ctx),
+    ]);
+
+    const outcomes = [a, b];
+    expect(outcomes.filter((r) => r.ok)).toHaveLength(1);
+    const refused = outcomes.find((r) => !r.ok);
+    if (!refused || refused.ok) throw new Error("expected one refusal");
+    expect(refused.error).toMatch(/already in flight/);
+  });
+});
+
+describe("buildCreateCommand quoting", () => {
+  test("quotes free-text values so the preview is copy-safe", () => {
+    expect(buildCreateCommand({ provider: "kind", env: "my env" })).toBe(
+      "cimpl up --provider kind --env 'my env'",
+    );
+    // A metacharacter value must read as one literal word, never an expansion.
+    expect(buildCreateCommand({ provider: "kind", partition: "$(reboot)" })).toBe(
+      "cimpl up --provider kind --partition '$(reboot)'",
+    );
+    // Plain words stay unquoted — the common case reads like the docs.
+    expect(buildCreateCommand({ provider: "azure", env: "lab", location: "eastus" })).toBe(
+      "cimpl up --provider azure --env lab --location eastus",
+    );
   });
 });
 

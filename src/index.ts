@@ -72,21 +72,26 @@ async function launchClusterCreate(action: RibAction, ctx: RibContext): Promise<
   const selected = clusterCreateSelection((action.payload ?? {}) as Record<string, unknown>);
   if (!selected.ok) return { ok: false, error: selected.error };
   const dataDir = ctx.getDataDir?.();
-  if (dataDir) {
+  const inFlightError = (): string | undefined => {
+    if (!dataDir) return undefined;
     const existing = readCreateMarker(dataDir);
-    if (existing && markerInFlight(existing, Date.now())) {
-      return {
-        ok: false,
-        error:
-          `a cluster create is already in flight (dispatched ${formatAge(markerAgeMs(existing, Date.now()))}) ` +
-          "— watch the osdu-cluster-create run in the Workflows tab",
-      };
-    }
-  }
+    if (!existing || !markerInFlight(existing, Date.now())) return undefined;
+    return (
+      `a cluster create is already in flight (dispatched ${formatAge(markerAgeMs(existing, Date.now()))}) ` +
+      "— watch the osdu-cluster-create run in the Workflows tab"
+    );
+  };
+  const early = inFlightError();
+  if (early) return { ok: false, error: early };
   const denial = await refuseCreateOverCimpl(ctx.getExec());
   if (denial) return { ok: false, error: denial };
   const selection = selected.selection;
   if (dataDir) {
+    // Recheck after the awaited preflight, then write with no await between:
+    // two concurrent dispatches interleave only at awaits, so the second one
+    // sees the first's marker here and refuses instead of double-creating.
+    const raced = inFlightError();
+    if (raced) return { ok: false, error: raced };
     writeCreateMarker(dataDir, {
       status: "dispatched",
       provider: selection.provider,

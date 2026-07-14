@@ -72,6 +72,8 @@ export function markerPath(dataDir: string): string {
 
 // Tolerant read: a missing, unreadable, or malformed marker is no marker — the
 // board falls back to its markerless states rather than failing the collect.
+// Optional fields are validated too: a non-string profile/env/error would ride
+// straight into a board row's text.
 export function readCreateMarker(dataDir: string): CreateMarker | undefined {
   let parsed: unknown;
   try {
@@ -80,12 +82,16 @@ export function readCreateMarker(dataDir: string): CreateMarker | undefined {
     return undefined;
   }
   const m = parsed as CreateMarker;
+  const optionalString = (v: unknown) => v === undefined || typeof v === "string";
   const valid =
     (m?.status === "dispatched" || m?.status === "failed") &&
     typeof m.provider === "string" &&
     typeof m.cluster === "string" &&
     typeof m.command === "string" &&
-    typeof m.startedAt === "string";
+    typeof m.startedAt === "string" &&
+    optionalString(m.profile) &&
+    optionalString(m.env) &&
+    optionalString(m.error);
   return valid ? m : undefined;
 }
 

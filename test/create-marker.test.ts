@@ -44,6 +44,12 @@ describe("create marker file", () => {
     expect(readCreateMarker(dir)).toBeUndefined();
     writeFileSync(markerPath(dir), JSON.stringify({ status: "launching", provider: "kind" }));
     expect(readCreateMarker(dir)).toBeUndefined();
+    // Optional fields must be strings too — a non-string would ride straight
+    // into a board row's text.
+    writeFileSync(markerPath(dir), JSON.stringify({ ...base, profile: {} }));
+    expect(readCreateMarker(dir)).toBeUndefined();
+    writeFileSync(markerPath(dir), JSON.stringify({ ...base, status: "failed", error: 42 }));
+    expect(readCreateMarker(dir)).toBeUndefined();
     // Clearing what isn't there must not throw.
     clearCreateMarker(join(dir, "never-created"));
   });
