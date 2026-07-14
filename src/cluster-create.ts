@@ -145,11 +145,12 @@ export function clusterCreateArgs(input: ClusterCreateInput): Record<string, str
   return args;
 }
 
-// cimpl defaults a blank env to "dev", so a bare create comes up as
-// cimpl-stack-dev — the plan rail names the cluster the operator will actually get.
+// cimpl names the cluster `cimpl-stack-<env>`, and a blank env stays bare
+// `cimpl-stack` (config.py applies no default env) — the plan rail and the
+// provisioning chip must name the cluster the operator will actually get.
 export function deriveClusterName(env?: string): string {
-  const trimmed = (env ?? "").trim() || "dev";
-  return `cimpl-stack-${trimmed}`;
+  const trimmed = (env ?? "").trim();
+  return trimmed ? `cimpl-stack-${trimmed}` : "cimpl-stack";
 }
 
 // The `cimpl up` command a create selection runs — same flag order and rules as

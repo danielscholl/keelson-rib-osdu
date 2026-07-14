@@ -9,6 +9,7 @@ import {
   PROVIDER_CARDS,
   providerLongName,
 } from "./cluster-create.ts";
+import { type CreateMarker, formatAge, markerAgeMs, markerInFlight } from "./create-marker.ts";
 import { localExec } from "./exec.ts";
 import { getCimplPrefixes, isCimplManagedContext } from "./kubectl.ts";
 
@@ -37,6 +38,9 @@ export interface CimplInfo {
   suspended?: boolean;
 }
 
+// `stalled` counts resources that won't converge without intervention (a
+// kstatus Stalled condition, or suspended). Optional so older callers degrade
+// to the stalled-unknown pill behavior rather than a false "Reconciling".
 export interface ClusterLifecycle {
   context: string | null;
   // Stable per-cluster id (kube-system UID) captured at collection time, so a
@@ -44,8 +48,8 @@ export interface ClusterLifecycle {
   // same context name. Optional/null when unreadable.
   fingerprint?: string | null;
   reachable: boolean;
-  flux: { ready: number; total: number };
-  services: { ready: number; total: number };
+  flux: { ready: number; total: number; stalled?: number };
+  services: { ready: number; total: number; stalled?: number };
   contexts?: string[];
 }
 
@@ -62,6 +66,12 @@ export interface ClusterInput {
   // "No deployment" status, the create tabs); omitted or "unknown" keeps the
   // operating board's lifecycle recourse.
   deployment?: CimplContextState;
+  // The create-dispatch record, when one exists and the deployment isn't live
+  // yet (the collector clears it on the first live collect). In flight it
+  // renders the provisioning board; past its window it renders a caution row.
+  createMarker?: CreateMarker;
+  // Clock for marker age math; defaults to Date.now(). Tests pin it.
+  now?: number;
   lifecycle: ClusterLifecycle;
 }
 
@@ -201,24 +211,36 @@ function baseName(name: string): string {
 // renders the label verbatim); tone drives the colour. A reachable cluster
 // whose deployment is cimpl-confirmed absent reads "No deployment" — its 0/0
 // counts are absence, not degradation. An indeterminate probe falls through to
-// the ordinary health labels.
+// the ordinary health labels. An incomplete reconcile with stalled counts
+// collected and nothing stuck is progress ("Reconciling" — the post-create
+// converge, an ordinary drift reconcile), not degradation; "Degraded" is
+// reserved for a stalled/suspended resource or a stalled-unknown collection.
 function clusterStatus(
   lifecycle: ClusterLifecycle,
   suspended: boolean,
   noDeployment: boolean,
 ): {
   label: string;
-  tone: Tone;
+  tone: Tone | "info";
 } {
   if (!lifecycle.reachable) return { label: "✕ Unreachable", tone: "error" };
   if (noDeployment) return { label: "⚠ No deployment", tone: "warn" };
   if (suspended) return { label: "⏸ Suspended", tone: "warn" };
+  const { flux, services } = lifecycle;
   const allReady =
-    lifecycle.flux.total > 0 &&
-    lifecycle.services.total > 0 &&
-    lifecycle.flux.ready === lifecycle.flux.total &&
-    lifecycle.services.ready === lifecycle.services.total;
-  return allReady ? { label: "✓ Healthy", tone: "ok" } : { label: "⚠ Degraded", tone: "warn" };
+    flux.total > 0 &&
+    services.total > 0 &&
+    flux.ready === flux.total &&
+    services.ready === services.total;
+  if (allReady) return { label: "✓ Healthy", tone: "ok" };
+  const stalledKnown = flux.stalled !== undefined && services.stalled !== undefined;
+  const converging =
+    stalledKnown &&
+    (flux.stalled ?? 0) + (services.stalled ?? 0) === 0 &&
+    flux.total + services.total > 0;
+  return converging
+    ? { label: "◌ Reconciling", tone: "info" }
+    : { label: "⚠ Degraded", tone: "warn" };
 }
 
 function credentialField(cred: CimplCredential, stamp: ClusterStamp): FieldItem {
@@ -593,21 +615,112 @@ function buildForeignContextBoard(lifecycle: ClusterLifecycle): CanvasBoardView 
 }
 
 /**
+ * The provisioning state: a create was dispatched and no deployment has
+ * appeared yet, so the ICC's whole job is to say so — the plan the operator
+ * chose, the elapsed time, the exact command, and where the live output
+ * streams. Deliberately verb-free: no create tabs (a second create is refused
+ * anyway while the dispatch is in flight), no lifecycle verbs, no
+ * switch-context (hopping contexts mid-create is a foot-gun). The first
+ * collect that finds the deployment live replaces this board.
+ */
+function buildProvisioningBoard(marker: CreateMarker, now: number): CanvasBoardView {
+  const provisioning: LeafSection = {
+    kind: "rows",
+    title: "Provisioning",
+    boxed: true,
+    items: [
+      { glyph: "ok", text: "Provider", trailing: providerLongName(marker.provider) },
+      { text: "Profile", trailing: marker.profile ?? "cimpl default" },
+      ...(marker.env ? [{ text: "Environment", trailing: marker.env }] : []),
+      {
+        text: "Started",
+        trailing: formatAge(markerAgeMs(marker, now)),
+        detail:
+          "cimpl up provisions the cluster, switches kubectl to its context, and bootstraps " +
+          "Flux; services keep converging after it exits. This board flips to the live " +
+          "cluster on the first refresh that finds the deployment.",
+      },
+      { text: "Live output", trailing: "Workflows tab → osdu-cluster-create" },
+    ],
+  };
+  const command: CardsSection = {
+    kind: "cards",
+    title: "Command",
+    items: [{ title: marker.command, mono: true }],
+  };
+  return {
+    view: "board",
+    title: "Cluster ICC",
+    header: {
+      status: { label: "◌ Creating cluster…", tone: "info" },
+      chip: marker.cluster,
+    },
+    sections: [
+      {
+        kind: "columns",
+        columns: [
+          { weight: 1.6, sections: [provisioning] },
+          { weight: 1, sections: [command] },
+        ],
+      },
+    ],
+  };
+}
+
+// The lingering-marker caution: a dispatched create past its provider window
+// (or one marked failed) with still no deployment. Prepended to whichever
+// markerless board routes, so the operator sees the unresolved attempt before
+// the create form invites another.
+function createAttentionSection(marker: CreateMarker, now: number): LeafSection {
+  const age = formatAge(markerAgeMs(marker, now));
+  const failed = marker.status === "failed";
+  return {
+    kind: "rows",
+    boxed: true,
+    items: [
+      {
+        glyph: "warn",
+        text: failed
+          ? "The last cluster create failed"
+          : `A cluster create dispatched ${age} has not produced a deployment`,
+        trailing: marker.cluster,
+        detail: failed
+          ? `\`${marker.command}\` failed${marker.error ? `: ${marker.error}` : ""}. Check the ` +
+            "osdu-cluster-create run in the Workflows tab, then create again."
+          : `\`${marker.command}\` was dispatched ${age}. The run may still be working or may ` +
+            "have failed — check the osdu-cluster-create run in the Workflows tab before " +
+            "creating again.",
+      },
+    ],
+  };
+}
+
+/**
  * Build the Cluster ICC board from `cimpl info` access data + kubectl-derived
  * lifecycle counts. Pure — no I/O. Routes on the deployment + context signals:
- * no info and no context → the create empty state; a cimpl-confirmed-absent
- * deployment on a non-cimpl context → the foreign-context board (create +
- * switch, no cluster verbs); otherwise the operating board (a degraded /
- * unreachable / indeterminately-probed cimpl cluster keeps its lifecycle
- * recourse). Always emits a valid board.
+ * a live deployment → the operating board; an in-flight create dispatch → the
+ * provisioning board; no info and no context → the create empty state; a
+ * cimpl-confirmed-absent deployment on a non-cimpl context → the
+ * foreign-context board (create + switch, no cluster verbs); otherwise the
+ * operating board (a degraded / unreachable / indeterminately-probed cimpl
+ * cluster keeps its lifecycle recourse). A marker past its window prepends a
+ * check-the-run caution to whichever board routes. Always emits a valid board.
  */
 export function buildClusterBoard(input: ClusterInput): CanvasBoardView {
-  if (!input.info) {
-    const { context } = input.lifecycle;
-    if (!context) return buildCreateClusterBoard();
-    if (input.deployment === "absent" && !isCimplManagedContext(context))
-      return buildForeignContextBoard(input.lifecycle);
-  }
+  if (input.info) return buildOperatingClusterBoard(input);
+  const now = input.now ?? Date.now();
+  const marker = input.createMarker;
+  if (marker && markerInFlight(marker, now)) return buildProvisioningBoard(marker, now);
+  const board = routeAbsentDeployment(input);
+  if (marker) board.sections = [createAttentionSection(marker, now), ...board.sections];
+  return board;
+}
+
+function routeAbsentDeployment(input: ClusterInput): CanvasBoardView {
+  const { context } = input.lifecycle;
+  if (!context) return buildCreateClusterBoard();
+  if (input.deployment === "absent" && !isCimplManagedContext(context))
+    return buildForeignContextBoard(input.lifecycle);
   return buildOperatingClusterBoard(input);
 }
 

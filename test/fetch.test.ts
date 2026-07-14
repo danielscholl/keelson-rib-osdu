@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RibExec } from "@keelson/shared";
 import { fetchClusterInfo } from "../src/cluster.ts";
-import { getKustomizations } from "../src/kubectl.ts";
+import { getKustomizations, getReadiness } from "../src/kubectl.ts";
 import { fetchReleaseReport } from "../src/quality.ts";
 import report from "./fixtures/release-report.json";
 
@@ -72,6 +72,44 @@ describe("getKustomizations", () => {
     const r = await getKustomizations(undefined, exec);
     expect(r.kustomizations).toEqual([]);
     expect(r.error).toBe("no cluster");
+  });
+});
+
+describe("getReadiness", () => {
+  const item = (conditions: { type: string; status: string }[], suspend = false) => ({
+    ...(suspend ? { spec: { suspend: true } } : {}),
+    status: { conditions },
+  });
+
+  test("splits not-ready items into reconciling vs stalled by the kstatus condition", async () => {
+    const items = [
+      item([{ type: "Ready", status: "True" }]),
+      // Converging: not ready, not stalled — just reconciling.
+      item([{ type: "Ready", status: "False" }]),
+      // Stuck: retries exhausted / bad source.
+      item([
+        { type: "Ready", status: "False" },
+        { type: "Stalled", status: "True" },
+      ]),
+      // Suspended never converges on its own — counts as stalled.
+      item([{ type: "Ready", status: "True" }], true),
+    ];
+    const { exec } = makeExec({ json: () => ({ ok: true, data: { items } }) });
+    expect(await getReadiness("kustomizations", ["-A"], exec)).toEqual({
+      ready: 1,
+      total: 4,
+      stalled: 2,
+    });
+  });
+
+  test("degrades to zero counts WITH an error when the read fails", async () => {
+    const { exec } = makeExec({ json: () => ({ ok: false, error: "no cluster", code: 1 }) });
+    expect(await getReadiness("helmreleases", ["-A"], exec)).toEqual({
+      ready: 0,
+      total: 0,
+      stalled: 0,
+      error: "no cluster",
+    });
   });
 });
 

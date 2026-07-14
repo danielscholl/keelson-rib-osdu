@@ -6,6 +6,7 @@ import type { CanvasBoardView, RibContext, RibExec } from "@keelson/shared";
 import { buildClusterBoard } from "../src/cluster.ts";
 import { CLUSTER_LIFECYCLE_ARGS } from "../src/cluster-actions.ts";
 import { CLUSTER_CREATE_BASH } from "../src/cluster-create.ts";
+import { readCreateMarker, writeCreateMarker } from "../src/create-marker.ts";
 import rib from "../src/index.ts";
 import { getCimplPrefixes, isCimplManagedContext, listContexts } from "../src/kubectl.ts";
 
@@ -437,6 +438,104 @@ describe("cluster create onAction (#61 run-workflow effect)", () => {
     expect(result.error).toMatch(/provider must be one of/);
     // Validation short-circuits before the preflight probe.
     expect(calls).toEqual([]);
+  });
+
+  // With a data dir on the ctx, a create leaves a dispatch marker behind (the
+  // provisioning-board signal) and an in-flight marker refuses a double-create.
+  function ctxWithDataDir(exec: RibExec, dataDir: string, refreshed: string[]): RibContext {
+    return {
+      getExec: () => exec,
+      getDataDir: () => dataDir,
+      refreshWorkflow: async (name: string) => {
+        refreshed.push(name);
+      },
+    } as RibContext;
+  }
+
+  function scratchDataDir(): string {
+    return join(mkdtempSync(join(tmpdir(), "rib-osdu-create-")), "rib-osdu");
+  }
+
+  test("create writes a dispatched marker and nudges the cluster board", async () => {
+    const dir = scratchDataDir();
+    const refreshed: string[] = [];
+    const { exec } = cimplInfoExec(ABSENT);
+    if (!rib.onAction) throw new Error("rib.onAction missing");
+
+    const result = await rib.onAction(
+      { type: "create", payload: { provider: "kind", env: "lab" } },
+      ctxWithDataDir(exec, dir, refreshed),
+    );
+
+    if (!result.ok) throw new Error(`expected create success: ${JSON.stringify(result)}`);
+    const marker = readCreateMarker(dir);
+    expect(marker).toMatchObject({
+      status: "dispatched",
+      provider: "kind",
+      env: "lab",
+      cluster: "cimpl-stack-lab",
+      command: "cimpl up --provider kind --env lab",
+    });
+    expect(Number.isFinite(Date.parse(marker?.startedAt ?? ""))).toBe(true);
+    expect(refreshed).toEqual(["osdu-cluster"]);
+  });
+
+  test("a second create is refused while a dispatch is in flight — before any probe", async () => {
+    const dir = scratchDataDir();
+    writeCreateMarker(dir, {
+      status: "dispatched",
+      provider: "kind",
+      cluster: "cimpl-stack",
+      command: "cimpl up --provider kind",
+      startedAt: new Date().toISOString(),
+    });
+    const { exec, calls } = cimplInfoExec(ABSENT);
+    if (!rib.onAction) throw new Error("rib.onAction missing");
+
+    const result = await rib.onAction(
+      { type: "create", payload: { provider: "kind" } },
+      ctxWithDataDir(exec, dir, []),
+    );
+
+    if (result.ok) throw new Error("expected in-flight refusal");
+    expect(result.error).toMatch(/already in flight/);
+    expect(result.error).toMatch(/osdu-cluster-create/);
+    expect(calls).toEqual([]);
+  });
+
+  test("a stale dispatch does not block a new create — the marker is replaced", async () => {
+    const dir = scratchDataDir();
+    writeCreateMarker(dir, {
+      status: "dispatched",
+      provider: "kind",
+      cluster: "cimpl-stack",
+      command: "cimpl up --provider kind",
+      startedAt: new Date(Date.now() - 20 * 60_000).toISOString(),
+    });
+    const { exec } = cimplInfoExec(ABSENT);
+    if (!rib.onAction) throw new Error("rib.onAction missing");
+
+    const result = await rib.onAction(
+      { type: "create", payload: { provider: "azure" } },
+      ctxWithDataDir(exec, dir, []),
+    );
+
+    if (!result.ok) throw new Error("expected create success over a stale marker");
+    expect(readCreateMarker(dir)).toMatchObject({ status: "dispatched", provider: "azure" });
+  });
+
+  test("a refused create leaves no marker behind", async () => {
+    const dir = scratchDataDir();
+    const { exec } = cimplInfoExec({ ok: true, data: "{}" });
+    if (!rib.onAction) throw new Error("rib.onAction missing");
+
+    const result = await rib.onAction(
+      { type: "create", payload: { provider: "kind" } },
+      ctxWithDataDir(exec, dir, []),
+    );
+
+    if (result.ok) throw new Error("expected create refusal over a live CIMPL deployment");
+    expect(readCreateMarker(dir)).toBeUndefined();
   });
 });
 
