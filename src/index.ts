@@ -10,10 +10,19 @@ import {
   verifyCimplContext,
 } from "./cluster-actions.ts";
 import {
+  buildCreateCommand,
   CLUSTER_CREATE_BASH,
   clusterCreateArgs,
   clusterCreateSelection,
+  deriveClusterName,
 } from "./cluster-create.ts";
+import {
+  formatAge,
+  markerAgeMs,
+  markerInFlight,
+  readCreateMarker,
+  writeCreateMarker,
+} from "./create-marker.ts";
 import { currentContext, getClusterFingerprint, getCurrentContext } from "./kubectl.ts";
 import { registerOsduTools } from "./tools.ts";
 
@@ -30,6 +39,13 @@ const WAITING_KEY = "rib:osdu:waiting";
 // Absolute paths to deterministic bin scripts, resolved at module load so a
 // workflow node runs the right file regardless of the run's cwd.
 const CLUSTER_COLLECTOR = new URL("../bin/collect-cluster.ts", import.meta.url).pathname;
+
+// `RIB_OSDU_DATA_DIR='<path>' ` (trailing space) or "" — the env prefix handing
+// the rib's data dir to the cluster collector's bash node.
+function clusterCollectorEnv(ctx: RibContext): string {
+  const dataDir = ctx.getDataDir?.();
+  return dataDir ? `RIB_OSDU_DATA_DIR='${dataDir.replace(/'/g, "'\\''")}' ` : "";
+}
 const DOCTOR_COLLECTOR = new URL("../bin/collect-doctor.ts", import.meta.url).pathname;
 const TOPOLOGY_COLLECTOR = new URL("../bin/collect-topology.ts", import.meta.url).pathname;
 const QUALITY_COLLECTOR = new URL("../bin/collect-quality.ts", import.meta.url).pathname;
@@ -48,18 +64,51 @@ interface CimplCredentialSecret {
 // Handed to a workflow rather than run inline so the long `cimpl up` streams its
 // node trace; it runs with no current cluster, so it carries no identity guard.
 // A bounded preflight probe still refuses to fire the workflow over a live (or
-// indeterminate) CIMPL deployment — the distinct "don't clobber" safety check.
+// indeterminate) CIMPL deployment — the distinct "don't clobber" safety check —
+// and an in-flight dispatch marker refuses a double-create. The marker is what
+// flips the ICC to its provisioning board (the collector reads it); the
+// refreshWorkflow nudge republishes the board without waiting on the cadence.
 async function launchClusterCreate(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
   const selected = clusterCreateSelection((action.payload ?? {}) as Record<string, unknown>);
   if (!selected.ok) return { ok: false, error: selected.error };
+  const dataDir = ctx.getDataDir?.();
+  const inFlightError = (): string | undefined => {
+    if (!dataDir) return undefined;
+    const existing = readCreateMarker(dataDir);
+    if (!existing || !markerInFlight(existing, Date.now())) return undefined;
+    return (
+      `a cluster create is already in flight (dispatched ${formatAge(markerAgeMs(existing, Date.now()))}) ` +
+      "— watch the osdu-cluster-create run in the Workflows tab"
+    );
+  };
+  const early = inFlightError();
+  if (early) return { ok: false, error: early };
   const denial = await refuseCreateOverCimpl(ctx.getExec());
   if (denial) return { ok: false, error: denial };
+  const selection = selected.selection;
+  if (dataDir) {
+    // Recheck after the awaited preflight, then write with no await between:
+    // two concurrent dispatches interleave only at awaits, so the second one
+    // sees the first's marker here and refuses instead of double-creating.
+    const raced = inFlightError();
+    if (raced) return { ok: false, error: raced };
+    writeCreateMarker(dataDir, {
+      status: "dispatched",
+      provider: selection.provider,
+      ...(selection.profile ? { profile: selection.profile } : {}),
+      ...(selection.env ? { env: selection.env } : {}),
+      cluster: deriveClusterName(selection.env),
+      command: buildCreateCommand(selection),
+      startedAt: new Date().toISOString(),
+    });
+    await ctx.refreshWorkflow?.("osdu-cluster");
+  }
   return {
     ok: true,
     data: {
       effect: "run-workflow",
       workflow: "osdu-cluster-create",
-      args: clusterCreateArgs(selected.selection),
+      args: clusterCreateArgs(selection),
     },
   };
 }
@@ -147,7 +196,10 @@ const rib: Rib = {
           collapsible: true,
           collapsed: true,
           workflow: "osdu-cluster",
-          cadenceMs: 600_000,
+          // Fast enough that a provisioning/reconciling board tracks the
+          // cluster while the surface is open (a create settles in minutes);
+          // the refresh only runs while the surface is open.
+          cadenceMs: 60_000,
           title: "Cluster ICC",
         },
         banner: {
@@ -211,7 +263,7 @@ const rib: Rib = {
   // which the executor promotes to structured output and the rib binding
   // publishes (fail-closed via `validate`). No React, no hand-coded route —
   // the UI data comes from a workflow.
-  contributeWorkflows: () => [
+  contributeWorkflows: (ctx) => [
     {
       definition: {
         name: "osdu-cluster",
@@ -220,7 +272,11 @@ const rib: Rib = {
         nodes: [
           {
             id: "collect",
-            bash: `bun ${CLUSTER_COLLECTOR}`,
+            // The rib's data dir rides in as env so the out-of-process collector
+            // can read the create-dispatch marker; the path is single-quoted for
+            // the bash body. Absent on an older harness — the marker states
+            // degrade away, the board still collects.
+            bash: `${clusterCollectorEnv(ctx)}bun ${CLUSTER_COLLECTOR}`,
             output_schema: { type: "object", required: ["view", "sections"] },
           },
         ],
@@ -239,7 +295,10 @@ const rib: Rib = {
           {
             id: "provision",
             bash: CLUSTER_CREATE_BASH,
-            timeout: 600_000,
+            // A cloud create (AKS provision + Flux converge) can run most of an
+            // hour; 10 minutes killed legitimate azure runs. The create-marker
+            // windows in create-marker.ts stay within this ceiling.
+            timeout: 3_000_000,
           },
         ],
       },

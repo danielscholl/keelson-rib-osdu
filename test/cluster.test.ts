@@ -7,6 +7,7 @@ import {
   hasRealSecret,
   parseCimplInfoJson,
 } from "../src/cluster.ts";
+import type { CreateMarker } from "../src/create-marker.ts";
 
 // Fixture credentials carry service + username ONLY — never a password. The
 // password is fetched on demand by the reveal-credential action and must never
@@ -444,7 +445,8 @@ describe("buildClusterBoard", () => {
     const plan = sections.find((s) => s.kind === "rows" && s.title === "Cluster plan");
     if (plan?.kind !== "rows") throw new Error("expected a Cluster plan rows section");
     expect(plan.items.map((r) => [r.text, r.trailing])).toEqual([
-      ["Name", "cimpl-stack-dev"],
+      // Bare `cimpl up` names the cluster cimpl-stack — no default env applies.
+      ["Name", "cimpl-stack"],
       ["Provider", "Local KinD cluster"],
       ["Profile", "cimpl default"],
     ]);
@@ -642,5 +644,153 @@ describe("buildClusterBoard", () => {
     expect(types).toContain("delete");
     // …and bring-up is not offered over an unconfirmed absence.
     expect(board.sections.find((s) => s.kind === "actions")).toBeUndefined();
+  });
+
+  const NOW = Date.parse("2026-07-13T12:00:00Z");
+  const minutesAgo = (m: number) => new Date(NOW - m * 60_000).toISOString();
+  const dispatched: CreateMarker = {
+    status: "dispatched",
+    provider: "kind",
+    cluster: "cimpl-stack",
+    command: "cimpl up --provider kind",
+    startedAt: minutesAgo(2),
+  };
+
+  test("an in-flight create renders the provisioning board — plan, elapsed, command, no verbs", () => {
+    const board = buildClusterBoard({ ...foreign, createMarker: dispatched, now: NOW });
+    expect(canvasViewSchema.safeParse(board).success).toBe(true);
+    expect(board.header?.status).toEqual({ label: "◌ Creating cluster…", tone: "info" });
+    expect(board.header?.chip).toBe("cimpl-stack");
+    expect(board.header?.segments).toBeUndefined();
+    // Nothing to mis-click while cimpl works: no create tabs, no lifecycle verbs.
+    expect(allActions(board)).toEqual([]);
+    const rows = leafSections(board).find((s) => s.kind === "rows");
+    if (rows?.kind !== "rows") throw new Error("expected the provisioning rows");
+    expect(rows.items.map((r) => [r.text, r.trailing])).toEqual([
+      ["Provider", "Local KinD cluster"],
+      ["Profile", "cimpl default"],
+      ["Started", "2m ago"],
+      ["Live output", "Workflows tab → osdu-cluster-create"],
+    ]);
+    const command = leafSections(board).find((s) => s.kind === "cards");
+    if (command?.kind !== "cards") throw new Error("expected the command card");
+    expect(command.items[0]?.title).toBe("cimpl up --provider kind");
+    expect(command.items[0]?.mono).toBe(true);
+  });
+
+  test("the provisioning board carries the chosen env in its name and rows", () => {
+    const marker: CreateMarker = {
+      ...dispatched,
+      provider: "azure",
+      profile: "graduated",
+      env: "lab",
+      cluster: "cimpl-stack-lab",
+      command: "cimpl up --provider azure --profile graduated --env lab",
+      startedAt: minutesAgo(20),
+    };
+    // 20 minutes in: past the kind window but well inside the cloud one.
+    const board = buildClusterBoard({ ...foreign, createMarker: marker, now: NOW });
+    expect(board.header?.status?.label).toBe("◌ Creating cluster…");
+    expect(board.header?.chip).toBe("cimpl-stack-lab");
+    const rows = leafSections(board).find((s) => s.kind === "rows");
+    if (rows?.kind !== "rows") throw new Error("expected the provisioning rows");
+    expect(rows.items.map((r) => r.trailing)).toEqual([
+      "Azure Kubernetes Service",
+      "graduated",
+      "lab",
+      "20m ago",
+      "Workflows tab → osdu-cluster-create",
+    ]);
+  });
+
+  test("the provisioning board also replaces the no-context create state", () => {
+    const board = buildClusterBoard({ ...noCluster, createMarker: dispatched, now: NOW });
+    expect(board.header?.status?.label).toBe("◌ Creating cluster…");
+    expect(allActions(board)).toEqual([]);
+  });
+
+  test("a live deployment outranks any marker — the operating board renders uncautioned", () => {
+    // The collector clears the marker on a live collect; the builder must not
+    // depend on that housekeeping to route correctly.
+    const board = buildClusterBoard({ ...healthy, createMarker: dispatched, now: NOW });
+    expect(board.header?.status).toEqual({ label: "✓ Healthy", tone: "ok" });
+    expect(board.sections[0]?.kind).toBe("columns");
+  });
+
+  test("a dispatched marker past its window prepends the check-the-run caution", () => {
+    const stale: CreateMarker = { ...dispatched, startedAt: minutesAgo(20) };
+    const board = buildClusterBoard({ ...foreign, createMarker: stale, now: NOW });
+    expect(canvasViewSchema.safeParse(board).success).toBe(true);
+    // The foreign board still routes beneath it — create stays reachable.
+    expect(board.header?.status?.label).toBe("⚠ Not a CIMPL stack");
+    const caution = board.sections[0];
+    if (caution?.kind !== "rows") throw new Error("expected the caution rows first");
+    expect(caution.items[0]?.glyph).toBe("warn");
+    expect(caution.items[0]?.text).toContain("has not produced a deployment");
+    expect(caution.items[0]?.trailing).toBe("cimpl-stack");
+    expect(caution.items[0]?.detail).toContain("osdu-cluster-create");
+    expect(board.sections.some((s) => s.kind === "columns")).toBe(true);
+  });
+
+  test("a failed marker names the failure and keeps the run pointer", () => {
+    const failed: CreateMarker = {
+      ...dispatched,
+      status: "failed",
+      startedAt: minutesAgo(3),
+      error: "cimpl up exited 2",
+    };
+    const board = buildClusterBoard({ ...foreign, createMarker: failed, now: NOW });
+    const caution = board.sections[0];
+    if (caution?.kind !== "rows") throw new Error("expected the caution rows first");
+    expect(caution.items[0]?.text).toBe("The last cluster create failed");
+    expect(caution.items[0]?.detail).toContain("cimpl up exited 2");
+    expect(caution.items[0]?.detail).toContain("osdu-cluster-create");
+  });
+
+  test("an incomplete reconcile with nothing stalled reads Reconciling, not Degraded", () => {
+    const board = buildClusterBoard({
+      ...healthy,
+      lifecycle: {
+        ...healthy.lifecycle,
+        flux: { ready: 17, total: 22, stalled: 0 },
+        services: { ready: 30, total: 32, stalled: 0 },
+      },
+    });
+    expect(board.header?.status).toEqual({ label: "◌ Reconciling", tone: "info" });
+  });
+
+  test("a stalled resource makes an incomplete reconcile Degraded", () => {
+    const board = buildClusterBoard({
+      ...healthy,
+      lifecycle: {
+        ...healthy.lifecycle,
+        flux: { ready: 17, total: 22, stalled: 1 },
+        services: { ready: 30, total: 32, stalled: 0 },
+      },
+    });
+    expect(board.header?.status).toEqual({ label: "⚠ Degraded", tone: "warn" });
+  });
+
+  test("stalled counts never soften a fully-ready or stalled-unknown pill", () => {
+    const ready = buildClusterBoard({
+      ...healthy,
+      lifecycle: {
+        ...healthy.lifecycle,
+        flux: { ready: 29, total: 29, stalled: 0 },
+        services: { ready: 32, total: 32, stalled: 0 },
+      },
+    });
+    expect(ready.header?.status).toEqual({ label: "✓ Healthy", tone: "ok" });
+    // One side collected without stalled (a degraded read) → Degraded, not
+    // Reconciling: an unknown can't vouch for clean convergence.
+    const unknown = buildClusterBoard({
+      ...healthy,
+      lifecycle: {
+        ...healthy.lifecycle,
+        flux: { ready: 17, total: 22, stalled: 0 },
+        services: { ready: 30, total: 32 },
+      },
+    });
+    expect(unknown.header?.status).toEqual({ label: "⚠ Degraded", tone: "warn" });
   });
 });

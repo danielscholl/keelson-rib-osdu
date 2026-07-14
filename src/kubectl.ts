@@ -164,16 +164,27 @@ export function isReady(item: ReadyLike): boolean {
   return item.status?.conditions?.some((c) => c.type === "Ready" && c.status === "True") ?? false;
 }
 
+// A resource that won't converge without intervention: the kstatus `Stalled`
+// condition both Flux controllers set (retries exhausted, bad source), or
+// suspended — equally stuck from the board's point of view. A not-ready
+// resource that is neither is just reconciling.
+export function isStalled(item: ReadyLike): boolean {
+  if (item.spec?.suspend === true) return true;
+  return item.status?.conditions?.some((c) => c.type === "Stalled" && c.status === "True") ?? false;
+}
+
 export interface ReadinessResult {
   ready: number;
   total: number;
+  stalled: number;
   /** Present when collection degraded (no cluster, no kubectl, parse failure). */
   error?: string;
 }
 
 /**
- * Count ready/total for a Flux resource (e.g. kustomizations, helmreleases) on
- * the active context. Never throws: degrades to `{ ready: 0, total: 0, error }`.
+ * Count ready/stalled/total for a Flux resource (e.g. kustomizations,
+ * helmreleases) on the active context. Never throws: degrades to
+ * `{ ready: 0, total: 0, stalled: 0, error }`.
  */
 export async function getReadiness(
   resource: string,
@@ -185,9 +196,13 @@ export async function getReadiness(
     ["get", resource, ...scopeArgs, "-o", "json"],
     { timeoutMs: KUBE_TIMEOUT_MS },
   );
-  if (!res.ok) return { ready: 0, total: 0, error: res.error };
+  if (!res.ok) return { ready: 0, total: 0, stalled: 0, error: res.error };
   const items = res.data.items ?? [];
-  return { ready: items.filter(isReady).length, total: items.length };
+  return {
+    ready: items.filter(isReady).length,
+    total: items.length,
+    stalled: items.filter((i) => !isReady(i) && isStalled(i)).length,
+  };
 }
 
 interface KubeJob {

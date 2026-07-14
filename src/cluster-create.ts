@@ -145,11 +145,20 @@ export function clusterCreateArgs(input: ClusterCreateInput): Record<string, str
   return args;
 }
 
-// cimpl defaults a blank env to "dev", so a bare create comes up as
-// cimpl-stack-dev — the plan rail names the cluster the operator will actually get.
+// cimpl names the cluster `cimpl-stack-<env>`, and a blank env stays bare
+// `cimpl-stack` (config.py applies no default env) — the plan rail and the
+// provisioning chip must name the cluster the operator will actually get.
 export function deriveClusterName(env?: string): string {
-  const trimmed = (env ?? "").trim() || "dev";
-  return `cimpl-stack-${trimmed}`;
+  const trimmed = (env ?? "").trim();
+  return trimmed ? `cimpl-stack-${trimmed}` : "cimpl-stack";
+}
+
+// Single-quote a free-text flag value unless it's plainly shell-safe, so the
+// rendered command stays copy-safe (a value with spaces or metacharacters must
+// not read as extra words or an expansion). The workflow itself passes each
+// value as one quoted argv element regardless.
+function shellWord(value: string): string {
+  return /^[A-Za-z0-9._-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 // The `cimpl up` command a create selection runs — same flag order and rules as
@@ -158,10 +167,12 @@ export function deriveClusterName(env?: string): string {
 export function buildCreateCommand(input: ClusterCreateInput): string {
   const flags = [`--provider ${input.provider}`];
   if (input.profile) flags.push(`--profile ${input.profile}`);
-  if (input.env) flags.push(`--env ${input.env}`);
-  if (input.partition) flags.push(`--partition ${input.partition}`);
-  if (input.instance) flags.push(`--instance ${input.instance}`);
-  if (input.provider === "azure" && input.location) flags.push(`--location ${input.location}`);
+  if (input.env) flags.push(`--env ${shellWord(input.env)}`);
+  if (input.partition) flags.push(`--partition ${shellWord(input.partition)}`);
+  if (input.instance) flags.push(`--instance ${shellWord(input.instance)}`);
+  if (input.provider === "azure" && input.location) {
+    flags.push(`--location ${shellWord(input.location)}`);
+  }
   const head =
     input.provider === "azure" && input.privateNetwork
       ? "CIMPL_AZURE_PRIVATE_NETWORK=1 cimpl up"
