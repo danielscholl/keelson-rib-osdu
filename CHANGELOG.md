@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.8.0...v0.9.0) (2026-07-14)
+
+
+### Added
+
+* **cluster:** add foreign-context board for non-cimpl contexts ([#102](https://github.com/danielscholl/keelson-rib-osdu/issues/102)) ([403a859](https://github.com/danielscholl/keelson-rib-osdu/commit/403a85919a9ed9cd21b4494da169cac99124c55e))
+* **cluster:** add provisioning board state driven by a create-dispatch marker ([#104](https://github.com/danielscholl/keelson-rib-osdu/issues/104)) ([186a050](https://github.com/danielscholl/keelson-rib-osdu/commit/186a050c51c492b77bf3cccbb2fe9f1ab8e8f125))
+* **cluster:** sync the create marker from onRunEvent run notifications ([#105](https://github.com/danielscholl/keelson-rib-osdu/issues/105)) ([c5b902d](https://github.com/danielscholl/keelson-rib-osdu/commit/c5b902d764eba4970b67530eb90ed80ff2a4984e))
+
 ## [0.8.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.7.0...v0.8.0) (2026-07-13)
 
 
