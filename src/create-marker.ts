@@ -20,6 +20,10 @@ export interface CreateMarker {
   command: string;
   startedAt: string;
   error?: string;
+  // The run that owns this marker. A board dispatch writes no runId (the run
+  // doesn't exist yet); the run's first `running` event adopts the marker.
+  // Terminal events from any other run leave a claimed marker alone.
+  runId?: string;
 }
 
 export const CREATE_MARKER_FILE = "cluster-create.json";
@@ -91,7 +95,8 @@ export function readCreateMarker(dataDir: string): CreateMarker | undefined {
     typeof m.startedAt === "string" &&
     optionalString(m.profile) &&
     optionalString(m.env) &&
-    optionalString(m.error);
+    optionalString(m.error) &&
+    optionalString(m.runId);
   return valid ? m : undefined;
 }
 

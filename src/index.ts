@@ -117,9 +117,12 @@ async function launchClusterCreate(action: RibAction, ctx: RibContext): Promise<
 }
 
 // A dispatch marker rebuilt from a run's own inputs — for a create launched
-// outside the board (Workflows surface, chat), which wrote no marker.
-function markerFromRun(event: RibRunEvent): CreateMarker {
+// outside the board (Workflows surface, chat), which wrote no marker. Null
+// when the inputs name an unknown provider/profile: the workflow rejects
+// those itself, so there is no honest command to describe.
+function markerFromRun(event: RibRunEvent): CreateMarker | null {
   const selection = selectionFromRunInputs(event.inputs);
+  if (!selection) return null;
   return {
     status: "dispatched",
     provider: selection.provider,
@@ -128,6 +131,7 @@ function markerFromRun(event: RibRunEvent): CreateMarker {
     cluster: deriveClusterName(selection.env),
     command: buildCreateCommand(selection),
     startedAt: event.startedAt,
+    runId: event.runId,
   };
 }
 
@@ -148,18 +152,40 @@ async function handleRunEvent(event: RibRunEvent, ctx: RibContext): Promise<void
   const dataDir = ctx.getDataDir?.();
   if (!dataDir) return;
   const existing = readCreateMarker(dataDir);
+  // The harness serializes events per RUN only — concurrent creates interleave
+  // freely, so an in-flight marker claimed by another run is never this
+  // event's to touch (cluster truth settles any residue on the next collect).
+  if (
+    existing &&
+    markerInFlight(existing, Date.now()) &&
+    existing.runId !== undefined &&
+    existing.runId !== event.runId
+  ) {
+    return;
+  }
   if (event.status === "running") {
-    // A board dispatch wrote its marker just before launching — keep it (its
-    // command came from the validated selection). Synthesize one only when
-    // none is in flight.
-    if (!existing || !markerInFlight(existing, Date.now())) {
-      writeCreateMarker(dataDir, markerFromRun(event));
+    if (existing && markerInFlight(existing, Date.now())) {
+      // A board dispatch wrote its marker (validated selection, no runId)
+      // just before launching: the first running event adopts it.
+      if (existing.runId === undefined) {
+        writeCreateMarker(dataDir, { ...existing, runId: event.runId });
+      }
+    } else {
+      const marker = markerFromRun(event);
+      if (!marker) return;
+      writeCreateMarker(dataDir, marker);
     }
   } else if (event.status === "failed") {
-    const base = existing?.status === "dispatched" ? existing : markerFromRun(event);
+    const base =
+      existing?.status === "dispatched" &&
+      (existing.runId === undefined || existing.runId === event.runId)
+        ? existing
+        : markerFromRun(event);
+    if (!base) return;
     writeCreateMarker(dataDir, {
       ...base,
       status: "failed",
+      runId: event.runId,
       ...(event.error ? { error: event.error } : {}),
     });
   } else {

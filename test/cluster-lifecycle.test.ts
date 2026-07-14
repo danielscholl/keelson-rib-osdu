@@ -452,8 +452,15 @@ describe("cluster create onAction (#61 run-workflow effect)", () => {
     } as RibContext;
   }
 
+  const tempRoots: string[] = [];
+  afterEach(() => {
+    for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
   function scratchDataDir(): string {
-    return join(mkdtempSync(join(tmpdir(), "rib-osdu-create-")), "rib-osdu");
+    const root = mkdtempSync(join(tmpdir(), "rib-osdu-create-"));
+    tempRoots.push(root);
+    return join(root, "rib-osdu");
   }
 
   test("create writes a dispatched marker and nudges the cluster board", async () => {
@@ -570,8 +577,15 @@ describe("onRunEvent — create-marker sync", () => {
     ...over,
   });
 
+  const tempRoots: string[] = [];
+  afterEach(() => {
+    for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
   function scratchDataDir(): string {
-    return join(mkdtempSync(join(tmpdir(), "rib-osdu-run-events-")), "rib-osdu");
+    const root = mkdtempSync(join(tmpdir(), "rib-osdu-run-events-"));
+    tempRoots.push(root);
+    return join(root, "rib-osdu");
   }
 
   function fire(event: RibRunEvent, dir: string, refreshed: string[]) {
@@ -607,7 +621,7 @@ describe("onRunEvent — create-marker sync", () => {
     expect(refreshed).toEqual(["osdu-cluster"]);
   });
 
-  test("a launch the board DID dispatch keeps the board's own marker", async () => {
+  test("a launch the board DID dispatch keeps the board's marker and adopts it", async () => {
     const dir = scratchDataDir();
     const boardMarker = {
       status: "dispatched" as const,
@@ -618,7 +632,7 @@ describe("onRunEvent — create-marker sync", () => {
     };
     writeCreateMarker(dir, boardMarker);
     await fire(runEvent({}), dir, []);
-    expect(readCreateMarker(dir)).toEqual(boardMarker);
+    expect(readCreateMarker(dir)).toEqual({ ...boardMarker, runId: "run-1" });
   });
 
   test("a failed run records the run's actual error on the marker", async () => {
@@ -636,6 +650,7 @@ describe("onRunEvent — create-marker sync", () => {
     expect(readCreateMarker(dir)).toEqual({
       ...boardMarker,
       status: "failed",
+      runId: "run-1",
       error: "cimpl up exited 2",
     });
     expect(refreshed).toEqual(["osdu-cluster"]);
@@ -656,6 +671,52 @@ describe("onRunEvent — create-marker sync", () => {
       expect(readCreateMarker(dir)).toBeUndefined();
       expect(refreshed).toEqual(["osdu-cluster"]);
     }
+  });
+
+  test("a second run cannot steal or settle another run's in-flight marker", async () => {
+    const dir = scratchDataDir();
+    await fire(runEvent({ runId: "run-a", inputs: { provider: "kind" } }), dir, []);
+    const claimed = readCreateMarker(dir);
+    expect(claimed?.runId).toBe("run-a");
+    const refreshed: string[] = [];
+    await fire(runEvent({ runId: "run-b", inputs: { provider: "azure" } }), dir, refreshed);
+    expect(readCreateMarker(dir)).toEqual(claimed);
+    await fire(runEvent({ runId: "run-b", status: "failed", error: "boom" }), dir, refreshed);
+    expect(readCreateMarker(dir)).toEqual(claimed);
+    await fire(runEvent({ runId: "run-b", status: "succeeded" }), dir, refreshed);
+    expect(readCreateMarker(dir)).toEqual(claimed);
+    // Foreign events change nothing, so they republish nothing.
+    expect(refreshed).toEqual([]);
+    // The owning run's terminal event still applies.
+    await fire(
+      runEvent({ runId: "run-a", status: "failed", error: "cimpl up exited 2" }),
+      dir,
+      refreshed,
+    );
+    expect(readCreateMarker(dir)).toMatchObject({
+      status: "failed",
+      runId: "run-a",
+      error: "cimpl up exited 2",
+    });
+    expect(refreshed).toEqual(["osdu-cluster"]);
+  });
+
+  test("inputs the workflow itself would reject synthesize no marker", async () => {
+    const dir = scratchDataDir();
+    const refreshed: string[] = [];
+    await fire(runEvent({ inputs: { provider: "aws" } }), dir, refreshed);
+    expect(readCreateMarker(dir)).toBeUndefined();
+    await fire(
+      runEvent({
+        status: "failed",
+        error: "unsupported provider: aws",
+        inputs: { provider: "aws" },
+      }),
+      dir,
+      refreshed,
+    );
+    expect(readCreateMarker(dir)).toBeUndefined();
+    expect(refreshed).toEqual([]);
   });
 
   test("a settling delete refreshes the board without minting any marker", async () => {

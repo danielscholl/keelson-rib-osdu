@@ -183,12 +183,17 @@ export function buildCreateCommand(input: ClusterCreateInput): string {
 // Rebuild a create selection from a run's inputs — the inverse of
 // clusterCreateArgs, for a dispatch the rib didn't launch (a run started from
 // the Workflows surface carries the operator's inputs but wrote no marker).
-// Unknown provider/profile values degrade to cimpl's defaults rather than
-// failing: the marker describes the attempt, it doesn't gate it.
-export function selectionFromRunInputs(inputs: Record<string, string>): ClusterCreateInput {
-  const provider = isClusterProvider(inputs.provider) ? inputs.provider : DEFAULT_CLUSTER_PROVIDER;
+// Mirrors CLUSTER_CREATE_BASH exactly: a blank provider defaults, but an
+// unknown provider/profile returns null — the workflow rejects those at its
+// own boundary, so no honest marker can describe the command it "ran".
+export function selectionFromRunInputs(inputs: Record<string, string>): ClusterCreateInput | null {
+  const rawProvider = inputs.provider ?? "";
+  if (rawProvider !== "" && !isClusterProvider(rawProvider)) return null;
+  const provider = isClusterProvider(rawProvider) ? rawProvider : DEFAULT_CLUSTER_PROVIDER;
+  const rawProfile = inputs.profile ?? "";
+  if (rawProfile !== "" && !isClusterProfile(rawProfile)) return null;
   const selection: ClusterCreateInput = { provider };
-  if (isClusterProfile(inputs.profile)) selection.profile = inputs.profile;
+  if (isClusterProfile(rawProfile)) selection.profile = rawProfile;
   const env = trimmedField(inputs.env);
   if (env) selection.env = env;
   const partition = trimmedField(inputs.partition);
