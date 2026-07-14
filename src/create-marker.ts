@@ -20,9 +20,8 @@ export interface CreateMarker {
   command: string;
   startedAt: string;
   error?: string;
-  // The run that owns this marker. A board dispatch writes no runId (the run
-  // doesn't exist yet); the run's first `running` event adopts the marker.
-  // Terminal events from any other run leave a claimed marker alone.
+  // Owning run — absent on a board dispatch until the first running event
+  // adopts the marker; other runs' events leave a claimed marker alone.
   runId?: string;
 }
 

@@ -180,12 +180,8 @@ export function buildCreateCommand(input: ClusterCreateInput): string {
   return `${head} ${flags.join(" ")}`;
 }
 
-// Rebuild a create selection from a run's inputs — the inverse of
-// clusterCreateArgs, for a dispatch the rib didn't launch (a run started from
-// the Workflows surface carries the operator's inputs but wrote no marker).
-// Mirrors CLUSTER_CREATE_BASH exactly: a blank provider defaults, but an
-// unknown provider/profile returns null — the workflow rejects those at its
-// own boundary, so no honest marker can describe the command it "ran".
+// Inverse of clusterCreateArgs, mirroring CLUSTER_CREATE_BASH: blank provider
+// defaults, unknown provider/profile is null (the workflow rejects those).
 export function selectionFromRunInputs(inputs: Record<string, string>): ClusterCreateInput | null {
   const rawProvider = inputs.provider ?? "";
   if (rawProvider !== "" && !isClusterProvider(rawProvider)) return null;

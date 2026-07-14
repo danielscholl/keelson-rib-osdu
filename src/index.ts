@@ -116,10 +116,8 @@ async function launchClusterCreate(action: RibAction, ctx: RibContext): Promise<
   };
 }
 
-// A dispatch marker rebuilt from a run's own inputs — for a create launched
-// outside the board (Workflows surface, chat), which wrote no marker. Null
-// when the inputs name an unknown provider/profile: the workflow rejects
-// those itself, so there is no honest command to describe.
+// Null when inputs name an unknown provider/profile — the workflow rejects
+// those itself, so no honest command exists to describe.
 function markerFromRun(event: RibRunEvent): CreateMarker | null {
   const selection = selectionFromRunInputs(event.inputs);
   if (!selection) return null;
@@ -135,14 +133,8 @@ function markerFromRun(event: RibRunEvent): CreateMarker | null {
   };
 }
 
-// Drive the create-dispatch marker to the run's REAL state (Rib.onRunEvent):
-// confirm a launch the board didn't dispatch, clear it the moment the run
-// succeeds (or was cancelled — a settled attempt, not a warning), and record
-// the run's actual error on failure so the caution row names the reason
-// instead of waiting out a provider-sized timeout window. Every transition
-// republishes the cluster board immediately rather than on the next cadence;
-// a settling delete gets the same nudge (no marker — teardown needs no
-// bring-up state, just a fresh board).
+// Cancellation clears the marker (a settled attempt, not a warning); every
+// transition republishes the board ahead of its cadence.
 async function handleRunEvent(event: RibRunEvent, ctx: RibContext): Promise<void> {
   if (event.workflowName === "osdu-cluster-delete") {
     if (event.status !== "running") await ctx.refreshWorkflow?.("osdu-cluster");
