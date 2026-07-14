@@ -1,4 +1,4 @@
-import type { Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
+import type { Rib, RibAction, RibActionResult, RibContext, RibRunEvent } from "@keelson/shared";
 import { errText, expectView } from "@keelson/shared";
 import { actionGuardError, hasRealSecret, parseCimplInfoJson } from "./cluster.ts";
 import {
@@ -15,8 +15,11 @@ import {
   clusterCreateArgs,
   clusterCreateSelection,
   deriveClusterName,
+  selectionFromRunInputs,
 } from "./cluster-create.ts";
 import {
+  type CreateMarker,
+  clearCreateMarker,
   formatAge,
   markerAgeMs,
   markerInFlight,
@@ -111,6 +114,58 @@ async function launchClusterCreate(action: RibAction, ctx: RibContext): Promise<
       args: clusterCreateArgs(selection),
     },
   };
+}
+
+// A dispatch marker rebuilt from a run's own inputs — for a create launched
+// outside the board (Workflows surface, chat), which wrote no marker.
+function markerFromRun(event: RibRunEvent): CreateMarker {
+  const selection = selectionFromRunInputs(event.inputs);
+  return {
+    status: "dispatched",
+    provider: selection.provider,
+    ...(selection.profile ? { profile: selection.profile } : {}),
+    ...(selection.env ? { env: selection.env } : {}),
+    cluster: deriveClusterName(selection.env),
+    command: buildCreateCommand(selection),
+    startedAt: event.startedAt,
+  };
+}
+
+// Drive the create-dispatch marker to the run's REAL state (Rib.onRunEvent):
+// confirm a launch the board didn't dispatch, clear it the moment the run
+// succeeds (or was cancelled — a settled attempt, not a warning), and record
+// the run's actual error on failure so the caution row names the reason
+// instead of waiting out a provider-sized timeout window. Every transition
+// republishes the cluster board immediately rather than on the next cadence;
+// a settling delete gets the same nudge (no marker — teardown needs no
+// bring-up state, just a fresh board).
+async function handleRunEvent(event: RibRunEvent, ctx: RibContext): Promise<void> {
+  if (event.workflowName === "osdu-cluster-delete") {
+    if (event.status !== "running") await ctx.refreshWorkflow?.("osdu-cluster");
+    return;
+  }
+  if (event.workflowName !== "osdu-cluster-create") return;
+  const dataDir = ctx.getDataDir?.();
+  if (!dataDir) return;
+  const existing = readCreateMarker(dataDir);
+  if (event.status === "running") {
+    // A board dispatch wrote its marker just before launching — keep it (its
+    // command came from the validated selection). Synthesize one only when
+    // none is in flight.
+    if (!existing || !markerInFlight(existing, Date.now())) {
+      writeCreateMarker(dataDir, markerFromRun(event));
+    }
+  } else if (event.status === "failed") {
+    const base = existing?.status === "dispatched" ? existing : markerFromRun(event);
+    writeCreateMarker(dataDir, {
+      ...base,
+      status: "failed",
+      ...(event.error ? { error: event.error } : {}),
+    });
+  } else {
+    clearCreateMarker(dataDir);
+  }
+  await ctx.refreshWorkflow?.("osdu-cluster");
 }
 
 async function switchContext(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
@@ -500,6 +555,8 @@ const rib: Rib = {
     const res = await runClusterLifecycle(exec, verb, timeoutMs);
     return res.ok ? { ok: true, data: { ran: res.ran } } : { ok: false, error: res.error };
   },
+
+  onRunEvent: handleRunEvent,
 
   // The OSDU domains as chat tools — the same data layer the panels visualize,
   // plus the reversible cluster-lifecycle verbs. The harness registers what this

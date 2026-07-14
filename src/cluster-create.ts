@@ -180,6 +180,29 @@ export function buildCreateCommand(input: ClusterCreateInput): string {
   return `${head} ${flags.join(" ")}`;
 }
 
+// Rebuild a create selection from a run's inputs — the inverse of
+// clusterCreateArgs, for a dispatch the rib didn't launch (a run started from
+// the Workflows surface carries the operator's inputs but wrote no marker).
+// Unknown provider/profile values degrade to cimpl's defaults rather than
+// failing: the marker describes the attempt, it doesn't gate it.
+export function selectionFromRunInputs(inputs: Record<string, string>): ClusterCreateInput {
+  const provider = isClusterProvider(inputs.provider) ? inputs.provider : DEFAULT_CLUSTER_PROVIDER;
+  const selection: ClusterCreateInput = { provider };
+  if (isClusterProfile(inputs.profile)) selection.profile = inputs.profile;
+  const env = trimmedField(inputs.env);
+  if (env) selection.env = env;
+  const partition = trimmedField(inputs.partition);
+  if (partition) selection.partition = partition;
+  const instance = trimmedField(inputs.instance);
+  if (instance) selection.instance = instance;
+  if (provider === "azure") {
+    const location = trimmedField(inputs.location);
+    if (location) selection.location = location;
+    if (inputs.private === "1") selection.privateNetwork = true;
+  }
+  return selection;
+}
+
 // The `osdu-cluster-create` workflow's single bash node. It builds the `cimpl up`
 // argv from the run inputs — reached through the safe env channel
 // (`$KEELSON_INPUTS_<key>`), NOT `$inputs.<key>` text substitution, since bash

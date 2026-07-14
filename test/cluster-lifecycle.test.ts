@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CanvasBoardView, RibContext, RibExec } from "@keelson/shared";
+import type { CanvasBoardView, RibContext, RibExec, RibRunEvent } from "@keelson/shared";
 import { buildClusterBoard } from "../src/cluster.ts";
 import { CLUSTER_LIFECYCLE_ARGS } from "../src/cluster-actions.ts";
 import { buildCreateCommand, CLUSTER_CREATE_BASH } from "../src/cluster-create.ts";
@@ -557,6 +557,132 @@ describe("cluster create onAction (#61 run-workflow effect)", () => {
     const refused = outcomes.find((r) => !r.ok);
     if (!refused || refused.ok) throw new Error("expected one refusal");
     expect(refused.error).toMatch(/already in flight/);
+  });
+});
+
+describe("onRunEvent — create-marker sync", () => {
+  const runEvent = (over: Partial<RibRunEvent>): RibRunEvent => ({
+    workflowName: "osdu-cluster-create",
+    runId: "run-1",
+    status: "running",
+    inputs: {},
+    startedAt: new Date().toISOString(),
+    ...over,
+  });
+
+  function scratchDataDir(): string {
+    return join(mkdtempSync(join(tmpdir(), "rib-osdu-run-events-")), "rib-osdu");
+  }
+
+  function fire(event: RibRunEvent, dir: string, refreshed: string[]) {
+    if (!rib.onRunEvent) throw new Error("rib.onRunEvent missing");
+    const ctx = {
+      getExec: () => makeExec({}).exec,
+      getDataDir: () => dir,
+      refreshWorkflow: async (name: string) => {
+        refreshed.push(name);
+      },
+    } as RibContext;
+    return rib.onRunEvent(event, ctx);
+  }
+
+  test("a launch the board didn't dispatch synthesizes a marker from the run inputs", async () => {
+    const dir = scratchDataDir();
+    const refreshed: string[] = [];
+    await fire(
+      runEvent({ inputs: { provider: "azure", env: "lab", private: "1" } }),
+      dir,
+      refreshed,
+    );
+    const marker = readCreateMarker(dir);
+    expect(marker).toMatchObject({
+      status: "dispatched",
+      provider: "azure",
+      env: "lab",
+      cluster: "cimpl-stack-lab",
+    });
+    expect(marker?.command).toBe(
+      "CIMPL_AZURE_PRIVATE_NETWORK=1 cimpl up --provider azure --env lab",
+    );
+    expect(refreshed).toEqual(["osdu-cluster"]);
+  });
+
+  test("a launch the board DID dispatch keeps the board's own marker", async () => {
+    const dir = scratchDataDir();
+    const boardMarker = {
+      status: "dispatched" as const,
+      provider: "kind",
+      cluster: "cimpl-stack",
+      command: "cimpl up --provider kind",
+      startedAt: new Date().toISOString(),
+    };
+    writeCreateMarker(dir, boardMarker);
+    await fire(runEvent({}), dir, []);
+    expect(readCreateMarker(dir)).toEqual(boardMarker);
+  });
+
+  test("a failed run records the run's actual error on the marker", async () => {
+    const dir = scratchDataDir();
+    const boardMarker = {
+      status: "dispatched" as const,
+      provider: "kind",
+      cluster: "cimpl-stack",
+      command: "cimpl up --provider kind",
+      startedAt: new Date().toISOString(),
+    };
+    writeCreateMarker(dir, boardMarker);
+    const refreshed: string[] = [];
+    await fire(runEvent({ status: "failed", error: "cimpl up exited 2" }), dir, refreshed);
+    expect(readCreateMarker(dir)).toEqual({
+      ...boardMarker,
+      status: "failed",
+      error: "cimpl up exited 2",
+    });
+    expect(refreshed).toEqual(["osdu-cluster"]);
+  });
+
+  test("success and cancellation clear the marker — a settled attempt is not a warning", async () => {
+    for (const status of ["succeeded", "cancelled"] as const) {
+      const dir = scratchDataDir();
+      writeCreateMarker(dir, {
+        status: "dispatched",
+        provider: "kind",
+        cluster: "cimpl-stack",
+        command: "cimpl up --provider kind",
+        startedAt: new Date().toISOString(),
+      });
+      const refreshed: string[] = [];
+      await fire(runEvent({ status }), dir, refreshed);
+      expect(readCreateMarker(dir)).toBeUndefined();
+      expect(refreshed).toEqual(["osdu-cluster"]);
+    }
+  });
+
+  test("a settling delete refreshes the board without minting any marker", async () => {
+    const dir = scratchDataDir();
+    const refreshed: string[] = [];
+    await fire(
+      runEvent({ workflowName: "osdu-cluster-delete", status: "succeeded" }),
+      dir,
+      refreshed,
+    );
+    expect(refreshed).toEqual(["osdu-cluster"]);
+    expect(readCreateMarker(dir)).toBeUndefined();
+    // A delete merely launching is not yet board-relevant.
+    await fire(
+      runEvent({ workflowName: "osdu-cluster-delete", status: "running" }),
+      dir,
+      refreshed,
+    );
+    expect(refreshed).toEqual(["osdu-cluster"]);
+  });
+
+  test("other rib workflows are ignored", async () => {
+    const dir = scratchDataDir();
+    const refreshed: string[] = [];
+    await fire(runEvent({ workflowName: "osdu-quality", status: "succeeded" }), dir, refreshed);
+    expect(refreshed).toEqual([]);
+    expect(readCreateMarker(dir)).toBeUndefined();
   });
 });
 
