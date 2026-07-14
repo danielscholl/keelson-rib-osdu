@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.9.0...v0.10.0) (2026-07-14)
+
+
+### Added
+
+* **cluster:** background create launch + Bootstrapping/Reconciling/Ready pill ladder ([#106](https://github.com/danielscholl/keelson-rib-osdu/issues/106)) ([4786b17](https://github.com/danielscholl/keelson-rib-osdu/commit/4786b178929d9eed6a9228221ad97fe1b943c552))
+
 ## [0.9.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.8.0...v0.9.0) (2026-07-14)
 
 
