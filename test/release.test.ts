@@ -16,8 +16,8 @@ const DECORATIVE_TONES = ["info", "brand", "accent", "caution", "ok"];
 
 const NOW = new Date("2026-06-06T12:00:00Z");
 const PMC_LINKS = [
-  { text: "PMC: Status Summary", href: "https://pmc.example.test/" },
-  { text: "PMC: Analytics", href: "https://pmc.example.test/analytics/index.html" },
+  { text: "Status Summary", href: "https://pmc.example.test/" },
+  { text: "Analytics", href: "https://pmc.example.test/analytics/index.html" },
 ];
 
 // A core service so the MR counts as a platform win.
@@ -105,7 +105,7 @@ describe("buildReleaseBoard", () => {
     expect(board.header?.chip).toBe("M26 (mode)");
   });
 
-  test("prepends a linked PMC Report rows section when links are present", () => {
+  test("trails a badge-less PMC Report grid after the columns when links are present", () => {
     const board = buildReleaseBoard({
       pmcLinks: PMC_LINKS,
       openMrs: [{ iid: 1, title: "a", state: "opened", milestone: "M26 - Release 0.30" }],
@@ -114,22 +114,26 @@ describe("buildReleaseBoard", () => {
     expect(canvasViewSchema.safeParse(board).success).toBe(true);
     expect(board.sections).toHaveLength(2);
 
-    const report = board.sections[0];
-    if (report?.kind !== "rows") throw new Error("expected report rows");
-    expect(report.title).toBe("Report");
-    expect(report.items).toEqual(PMC_LINKS);
-
-    const columns = board.sections[1];
-    if (columns?.kind !== "columns") throw new Error("expected columns after report");
+    // The queue leads; the constant links trail it.
+    const columns = board.sections[0];
+    if (columns?.kind !== "columns") throw new Error("expected columns first");
     expect(columns.columns).toHaveLength(2);
+
+    const report = board.sections[1];
+    if (report?.kind !== "grid") throw new Error("expected report grid after columns");
+    expect(report.title).toBe("PMC Report");
+    expect(report.cells).toEqual(PMC_LINKS.map((l) => ({ label: l.text, href: l.href })));
+    // No badge: there is no per-link signal to grade, so none is invented.
+    expect(report.cells.every((cell) => cell.badge === undefined)).toBe(true);
   });
 
   test("omits the PMC Report section when no links are present", () => {
-    for (const pmcLinks of [undefined, [], [{ text: "PMC: Status Summary", href: "  " }]]) {
+    for (const pmcLinks of [undefined, [], [{ text: "Status Summary", href: "  " }]]) {
       const board = buildReleaseBoard({ pmcLinks, now: NOW });
+      expect(board.sections).toHaveLength(1);
       expect(board.sections[0]?.kind).toBe("columns");
       expect(
-        board.sections.some((section) => section.kind === "rows" && section.title === "Report"),
+        board.sections.some((section) => section.kind === "grid" && section.title === "PMC Report"),
       ).toBe(false);
     }
   });

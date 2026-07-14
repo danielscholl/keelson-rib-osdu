@@ -194,11 +194,14 @@ export function buildReleaseBoard(input: ReleaseInput): CanvasBoardView {
       },
     ],
   };
-  const pmcRows: RowItem[] = (input.pmcLinks ?? [])
+  // The dashboard links are constants, so they trail the queue and the wins
+  // rather than lead them, and ride a badge-less grid: one compact strip of
+  // labelled links instead of a full-width row apiece.
+  const pmcCells = (input.pmcLinks ?? [])
     .filter((link) => link.text.trim() && link.href.trim())
-    .map((link) => ({ text: link.text, href: link.href }));
-  const sections: CanvasBoardView["sections"] = pmcRows.length
-    ? [{ kind: "rows", title: "Report", items: pmcRows }, columns]
+    .map((link) => ({ label: link.text, href: link.href }));
+  const sections: CanvasBoardView["sections"] = pmcCells.length
+    ? [columns, { kind: "grid", title: "PMC Report", cells: pmcCells }]
     : [columns];
   return {
     view: "board",
