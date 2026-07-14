@@ -180,6 +180,28 @@ export function buildCreateCommand(input: ClusterCreateInput): string {
   return `${head} ${flags.join(" ")}`;
 }
 
+// Inverse of clusterCreateArgs, mirroring CLUSTER_CREATE_BASH: blank provider
+// defaults, unknown provider/profile is null (the workflow rejects those).
+export function selectionFromRunInputs(inputs: Record<string, string>): ClusterCreateInput | null {
+  const rawProvider = inputs.provider ?? "";
+  if (rawProvider !== "" && !isClusterProvider(rawProvider)) return null;
+  const provider = isClusterProvider(rawProvider) ? rawProvider : DEFAULT_CLUSTER_PROVIDER;
+  const rawProfile = inputs.profile ?? "";
+  if (rawProfile !== "" && !isClusterProfile(rawProfile)) return null;
+  const selection: ClusterCreateInput = { provider };
+  if (isClusterProfile(rawProfile)) selection.profile = rawProfile;
+  // Verbatim, not trimmed — the bash passes every non-empty input as-is, and
+  // the marker must describe the command the run actually assembled.
+  if (inputs.env) selection.env = inputs.env;
+  if (inputs.partition) selection.partition = inputs.partition;
+  if (inputs.instance) selection.instance = inputs.instance;
+  if (provider === "azure") {
+    if (inputs.location) selection.location = inputs.location;
+    if (inputs.private === "1") selection.privateNetwork = true;
+  }
+  return selection;
+}
+
 // The `osdu-cluster-create` workflow's single bash node. It builds the `cimpl up`
 // argv from the run inputs — reached through the safe env channel
 // (`$KEELSON_INPUTS_<key>`), NOT `$inputs.<key>` text substitution, since bash

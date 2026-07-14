@@ -1,4 +1,4 @@
-import type { Rib, RibAction, RibActionResult, RibContext } from "@keelson/shared";
+import type { Rib, RibAction, RibActionResult, RibContext, RibRunEvent } from "@keelson/shared";
 import { errText, expectView } from "@keelson/shared";
 import { actionGuardError, hasRealSecret, parseCimplInfoJson } from "./cluster.ts";
 import {
@@ -15,8 +15,11 @@ import {
   clusterCreateArgs,
   clusterCreateSelection,
   deriveClusterName,
+  selectionFromRunInputs,
 } from "./cluster-create.ts";
 import {
+  type CreateMarker,
+  clearCreateMarker,
   formatAge,
   markerAgeMs,
   markerInFlight,
@@ -111,6 +114,78 @@ async function launchClusterCreate(action: RibAction, ctx: RibContext): Promise<
       args: clusterCreateArgs(selection),
     },
   };
+}
+
+// Null when inputs name an unknown provider/profile — the workflow rejects
+// those itself, so no honest command exists to describe.
+function markerFromRun(event: RibRunEvent): CreateMarker | null {
+  const selection = selectionFromRunInputs(event.inputs);
+  if (!selection) return null;
+  return {
+    status: "dispatched",
+    provider: selection.provider,
+    ...(selection.profile ? { profile: selection.profile } : {}),
+    ...(selection.env ? { env: selection.env } : {}),
+    cluster: deriveClusterName(selection.env),
+    command: buildCreateCommand(selection),
+    // Observation time, not event.startedAt: a resume keeps the run's original
+    // timestamp, which can put a fresh attempt outside the in-flight window.
+    startedAt: new Date().toISOString(),
+    runId: event.runId,
+  };
+}
+
+// Cancellation clears the marker (a settled attempt, not a warning); every
+// transition republishes the board ahead of its cadence.
+async function handleRunEvent(event: RibRunEvent, ctx: RibContext): Promise<void> {
+  if (event.workflowName === "osdu-cluster-delete") {
+    if (event.status !== "running") await ctx.refreshWorkflow?.("osdu-cluster");
+    return;
+  }
+  if (event.workflowName !== "osdu-cluster-create") return;
+  const dataDir = ctx.getDataDir?.();
+  if (!dataDir) return;
+  const existing = readCreateMarker(dataDir);
+  // The harness serializes events per RUN only — concurrent creates interleave
+  // freely, so an in-flight marker claimed by another run is never this
+  // event's to touch (cluster truth settles any residue on the next collect).
+  if (
+    existing &&
+    markerInFlight(existing, Date.now()) &&
+    existing.runId !== undefined &&
+    existing.runId !== event.runId
+  ) {
+    return;
+  }
+  if (event.status === "running") {
+    if (existing && markerInFlight(existing, Date.now())) {
+      // A board dispatch wrote its marker (validated selection, no runId)
+      // just before launching: the first running event adopts it.
+      if (existing.runId === undefined) {
+        writeCreateMarker(dataDir, { ...existing, runId: event.runId });
+      }
+    } else {
+      const marker = markerFromRun(event);
+      if (!marker) return;
+      writeCreateMarker(dataDir, marker);
+    }
+  } else if (event.status === "failed") {
+    const base =
+      existing?.status === "dispatched" &&
+      (existing.runId === undefined || existing.runId === event.runId)
+        ? existing
+        : markerFromRun(event);
+    if (!base) return;
+    writeCreateMarker(dataDir, {
+      ...base,
+      status: "failed",
+      runId: event.runId,
+      ...(event.error ? { error: event.error } : {}),
+    });
+  } else {
+    clearCreateMarker(dataDir);
+  }
+  await ctx.refreshWorkflow?.("osdu-cluster");
 }
 
 async function switchContext(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
@@ -500,6 +575,8 @@ const rib: Rib = {
     const res = await runClusterLifecycle(exec, verb, timeoutMs);
     return res.ok ? { ok: true, data: { ran: res.ran } } : { ok: false, error: res.error };
   },
+
+  onRunEvent: handleRunEvent,
 
   // The OSDU domains as chat tools — the same data layer the panels visualize,
   // plus the reversible cluster-lifecycle verbs. The harness registers what this
