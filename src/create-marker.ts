@@ -5,11 +5,11 @@ import { join } from "node:path";
  * The create-dispatch marker: a file in the rib's private data dir recording
  * that a `cimpl up` workflow was dispatched, so the Cluster ICC collector (a
  * separate process with no view of harness run state) can render a
- * provisioning board and refuse a double-create. The cluster itself settles
- * the outcome — the collector clears the marker on the first collect that
- * finds a live deployment. `failed` is written by run-event wiring (or a
- * future operator verb); a dispatched marker past its provider window simply
- * stops reading as in-flight.
+ * provisioning (then Bootstrapping) board and refuse a double-create. The
+ * run's terminal event settles the outcome; the collector clears a settled
+ * marker on the first collect that finds a live deployment. `failed` is
+ * written by run-event wiring (or a future operator verb); a dispatched
+ * marker past its provider window simply stops reading as in-flight.
  */
 export interface CreateMarker {
   status: "dispatched" | "failed";

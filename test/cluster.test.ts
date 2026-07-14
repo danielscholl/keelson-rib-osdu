@@ -108,11 +108,16 @@ describe("buildClusterBoard", () => {
     expect(canvasViewSchema.safeParse(buildClusterBoard(healthy)).success).toBe(true);
   });
 
-  test("a healthy cluster shows a ✓ Healthy header status pill + flux/service segments", () => {
+  test("a fully reconciled cluster shows a ✓ Ready header status pill + flux/service segments", () => {
     const board = buildClusterBoard(healthy);
-    expect(board.header?.status).toEqual({ label: "✓ Healthy", tone: "ok" });
+    expect(board.header?.status).toEqual({ label: "✓ Ready", tone: "ok" });
     expect(board.header?.chip).toBe("cimpl-stack-ms");
     expect(board.header?.segments?.map((s) => s.label)).toEqual(["Flux", "Services"]);
+  });
+
+  test("a suspended source never dims a fully reconciled cluster — cimpl up pins it on every create", () => {
+    const board = buildClusterBoard({ ...healthy, info: { ...healthy.info, suspended: true } });
+    expect(board.header?.status).toEqual({ label: "✓ Ready", tone: "ok" });
   });
 
   test("a partly-reconciled cluster reads as Degraded (warn)", () => {
@@ -659,7 +664,7 @@ describe("buildClusterBoard", () => {
   test("an in-flight create renders the provisioning board — plan, elapsed, command, no verbs", () => {
     const board = buildClusterBoard({ ...foreign, createMarker: dispatched, now: NOW });
     expect(canvasViewSchema.safeParse(board).success).toBe(true);
-    expect(board.header?.status).toEqual({ label: "◌ Creating cluster…", tone: "info" });
+    expect(board.header?.status).toEqual({ label: "◌ Bootstrapping…", tone: "info" });
     expect(board.header?.chip).toBe("cimpl-stack");
     expect(board.header?.segments).toBeUndefined();
     // Nothing to mis-click while cimpl works: no create tabs, no lifecycle verbs.
@@ -690,7 +695,7 @@ describe("buildClusterBoard", () => {
     };
     // 20 minutes in: past the kind window but well inside the cloud one.
     const board = buildClusterBoard({ ...foreign, createMarker: marker, now: NOW });
-    expect(board.header?.status?.label).toBe("◌ Creating cluster…");
+    expect(board.header?.status?.label).toBe("◌ Bootstrapping…");
     expect(board.header?.chip).toBe("cimpl-stack-lab");
     const rows = leafSections(board).find((s) => s.kind === "rows");
     if (rows?.kind !== "rows") throw new Error("expected the provisioning rows");
@@ -705,16 +710,55 @@ describe("buildClusterBoard", () => {
 
   test("the provisioning board also replaces the no-context create state", () => {
     const board = buildClusterBoard({ ...noCluster, createMarker: dispatched, now: NOW });
-    expect(board.header?.status?.label).toBe("◌ Creating cluster…");
+    expect(board.header?.status?.label).toBe("◌ Bootstrapping…");
     expect(allActions(board)).toEqual([]);
   });
 
   test("a live deployment outranks any marker — the operating board renders uncautioned", () => {
-    // The collector clears the marker on a live collect; the builder must not
-    // depend on that housekeeping to route correctly.
+    // Full convergence wins even mid-run: the create is finishing up, and the
+    // board should already read Ready rather than hold Bootstrapping.
     const board = buildClusterBoard({ ...healthy, createMarker: dispatched, now: NOW });
-    expect(board.header?.status).toEqual({ label: "✓ Healthy", tone: "ok" });
+    expect(board.header?.status).toEqual({ label: "✓ Ready", tone: "ok" });
     expect(board.sections[0]?.kind).toBe("columns");
+  });
+
+  test("a live-but-converging deployment reads Bootstrapping while the create run is in flight", () => {
+    const board = buildClusterBoard({
+      ...healthy,
+      createMarker: dispatched,
+      now: NOW,
+      lifecycle: {
+        ...healthy.lifecycle,
+        flux: { ready: 2, total: 22, stalled: 0 },
+        services: { ready: 5, total: 32, stalled: 0 },
+      },
+    });
+    expect(board.header?.status).toEqual({ label: "◌ Bootstrapping 2/22", tone: "info" });
+    // A degraded read mid-run is expected, not a health verdict — the run
+    // itself settles a failure through the marker.
+    const stalledUnknown = buildClusterBoard({
+      ...healthy,
+      createMarker: dispatched,
+      now: NOW,
+      lifecycle: {
+        ...healthy.lifecycle,
+        flux: { ready: 2, total: 22 },
+        services: { ready: 0, total: 0 },
+      },
+    });
+    expect(stalledUnknown.header?.status).toEqual({ label: "◌ Bootstrapping 2/22", tone: "info" });
+    // Once the marker settles (window elapsed), the ordinary ladder resumes.
+    const settled = buildClusterBoard({
+      ...healthy,
+      createMarker: { ...dispatched, startedAt: minutesAgo(20) },
+      now: NOW,
+      lifecycle: {
+        ...healthy.lifecycle,
+        flux: { ready: 2, total: 22, stalled: 0 },
+        services: { ready: 5, total: 32, stalled: 0 },
+      },
+    });
+    expect(settled.header?.status).toEqual({ label: "◌ Reconciling 2/22", tone: "info" });
   });
 
   test("a dispatched marker past its window prepends the check-the-run caution", () => {
@@ -747,7 +791,7 @@ describe("buildClusterBoard", () => {
     expect(caution.items[0]?.detail).toContain("osdu-cluster-create");
   });
 
-  test("an incomplete reconcile with nothing stalled reads Reconciling, not Degraded", () => {
+  test("an incomplete reconcile with nothing stalled reads Reconciling with counts, not Degraded", () => {
     const board = buildClusterBoard({
       ...healthy,
       lifecycle: {
@@ -756,7 +800,17 @@ describe("buildClusterBoard", () => {
         services: { ready: 30, total: 32, stalled: 0 },
       },
     });
-    expect(board.header?.status).toEqual({ label: "◌ Reconciling", tone: "info" });
+    expect(board.header?.status).toEqual({ label: "◌ Reconciling 17/22", tone: "info" });
+    // Flux done, services trailing: the counts follow the lagging signal.
+    const servicesTrailing = buildClusterBoard({
+      ...healthy,
+      lifecycle: {
+        ...healthy.lifecycle,
+        flux: { ready: 22, total: 22, stalled: 0 },
+        services: { ready: 30, total: 32, stalled: 0 },
+      },
+    });
+    expect(servicesTrailing.header?.status).toEqual({ label: "◌ Reconciling 30/32", tone: "info" });
   });
 
   test("a stalled resource makes an incomplete reconcile Degraded", () => {
@@ -780,7 +834,7 @@ describe("buildClusterBoard", () => {
         services: { ready: 32, total: 32, stalled: 0 },
       },
     });
-    expect(ready.header?.status).toEqual({ label: "✓ Healthy", tone: "ok" });
+    expect(ready.header?.status).toEqual({ label: "✓ Ready", tone: "ok" });
     // One side collected without stalled (a degraded read) → Degraded, not
     // Reconciling: an unknown can't vouch for clean convergence.
     const unknown = buildClusterBoard({

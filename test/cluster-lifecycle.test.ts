@@ -371,6 +371,7 @@ describe("cluster create onAction (#61 run-workflow effect)", () => {
       effect: "run-workflow",
       workflow: "osdu-cluster-create",
       args: { provider: "kind" },
+      stay: true,
     });
     // Only the preflight probe ran — no identity-guard kubectl reads.
     expect(commandCalls(calls, "cimpl")).toEqual(["info --json"]);
