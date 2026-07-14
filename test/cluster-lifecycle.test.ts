@@ -6,7 +6,7 @@ import type { CanvasBoardView, RibContext, RibExec, RibRunEvent } from "@keelson
 import { buildClusterBoard } from "../src/cluster.ts";
 import { CLUSTER_LIFECYCLE_ARGS } from "../src/cluster-actions.ts";
 import { buildCreateCommand, CLUSTER_CREATE_BASH } from "../src/cluster-create.ts";
-import { readCreateMarker, writeCreateMarker } from "../src/create-marker.ts";
+import { markerInFlight, readCreateMarker, writeCreateMarker } from "../src/create-marker.ts";
 import rib from "../src/index.ts";
 import { getCimplPrefixes, isCimplManagedContext, listContexts } from "../src/kubectl.ts";
 
@@ -699,6 +699,21 @@ describe("onRunEvent — create-marker sync", () => {
       error: "cimpl up exited 2",
     });
     expect(refreshed).toEqual(["osdu-cluster"]);
+  });
+
+  test("a resumed launch re-arms the marker at observation time, not the run's original start", async () => {
+    const dir = scratchDataDir();
+    const staleStart = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+    await fire(runEvent({ startedAt: staleStart, inputs: { provider: "kind" } }), dir, []);
+    const marker = readCreateMarker(dir);
+    if (!marker) throw new Error("expected a marker");
+    expect(markerInFlight(marker, Date.now())).toBe(true);
+  });
+
+  test("marker inputs mirror the run verbatim — no trimming the bash doesn't do", async () => {
+    const dir = scratchDataDir();
+    await fire(runEvent({ inputs: { env: " lab " } }), dir, []);
+    expect(readCreateMarker(dir)?.command).toBe("cimpl up --provider kind --env ' lab '");
   });
 
   test("inputs the workflow itself would reject synthesize no marker", async () => {

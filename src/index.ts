@@ -128,7 +128,9 @@ function markerFromRun(event: RibRunEvent): CreateMarker | null {
     ...(selection.env ? { env: selection.env } : {}),
     cluster: deriveClusterName(selection.env),
     command: buildCreateCommand(selection),
-    startedAt: event.startedAt,
+    // Observation time, not event.startedAt: a resume keeps the run's original
+    // timestamp, which can put a fresh attempt outside the in-flight window.
+    startedAt: new Date().toISOString(),
     runId: event.runId,
   };
 }

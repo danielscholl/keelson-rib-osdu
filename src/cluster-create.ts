@@ -190,15 +190,13 @@ export function selectionFromRunInputs(inputs: Record<string, string>): ClusterC
   if (rawProfile !== "" && !isClusterProfile(rawProfile)) return null;
   const selection: ClusterCreateInput = { provider };
   if (isClusterProfile(rawProfile)) selection.profile = rawProfile;
-  const env = trimmedField(inputs.env);
-  if (env) selection.env = env;
-  const partition = trimmedField(inputs.partition);
-  if (partition) selection.partition = partition;
-  const instance = trimmedField(inputs.instance);
-  if (instance) selection.instance = instance;
+  // Verbatim, not trimmed — the bash passes every non-empty input as-is, and
+  // the marker must describe the command the run actually assembled.
+  if (inputs.env) selection.env = inputs.env;
+  if (inputs.partition) selection.partition = inputs.partition;
+  if (inputs.instance) selection.instance = inputs.instance;
   if (provider === "azure") {
-    const location = trimmedField(inputs.location);
-    if (location) selection.location = location;
+    if (inputs.location) selection.location = inputs.location;
     if (inputs.private === "1") selection.privateNetwork = true;
   }
   return selection;
