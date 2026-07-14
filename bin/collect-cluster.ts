@@ -7,7 +7,12 @@
  * else) to stdout. Each source degrades independently to a valid board.
  */
 import { buildClusterBoard, type ClusterLifecycle, fetchClusterInfo } from "../src/cluster.ts";
-import { clearCreateMarker, markerExpired, readCreateMarker } from "../src/create-marker.ts";
+import {
+  clearCreateMarker,
+  markerExpired,
+  markerInFlight,
+  readCreateMarker,
+} from "../src/create-marker.ts";
 import { clusterFingerprint, currentContext, getReadiness, listContexts } from "../src/kubectl.ts";
 
 const { info, error: infoError, deployment } = await fetchClusterInfo();
@@ -21,13 +26,19 @@ if (flux.error) console.error(`[rib-osdu] flux readiness degraded: ${flux.error}
 if (services.error) console.error(`[rib-osdu] services readiness degraded: ${services.error}`);
 
 // The create-dispatch marker rides in from the rib's data dir (path baked into
-// this node's env by contributeWorkflows). A live deployment settles the create
-// — clear the marker rather than warn beside a working cluster; a day-old
-// marker is abandoned noise and clears too.
+// this node's env by contributeWorkflows). An in-flight marker survives the
+// deployment going live — the operating board reads it as Bootstrapping until
+// the run's terminal event (or the window) settles it. A live deployment
+// clears a settled marker rather than warn beside a working cluster; a
+// day-old marker is abandoned noise and clears too.
 const now = Date.now();
 const dataDir = process.env.RIB_OSDU_DATA_DIR;
 let createMarker = dataDir ? readCreateMarker(dataDir) : undefined;
-if (dataDir && createMarker && (info || markerExpired(createMarker, now))) {
+if (
+  dataDir &&
+  createMarker &&
+  ((info && !markerInFlight(createMarker, now)) || markerExpired(createMarker, now))
+) {
   clearCreateMarker(dataDir);
   createMarker = undefined;
 }

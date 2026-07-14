@@ -211,35 +211,46 @@ function baseName(name: string): string {
 // renders the label verbatim); tone drives the colour. A reachable cluster
 // whose deployment is cimpl-confirmed absent reads "No deployment" — its 0/0
 // counts are absence, not degradation. An indeterminate probe falls through to
-// the ordinary health labels. An incomplete reconcile with stalled counts
-// collected and nothing stuck is progress ("Reconciling" — the post-create
-// converge, an ordinary drift reconcile), not degradation; "Degraded" is
-// reserved for a stalled/suspended resource or a stalled-unknown collection.
+// the ordinary health labels. A fully reconciled cluster reads "Ready" even
+// with the GitRepository suspended — cimpl up pins the source after every
+// create (pin_gitops_source), so a suspended source is the normal operating
+// mode, not a health state. While the create run is in flight the pill reads
+// "Bootstrapping" — incomplete or stalled-unknown reads are expected mid-run,
+// and the run itself settles a failure. An incomplete reconcile with stalled
+// counts collected and nothing stuck is progress ("Reconciling" — the
+// post-create converge, an ordinary drift reconcile), not degradation;
+// "Degraded" is reserved for a stalled/suspended resource or a
+// stalled-unknown collection.
 function clusterStatus(
   lifecycle: ClusterLifecycle,
-  suspended: boolean,
   noDeployment: boolean,
+  bootstrapping: boolean,
 ): {
   label: string;
   tone: Tone | "info";
 } {
   if (!lifecycle.reachable) return { label: "✕ Unreachable", tone: "error" };
   if (noDeployment) return { label: "⚠ No deployment", tone: "warn" };
-  if (suspended) return { label: "⏸ Suspended", tone: "warn" };
   const { flux, services } = lifecycle;
   const allReady =
     flux.total > 0 &&
     services.total > 0 &&
     flux.ready === flux.total &&
     services.ready === services.total;
-  if (allReady) return { label: "✓ Healthy", tone: "ok" };
+  if (allReady) return { label: "✓ Ready", tone: "ok" };
+  // Counts from whichever signal is still converging — flux (kustomizations)
+  // leads the post-create converge, services (helmreleases) trail it.
+  const lagging =
+    flux.ready < flux.total ? flux : services.ready < services.total ? services : null;
+  const suffix = lagging ? ` ${lagging.ready}/${lagging.total}` : "";
+  if (bootstrapping) return { label: `◌ Bootstrapping${suffix || "…"}`, tone: "info" };
   const stalledKnown = flux.stalled !== undefined && services.stalled !== undefined;
   const converging =
     stalledKnown &&
     (flux.stalled ?? 0) + (services.stalled ?? 0) === 0 &&
     flux.total + services.total > 0;
   return converging
-    ? { label: "◌ Reconciling", tone: "info" }
+    ? { label: `◌ Reconciling${suffix}`, tone: "info" }
     : { label: "⚠ Degraded", tone: "warn" };
 }
 
@@ -652,7 +663,7 @@ function buildProvisioningBoard(marker: CreateMarker, now: number): CanvasBoardV
     view: "board",
     title: "Cluster ICC",
     header: {
-      status: { label: "◌ Creating cluster…", tone: "info" },
+      status: { label: "◌ Bootstrapping…", tone: "info" },
       chip: marker.cluster,
     },
     sections: [
@@ -698,8 +709,9 @@ function createAttentionSection(marker: CreateMarker, now: number): LeafSection 
 /**
  * Build the Cluster ICC board from `cimpl info` access data + kubectl-derived
  * lifecycle counts. Pure — no I/O. Routes on the deployment + context signals:
- * a live deployment → the operating board; an in-flight create dispatch → the
- * provisioning board; no info and no context → the create empty state; a
+ * a live deployment → the operating board (Bootstrapping while a create
+ * marker is still in flight); an in-flight create dispatch with no live
+ * deployment → the provisioning board; no info and no context → the create empty state; a
  * cimpl-confirmed-absent deployment on a non-cimpl context → the
  * foreign-context board (create + switch, no cluster verbs); otherwise the
  * operating board (a degraded / unreachable / indeterminately-probed cimpl
@@ -728,6 +740,11 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
   const { info, lifecycle } = input;
   const { context, reachable, flux, services } = lifecycle;
   const suspended = info?.suspended === true;
+  // An in-flight create marker beside a live deployment means the create run
+  // is still working — the pill reads Bootstrapping rather than judging health.
+  const bootstrapping = Boolean(
+    input.createMarker && markerInFlight(input.createMarker, input.now ?? Date.now()),
+  );
   const contexts = observedContexts(lifecycle);
 
   // Cluster-identity stamp carried by every action so onAction can reject a
@@ -828,7 +845,7 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
     view: "board",
     title: "Cluster ICC",
     header: {
-      status: clusterStatus(lifecycle, suspended, !info && input.deployment === "absent"),
+      status: clusterStatus(lifecycle, !info && input.deployment === "absent", bootstrapping),
       chip: context ?? "no context",
       segments: [
         { label: "Flux", n: flux.ready, tone: countTone(flux.ready, flux.total) },

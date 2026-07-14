@@ -112,6 +112,9 @@ async function launchClusterCreate(action: RibAction, ctx: RibContext): Promise<
       effect: "run-workflow",
       workflow: "osdu-cluster-create",
       args: clusterCreateArgs(selection),
+      // The ICC flips to its provisioning board in place; don't yank focus to
+      // the Workflows tab.
+      stay: true,
     },
   };
 }
