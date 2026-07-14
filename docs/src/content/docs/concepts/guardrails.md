@@ -5,7 +5,7 @@ sidebar:
   order: 3
 ---
 
-Most of the rib is read-only, but the Cluster ICC can mutate a live cluster
+Most of the rib is read-only, but the Cluster board can mutate a live cluster
 (Reconcile, Suspend, Resume, Delete) and can reveal credentials. Four
 guarantees hold on that surface, and each one is enforced in code rather
 than by convention.
@@ -72,5 +72,5 @@ last good snapshot stays up instead of a broken board replacing it.
   guarantees are layered on.
 - [Tools and actions](../../reference/tools-and-actions/): every action
   verb and chat tool, with the guards each one passes.
-- [Surface](../../reference/surface/): where the Cluster ICC sits in the
+- [Surface](../../reference/surface/): where the Cluster board sits in the
   CIMPL layout.

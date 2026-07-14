@@ -14,7 +14,7 @@ import type { CreateMarker } from "../src/create-marker.ts";
 // appear in the board or a committed fixture.
 // Mirrors the raw `cimpl info` shape: the gateway, an Elasticsearch endpoint,
 // the MinIO S3 API, SeaweedFS variants, per-namespace Redis, and an OIDC client
-// secret all appear here — the ICC must curate them down to the eight
+// secret all appear here — the Cluster board must curate them down to the eight
 // operator-facing services. Credentials carry service + username ONLY (never a
 // password — that's fetched on demand by reveal-credential).
 const healthy: ClusterInput = {

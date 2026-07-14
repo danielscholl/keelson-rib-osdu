@@ -56,8 +56,8 @@ pruning and namespace termination.
 | `osdu-events` | Catching up on recent platform and cluster motion. | Changing cluster state or merging MRs. |
 | `osdu-release` | Tracking the active release: what is queued, what shipped this week. | Merging MRs or changing the release. |
 | `osdu-waiting` | Checking what needs your personal attention, priority-sorted. | Merging, approving, or reconciling. |
-| `osdu-cluster-create` | Provisioning a new CIMPL development cluster from the Cluster ICC. | Reconciling, deleting, or switching an existing cluster. |
-| `osdu-cluster-delete` | Tearing down the current CIMPL development cluster after the ICC identity guard and typed confirmation pass. | Bypassing the ICC guard or deleting an unverified context. |
+| `osdu-cluster-create` | Provisioning a new CIMPL development cluster from the Cluster board. | Reconciling, deleting, or switching an existing cluster. |
+| `osdu-cluster-delete` | Tearing down the current CIMPL development cluster after the Cluster board identity guard and typed confirmation pass. | Bypassing the Cluster board guard or deleting an unverified context. |
 
 ## Validation
 

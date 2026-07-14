@@ -76,7 +76,7 @@ export function isCimplManagedContext(name: string | null | undefined): boolean 
   return getCimplPrefixes().some((prefix) => name.startsWith(prefix));
 }
 
-// List only the cimpl-managed kube-contexts, so the ICC picker (and the
+// List only the cimpl-managed kube-contexts, so the Cluster board picker (and the
 // switch-context guard) never offer to hop onto an arbitrary non-cimpl cluster.
 // Degrades to [] when kubectl is absent.
 export async function listContexts(exec: RibExec = localExec()): Promise<string[]> {

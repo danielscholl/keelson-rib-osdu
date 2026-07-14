@@ -32,14 +32,14 @@ This is the proven part — it works end-to-end today (see §7).
 - `contributeWorkflows()` — one workflow per surface: a `bash` node that runs the collector, an
   `output_schema`, a `bindSnapshotKey`, and a fail-closed `validate` (parse through `canvasViewSchema`).
 - `authStatus()` — probe (kubectl context for cluster; CLI presence for lanes).
-- `onAction()` / `actions` — for the Cluster ICC's Reconcile/Suspend/Delete (Phase 3; see Gap G3).
+- `onAction()` / `actions` — for the Cluster board's Reconcile/Suspend/Delete (Phase 3; see Gap G3).
 - `registerTools` — not used (label-only stub in the base).
 
 ## 3. Data flow & snapshot-key map
 
 | Surface | Snapshot key | Workflow | Collector → CLI |
 |---|---|---|---|
-| Cluster ICC | `rib:osdu:cluster` | `osdu-cluster` | `cimpl info --json` + kubectl (lifecycle) |
+| Cluster | `rib:osdu:cluster` | `osdu-cluster` | `cimpl info --json` + kubectl (lifecycle) |
 | Quality | `rib:osdu:quality` | `osdu-quality` | `osdu-quality release --output json` |
 | Security | `rib:osdu:security` | `osdu-security` | `osdu-quality release --output json` (+ gitlab/OSV) |
 | Features | `rib:osdu:features` | `osdu-features` | `osdu-activity epic/mr --output json` |
@@ -113,10 +113,10 @@ credentials. Links are gated to `http(s)` only (unsafe schemes collapse to plain
 board contract alongside G1; the Features lane's epic cards/rows link out through it today.
 
 ### G3 — Rib action round-trip in the UI
-The Cluster ICC has **actions** (Reconcile / Suspend / Delete). The `Rib` contract already has
+The Cluster board has **actions** (Reconcile / Suspend / Delete). The `Rib` contract already has
 `actions` + `onAction`, but the SPA needs to render action buttons on a rib view, call `onAction`, show
 a confirm for destructive ones, and reflect the result (refresh / toast). Verify what exists; build the
-gap. (Read-only surfaces don't need this; it gates only Phase 4, the ICC.)
+gap. (Read-only surfaces don't need this; it gates only Phase 4, the Cluster board.)
 
 ### G4 — Top-level rib surface + region layout  *(needed; gates the full page, Phase 3)*
 The full reference layout (`docs/design/full-layout.png`) is **one top-level surface** — a `CIMPL`
@@ -146,8 +146,8 @@ into G1's table block; `tone` is reused by every board primitive (segments, stat
 
 **Dependency order:** G0 + G1 + G2 (✓ shipped) unlocked the lane boards (Phase 2 — Quality and Features
 are boards now) → **G4** composes them into the top-level page (Phase 3) → **G3** unlocks the Cluster
-ICC's Reconcile/Suspend/Delete actions (Phase 4). **G4 is the next base gap**, best designed now that two
-real boards exist to lay out.
+board's Reconcile/Suspend/Delete actions (Phase 4). **G4 is the next base gap**, best designed now that
+two real boards exist to lay out.
 
 ## 7. Current state (what exists now)
 
@@ -158,7 +158,7 @@ real boards exist to lay out.
 - **Base gaps G0 + G1 + G2 shipped** to keelson `main` (PR #95): cell tone, the composite `board` view,
   and card-field link/copy. The Features lane was built with **zero further base change** — it fits the
   existing board contract.
-- The topology graph remains a seam proof (the real cluster surface is the ICC board, Phase 4).
+- The topology graph remains a seam proof (the real cluster surface is the Cluster board, Phase 4).
 - Remaining base asks: **G4** (top-level surface + region layout) and **G3** (rib-action round-trip).
 
 ## 8. Next step
@@ -166,4 +166,4 @@ real boards exist to lay out.
 G1 shipped and two lanes (Quality, Features) render as boards. Next: build the **Security** lane and
 **Release Train** as boards (more boards to lay out), then design **G4** (the top-level `CIMPL` surface +
 region layout) in the Keelson base and compose the lane boards into the full page — and finally the
-**Cluster ICC** (which also needs G3, the rib-action round-trip).
+**Cluster board** (which also needs G3, the rib-action round-trip).

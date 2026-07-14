@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 /**
  * The create-dispatch marker: a file in the rib's private data dir recording
- * that a `cimpl up` workflow was dispatched, so the Cluster ICC collector (a
+ * that a `cimpl up` workflow was dispatched, so the Cluster board collector (a
  * separate process with no view of harness run state) can render a
  * provisioning (then Bootstrapping) board and refuse a double-create. The
  * run's terminal event settles the outcome; the collector clears a settled

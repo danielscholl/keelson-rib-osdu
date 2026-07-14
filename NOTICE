@@ -13,7 +13,7 @@ vision this rib builds on follows.
 CIMPL Stack — the `cimpl` CLI (cluster bootstrap + Flux GitOps for OSDU)
 ==============================================================================
 
-The Cluster ICC and topology surfaces shell the `cimpl` CLI (`cimpl info`,
+The Cluster and topology surfaces shell the `cimpl` CLI (`cimpl info`,
 `cimpl reconcile`, `cimpl down`) and read the Flux state it provisions. The
 rib's cluster/topology shaping re-expresses the OSDU CIMPL bridge; its dashboard
 composer logic is near-ported (ported, never imported).

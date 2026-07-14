@@ -11,7 +11,7 @@ import {
   listContexts,
 } from "./kubectl.ts";
 
-// cimpl lifecycle verbs the ICC actions (onAction) and the chat tools dispatch
+// cimpl lifecycle verbs the Cluster board actions (onAction) and the chat tools dispatch
 // to. Reconcile/Suspend/Resume are reversible; Delete tears down the current
 // context's cluster and is gated separately (UI destructive-confirm; not a tool).
 // Create is not here — it launches the `osdu-cluster-create` workflow.

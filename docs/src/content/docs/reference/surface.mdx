@@ -6,7 +6,7 @@ sidebar:
 ---
 
 import { Image } from "astro:assets";
-import iccShot from "../../../assets/screenshots/cluster-icc.png";
+import clusterShot from "../../../assets/screenshots/cluster.png";
 
 The rib contributes one nav surface, **CIMPL**, that composes the lane
 boards into a single tab. This page is the contract for that surface: the
@@ -43,7 +43,7 @@ every ten. The release train and the events feed move with MR traffic
 that change a few times a day, so they refresh every two hours; each lane
 also re-collects on demand when you run its workflow by hand.
 
-### Header: Cluster ICC
+### Header: Cluster
 
 The collapsible header is the cluster's health and access strip. Collapsed,
 it shows the board's header pill (Healthy / Degraded / Suspended /
@@ -52,8 +52,8 @@ Expanded, it adds lifecycle rows, the Reconcile / Suspend / Delete actions,
 and the access grid with copy-on-reveal credentials.
 
 <figure>
-  <Image src={iccShot} alt="The expanded Cluster ICC: lifecycle rows for context, cluster, Flux, and services beside the action buttons, above an access grid of service cards with credential copy buttons." />
-  <figcaption>Figure 1. The expanded Cluster ICC: lifecycle rows and actions, above the curated access grid.</figcaption>
+  <Image src={clusterShot} alt="The expanded Cluster board: lifecycle rows for context, cluster, Flux, and services beside the action buttons, above an access grid of service cards with credential copy buttons." />
+  <figcaption>Figure 1. The expanded Cluster board: lifecycle rows and actions, above the curated access grid.</figcaption>
 </figure>
 
 This is the one region that can mutate the cluster; every action it emits
@@ -93,6 +93,6 @@ it renders from the Ribs page rather than a CIMPL region.
 - [Snapshot keys](../snapshot-keys/): the keys behind every region here.
 - [Workflows](../workflows/): the collector each region's workflow runs.
 - [Tools and actions](../tools-and-actions/): the action verbs the Cluster
-  ICC header dispatches.
+  board header dispatches.
 - [Guardrails](../../concepts/guardrails/): the identity guard on those
   actions.

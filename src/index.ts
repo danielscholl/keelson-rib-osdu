@@ -69,8 +69,8 @@ interface CimplCredentialSecret {
 // A bounded preflight probe still refuses to fire the workflow over a live (or
 // indeterminate) CIMPL deployment — the distinct "don't clobber" safety check —
 // and an in-flight dispatch marker refuses a double-create. The marker is what
-// flips the ICC to its provisioning board (the collector reads it); the
-// refreshWorkflow nudge republishes the board without waiting on the cadence.
+// flips the Cluster board to its provisioning state (the collector reads it);
+// the refreshWorkflow nudge republishes the board without waiting on the cadence.
 async function launchClusterCreate(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
   const selected = clusterCreateSelection((action.payload ?? {}) as Record<string, unknown>);
   if (!selected.ok) return { ok: false, error: selected.error };
@@ -112,8 +112,8 @@ async function launchClusterCreate(action: RibAction, ctx: RibContext): Promise<
       effect: "run-workflow",
       workflow: "osdu-cluster-create",
       args: clusterCreateArgs(selection),
-      // The ICC flips to its provisioning board in place; don't yank focus to
-      // the Workflows tab.
+      // The Cluster board flips to its provisioning state in place; don't yank
+      // focus to the Workflows tab.
       stay: true,
     },
   };
@@ -250,7 +250,7 @@ const rib: Rib = {
   // Each view binds a rib-namespaced snapshot key to a canvas renderer. The
   // buttons appear on the Ribs page; data arrives when the workflows run.
   views: [
-    { key: CLUSTER_KEY, canvasKind: "view", title: "Cluster ICC" },
+    { key: CLUSTER_KEY, canvasKind: "view", title: "Cluster" },
     { key: DOCTOR_KEY, canvasKind: "view", title: "Cluster Doctor" },
     { key: TOPOLOGY_KEY, canvasKind: "view", title: "Cluster Topology" },
     { key: QUALITY_KEY, canvasKind: "view", title: "Quality" },
@@ -262,7 +262,7 @@ const rib: Rib = {
   ],
 
   // Composes the lane boards into one CIMPL nav tab (the G4 surface); regions
-  // bind the same snapshot keys the views publish. The Cluster ICC is the
+  // bind the same snapshot keys the views publish. The Cluster board is the
   // collapsible header (the cluster's health + access + actions strip).
   surfaces: [
     {
@@ -278,7 +278,7 @@ const rib: Rib = {
           // cluster while the surface is open (a create settles in minutes);
           // the refresh only runs while the surface is open.
           cadenceMs: 60_000,
-          title: "Cluster ICC",
+          title: "Cluster",
         },
         banner: {
           key: WAITING_KEY,
@@ -346,7 +346,7 @@ const rib: Rib = {
       definition: {
         name: "osdu-cluster",
         description:
-          'Use when: checking the deployment\'s health + access or choosing a kube-context. Triggers: "show the cluster", "is the cluster up", "where is Airflow / the portal", "reconcile the cluster", "switch context". Does: shells `cimpl info --json` plus kubectl Flux/HelmRelease readiness and publishes a Cluster ICC board — lifecycle rows (context / reachable / Flux reconciled / services ready), observed context rows, Reconcile · Suspend/Resume · Delete · Create cluster · Switch active context actions, and endpoint + internal-service access cards — to the Cluster ICC canvas. NOT for: bypassing typed confirmations or identity guards.',
+          'Use when: checking the deployment\'s health + access or choosing a kube-context. Triggers: "show the cluster", "is the cluster up", "where is Airflow / the portal", "reconcile the cluster", "switch context". Does: shells `cimpl info --json` plus kubectl Flux/HelmRelease readiness and publishes a Cluster board — lifecycle rows (context / reachable / Flux reconciled / services ready), Reconcile · Suspend/Resume · Delete · Create cluster · Switch active context actions, and endpoint + internal-service access cards — to the Cluster canvas. NOT for: bypassing typed confirmations or identity guards.',
         nodes: [
           {
             id: "collect",
@@ -368,7 +368,7 @@ const rib: Rib = {
       definition: {
         name: "osdu-cluster-create",
         description:
-          'Use when: bringing up a new CIMPL dev cluster from an empty or unreachable ICC. Triggers: "create the cluster", "bring up cimpl", "provision a new cluster". Does: runs `cimpl up` with the chosen provider/profile/env/partition/instance (+ azure location/private) as a streaming node in the Workflows surface. NOT for: reconciling, deleting, or switching an existing cluster.',
+          'Use when: bringing up a new CIMPL dev cluster from an empty or unreachable Cluster board. Triggers: "create the cluster", "bring up cimpl", "provision a new cluster". Does: runs `cimpl up` with the chosen provider/profile/env/partition/instance (+ azure location/private) as a streaming node in the Workflows surface. NOT for: reconciling, deleting, or switching an existing cluster.',
         nodes: [
           {
             id: "provision",
@@ -401,7 +401,7 @@ const rib: Rib = {
       definition: {
         name: "osdu-cluster-delete",
         description:
-          "Use when: tearing down the current CIMPL dev cluster after the ICC's typed-confirm Delete. Triggers: Delete from the Cluster ICC after the identity guard and destructive confirm pass. Does: re-verifies the live CIMPL context, then runs `cimpl down --provider current-context` as a streaming node in the Workflows surface. NOT for: bypassing the ICC identity guard or destructive confirm.",
+          "Use when: tearing down the current CIMPL dev cluster after the Cluster board's typed-confirm Delete. Triggers: Delete from the Cluster board after the identity guard and destructive confirm pass. Does: re-verifies the live CIMPL context, then runs `cimpl down --provider current-context` as a streaming node in the Workflows surface. NOT for: bypassing the Cluster board's identity guard or destructive confirm.",
         nodes: [
           {
             id: "verify",
@@ -531,7 +531,7 @@ const rib: Rib = {
     },
   ],
 
-  // Cluster ICC actions: dispatch lifecycle/context verbs via the async exec
+  // Cluster board actions: dispatch lifecycle/context verbs via the async exec
   // surface, so a slow/unreachable cluster can't block the server event loop.
   // `create` and `switch-context` are handled BEFORE the stale-context guard —
   // create runs with no current cluster and a switch deliberately changes the

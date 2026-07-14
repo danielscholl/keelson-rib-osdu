@@ -42,7 +42,7 @@ Live data needs the OSDU toolchain on `PATH` for the server process:
 
 | CLI | Feeds |
 |---|---|
-| `cimpl` | Cluster ICC (info, lifecycle verbs) |
+| `cimpl` | Cluster board (info, lifecycle verbs) |
 | `kubectl` | Topology, cluster readiness, jobs |
 | `osdu-quality` | Quality and Security lanes |
 | `osdu-activity` | Features, Release Train, Current Events |
@@ -64,11 +64,11 @@ Open the harness in a browser:
 http://127.0.0.1:7878
 ```
 
-The **CIMPL** tab appears in the nav, with the Cluster ICC as its collapsed
+The **CIMPL** tab appears in the nav, with the Cluster board as its collapsed
 header strip. Run the workflows that feed it, from the UI or the CLI:
 
 ```bash
-keelson workflow run osdu-cluster    # Cluster ICC
+keelson workflow run osdu-cluster    # Cluster
 keelson workflow run osdu-topology   # dependency graph
 keelson workflow run osdu-quality    # quality board
 ```
