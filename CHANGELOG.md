@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.2](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.10.1...v0.10.2) (2026-07-15)
+
+
+### Fixed
+
+* **tools:** keep an oversized result parseable and self-describing ([#116](https://github.com/danielscholl/keelson-rib-osdu/issues/116)) ([df66471](https://github.com/danielscholl/keelson-rib-osdu/commit/df664711219b6521ccd098f1840c2c6b5b9b763b))
+* **tools:** name the Sonar grade and the dependency CVEs distinctly ([#120](https://github.com/danielscholl/keelson-rib-osdu/issues/120)) ([cb12d90](https://github.com/danielscholl/keelson-rib-osdu/commit/cb12d90fa5afbc7a80d563f989d09c564d1febc4))
+
 ## [0.10.1](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.10.0...v0.10.1) (2026-07-15)
 
 
