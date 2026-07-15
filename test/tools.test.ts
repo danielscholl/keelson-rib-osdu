@@ -7,7 +7,7 @@ import type {
   ToolDefinition,
 } from "@keelson/shared";
 import { inferToolFamily } from "@keelson/shared";
-import { registerOsduTools } from "../src/tools.ts";
+import { fitToCap, registerOsduTools } from "../src/tools.ts";
 import { makeExec } from "./fetch.test.ts";
 import checkFixture from "./fixtures/cimpl-check.json";
 import report from "./fixtures/release-report.json";
@@ -211,6 +211,43 @@ describe("osdu_quality tool", () => {
 // A result that overflows must still parse. The reader is a model: a document cut
 // at a byte boundary costs it everything, not just the tail — and the note saying
 // the data is short is the last field, so slicing destroyed the warning first.
+// fitToCap is what stands between a large service and an unparseable result, and
+// it can fail silently in both directions: returning 0 hides every row, returning
+// too many puts the payload back over the cap.
+describe("fitToCap", () => {
+  // ~200 chars per row, so ~80 rows exceed the 16,000 cap.
+  const row = (i: number) => ({ id: i, pad: "x".repeat(180) });
+  const rows = Array.from({ length: 200 }, (_, i) => row(i));
+  const build = (kept: readonly { id: number }[]) => ({ kept });
+  const size = (n: number) => JSON.stringify(build(rows.slice(0, n))).length;
+
+  test("keeps every row when the result already fits", () => {
+    const few = rows.slice(0, 3);
+    expect(fitToCap(few, build)).toBe(3);
+  });
+
+  test("returns the LARGEST prefix that fits, not zero and not too many", () => {
+    const n = fitToCap(rows, build);
+    expect(n).toBeGreaterThan(0);
+    expect(n).toBeLessThan(rows.length);
+    expect(size(n)).toBeLessThanOrEqual(16_000);
+    // One more row must not fit, or it stopped short.
+    expect(size(n + 1)).toBeGreaterThan(16_000);
+  });
+
+  test("returns 0 only when even an empty result is too big", () => {
+    const heavy = (kept: readonly unknown[]) => ({ kept, ballast: "y".repeat(20_000) });
+    expect(fitToCap(rows, heavy)).toBe(0);
+  });
+
+  test("builds from the head, so worst-first ordering survives the trim", () => {
+    const n = fitToCap(rows, build);
+    const kept = rows.slice(0, n);
+    expect(kept[0]?.id).toBe(0);
+    expect(kept.at(-1)?.id).toBe(n - 1);
+  });
+});
+
 describe("result size bounding", () => {
   function bigReport(services: number) {
     return {

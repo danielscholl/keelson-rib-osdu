@@ -43,12 +43,15 @@ const MAX_TOOL_RESULT_CHARS = 16_000;
 // note explaining why arrives inside the wreckage. A tool that can overflow is
 // expected to bound its own payload (see fitToCap) and report what it dropped;
 // this is the floor that keeps a miss from emitting garbage.
-function boundedJson(data: unknown): string {
+//
+// `hint` must be true for the calling tool: telling a caller to narrow a request
+// it has no arguments to narrow is an invitation to retry the same call forever.
+function boundedJson(data: unknown, hint: string): string {
   const full = JSON.stringify(data);
   if (full.length <= MAX_TOOL_RESULT_CHARS) return full;
   return JSON.stringify({
     error: `result is ${full.length} chars, over the ${MAX_TOOL_RESULT_CHARS} limit, and was not returned`,
-    hint: "narrow the request (e.g. a single service, or a severity filter) and call again",
+    hint,
   });
 }
 
@@ -57,10 +60,9 @@ function boundedJson(data: unknown): string {
 // `build` recomputes the whole result — including its own count of what was
 // dropped — for whatever prefix survives.
 //
-// Bound by serialized size, not a row count: a fixed count is tuned against one
-// service and silently wrong for the next, which is how `legal` (49 rows) sailed
-// past a cap that held for `partition` (28).
-function fitToCap<T>(rows: readonly T[], build: (kept: readonly T[]) => unknown): number {
+// Bound by serialized size rather than a row count: row size varies by service,
+// so any fixed count is tuned against one of them and wrong for the rest.
+export function fitToCap<T>(rows: readonly T[], build: (kept: readonly T[]) => unknown): number {
   const fits = (n: number): boolean =>
     JSON.stringify(build(rows.slice(0, n))).length <= MAX_TOOL_RESULT_CHARS;
   if (fits(rows.length)) return rows.length;
@@ -92,6 +94,13 @@ function readTool<S extends z.ZodType = z.ZodType<Record<string, never>>>(
   inputSchema?: S,
 ): ToolDefinition {
   const schema = (inputSchema ?? z.object({})) as S;
+  // Only a tool that declares a schema has anything to narrow with; the rest
+  // take no arguments, so advising them to narrow would loop the caller through
+  // the identical call. Say what is actually true of each.
+  const overflowHint =
+    inputSchema === undefined
+      ? `${name} takes no arguments, so this result cannot be narrowed — the source returned more than the limit allows. Report that rather than retrying.`
+      : "narrow the request (e.g. a single service, or a severity filter) and call again";
   return {
     name,
     description,
@@ -107,7 +116,7 @@ function readTool<S extends z.ZodType = z.ZodType<Record<string, never>>>(
         return;
       }
       try {
-        emitResult(ctx, boundedJson(await fetch(parsed.data)));
+        emitResult(ctx, boundedJson(await fetch(parsed.data), overflowHint));
       } catch (e) {
         emitResult(ctx, `${name} failed: ${errText(e)}`, true);
       }
@@ -450,7 +459,10 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
             );
             return;
           }
-          emitResult(toolCtx, boundedJson(result));
+          emitResult(
+            toolCtx,
+            boundedJson(result, "scope the inventory to one provider and call again"),
+          );
         } catch (e) {
           emitResult(toolCtx, `osdu_setup_check failed: ${errText(e)}`, true);
         }
