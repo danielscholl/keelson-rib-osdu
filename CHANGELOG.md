@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.10.0...v0.10.1) (2026-07-15)
+
+
+### Fixed
+
+* **security:** scope osdu reads by service and repair the OSV fix lookup ([#114](https://github.com/danielscholl/keelson-rib-osdu/issues/114)) ([3cae143](https://github.com/danielscholl/keelson-rib-osdu/commit/3cae143da61a541af4de4b64395da6aa91ac8460))
+
 ## [0.10.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.9.0...v0.10.0) (2026-07-14)
 
 
