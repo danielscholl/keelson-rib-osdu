@@ -86,14 +86,16 @@ export function compareVulns(a: VulnRecord, b: VulnRecord): number {
   return (parseMs(a.detected_at) ?? 0) - (parseMs(b.detected_at) ?? 0);
 }
 
-// One row per (CVE, package, version). GitLab records a vulnerability per
-// detection site, so a CVE in a shared dependency repeats once per module that
-// pulls it in — which a reader would otherwise count as separate findings. The
-// earliest detection wins, since that is when the exposure actually started.
+// One row per (project, CVE, package, version). GitLab records a vulnerability
+// per detection site, so a CVE in a shared dependency repeats once per module
+// that pulls it in — which a reader would otherwise count as separate findings.
+// The project stays in the identity: two services sharing a vulnerable
+// dependency are two findings to remediate, not one. The earliest detection
+// wins, since that is when the exposure actually started.
 export function dedupeVulns(vulns: readonly VulnRecord[]): VulnRecord[] {
   const byKey = new Map<string, VulnRecord>();
   for (const v of vulns) {
-    const key = `${v.cve_id}|${v.package_name}|${v.current_version}`;
+    const key = `${v.project_path}|${v.cve_id}|${v.package_name}|${v.current_version}`;
     const prior = byKey.get(key);
     if (!prior || (parseMs(v.detected_at) ?? 0) < (parseMs(prior.detected_at) ?? 0)) {
       byKey.set(key, v);
@@ -732,8 +734,15 @@ async function pageVulns(
       return;
     }
     const conn = read(res.json);
-    nodes.push(...(conn?.nodes ?? []));
-    if (!conn?.pageInfo?.hasNextPage || !conn.pageInfo.endCursor) return;
+    // A successful envelope carrying no connection (an inaccessible or renamed
+    // project resolves to `data.project: null`) is missing data, not an absence
+    // of findings — report it rather than let the scope read as clean.
+    if (!conn) {
+      errors.push(`vulns degraded for ${label}: response carried no vulnerability connection`);
+      return;
+    }
+    nodes.push(...(conn.nodes ?? []));
+    if (!conn.pageInfo?.hasNextPage || !conn.pageInfo.endCursor) return;
     cursor = conn.pageInfo.endCursor;
     if (page === MAX_VULN_PAGES - 1) {
       errors.push(

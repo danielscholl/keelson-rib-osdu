@@ -631,4 +631,16 @@ describe("dedupeVulns", () => {
     const other = { ...at("2026-05-19T00:00:00Z", "c"), current_version: "10.1.40" };
     expect(dedupeVulns([at("2026-05-19T00:00:00Z", "b"), other])).toHaveLength(2);
   });
+
+  // Two services sharing a vulnerable dependency are two findings to remediate,
+  // so collapsing them would hide one service's detail and undercount the report.
+  test("keeps the same CVE reported against different services", () => {
+    const storage = {
+      ...at("2026-05-19T00:00:00Z", "c"),
+      project_path: "osdu/platform/system/storage",
+    };
+    const out = dedupeVulns([at("2026-05-19T00:00:00Z", "b"), storage]);
+    expect(out).toHaveLength(2);
+    expect(new Set(out.map((v) => v.project_path)).size).toBe(2);
+  });
 });
