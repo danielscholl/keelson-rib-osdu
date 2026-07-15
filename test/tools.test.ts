@@ -248,6 +248,23 @@ describe("fitToCap", () => {
   });
 });
 
+// The two fields come from different scans and are trivially misread as one
+// verdict, so the names are the contract: a bare `security_rating` next to CVE
+// counts reads as a ruling on them, and it is blind to every one.
+describe("osdu_security service fields", () => {
+  test("names the Sonar grade and the dependency CVEs distinctly", () => {
+    const tool = registerOsduTools(ctxWith(makeExec({}).exec)).find(
+      (t) => t.name === "osdu_security",
+    );
+    if (!tool) throw new Error("osdu_security missing");
+    // The description must not blur the two scans into one topic.
+    expect(tool.description).toContain("sonar_security_rating");
+    expect(tool.description).toContain("dependency_vulnerabilities");
+    expect(tool.description).toContain("OWN code");
+    expect(tool.description).toContain("DEPENDENCIES");
+  });
+});
+
 describe("result size bounding", () => {
   function bigReport(services: number) {
     return {
