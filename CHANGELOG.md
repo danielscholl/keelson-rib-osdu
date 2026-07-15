@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.3](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.10.2...v0.10.3) (2026-07-15)
+
+
+### Fixed
+
+* **security:** dedupe vulns in security board ([#121](https://github.com/danielscholl/keelson-rib-osdu/issues/121)) ([95630a3](https://github.com/danielscholl/keelson-rib-osdu/commit/95630a31ed8289efb55de9e072e6d1806080cd3c))
+
 ## [0.10.2](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.10.1...v0.10.2) (2026-07-15)
 
 
