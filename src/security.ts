@@ -107,6 +107,7 @@ export function dedupeVulns(vulns: readonly VulnRecord[]): VulnRecord[] {
 const OFFENDERS_CAP = 8;
 const AGED_CRITICALS_CAP = 8;
 const QUICK_WINS_CAP = 10;
+const QUICK_WIN_CVES_CAP = 12;
 const DEFAULT_AGED_DAYS = 30;
 const DAY_MS = 86_400_000;
 
@@ -291,16 +292,6 @@ function buildVulnMrTile(mrs: SecurityMr[]): StatItem {
   };
 }
 
-type CardItem = {
-  title: string;
-  titleTone?: Tone;
-  mono?: boolean;
-  pill?: { label: string; tone: Tone };
-  href?: string;
-  fields?: { label?: string; value: string; tone?: Tone; href?: string }[];
-  footnote?: string;
-};
-
 type GridCell = { label: string; href?: string; badge: { text: string; tone?: Tone } };
 
 // "Low security rating" cells, worst-first (E→A). Confirmed-A services are
@@ -388,9 +379,29 @@ function buildOffenders(services: ServiceReport[], vulns: VulnRecord[]): BarItem
   });
 }
 
+type RowItem = {
+  glyph?: Tone;
+  chip?: { label: string; tone?: Tone };
+  text: string;
+  href?: string;
+  trailing?: string;
+  detail?: string;
+};
+
+// GitLab writes a Maven coordinate as `group/artifact`, where the reverse-DNS
+// group is a repeated prefix that wraps a row onto a second line. Anything else
+// — a Go module path, an npm scope, a bare name — is already the whole identity
+// and is returned untouched; a shortened name keeps its full form in `detail`.
+function artifactLabel(packageName: string): string {
+  const [group, artifact, ...rest] = packageName.split("/");
+  if (rest.length > 0 || !group || !artifact) return packageName;
+  if (group.startsWith("@") || !group.includes(".")) return packageName;
+  return artifact;
+}
+
 // Critical CVEs in DETECTED/CONFIRMED state older than the aged threshold,
 // oldest first. `now` is injected so age math is deterministic in tests.
-function buildAgedCriticals(vulns: VulnRecord[], now: Date, agedDays: number): CardItem[] {
+function buildAgedCriticals(vulns: VulnRecord[], now: Date, agedDays: number): RowItem[] {
   const cutoff = agedDays * DAY_MS;
   return vulns
     .filter((v) => v.severity === "critical")
@@ -401,17 +412,15 @@ function buildAgedCriticals(vulns: VulnRecord[], now: Date, agedDays: number): C
     .sort((a, b) => a.detected - b.detected)
     .slice(0, AGED_CRITICALS_CAP)
     .map(({ v }) => {
-      const pkg = v.current_version ? `${v.package_name} ${v.current_version}` : v.package_name;
       const svc = serviceOf(v.project_path);
-      // The CVE id reads as a red mono identifier; the service chip takes a
-      // hash-stable hue. Age lives in the section header, not per-row.
+      // The service chip takes a hash-stable hue; the installed version trails
+      // as mono. Age lives in the section header, not per-row.
       return {
-        title: v.cve_id,
-        titleTone: "error" as Tone,
-        mono: true,
-        pill: { label: svc || "—", tone: hashTone(svc) },
+        glyph: "error" as Tone,
+        chip: { label: svc || "—", tone: hashTone(svc) },
+        text: `${v.cve_id} · ${artifactLabel(v.package_name)}`,
         ...(v.web_url ? { href: v.web_url } : {}),
-        fields: [{ value: pkg || "—" }],
+        ...(v.current_version ? { trailing: v.current_version } : {}),
       };
     });
 }
@@ -472,16 +481,33 @@ function isHighRisk(from: string, to: string, pkg: string): boolean {
   return FRAGILE_PREFIXES.some((p) => pkg.toLowerCase().startsWith(p));
 }
 
-function quickWinImpact(crit: number, high: number, med: number): string {
-  if (crit > 0) return `fixes ${crit} critical ${crit === 1 ? "CVE" : "CVEs"}`;
-  if (high > 0) return `fixes ${high} high ${high === 1 ? "CVE" : "CVEs"}`;
-  return `fixes ${med} medium ${med === 1 ? "CVE" : "CVEs"}`;
+// The worst tier a bump clears, in two registers: the terse annotation the row
+// trails with (the crit/high/med vocabulary the offender bars and KPI tiles
+// already use), and the sentence its disclosure opens with. The ids come back
+// with them so the sentence and the list it introduces can't disagree.
+function quickWinImpact(
+  crit: ReadonlySet<string>,
+  high: ReadonlySet<string>,
+  med: ReadonlySet<string>,
+): { terse: string; full: string; cves: string[] } {
+  const [tier, abbr, word] =
+    crit.size > 0
+      ? ([crit, "crit", "critical"] as const)
+      : high.size > 0
+        ? ([high, "high", "high"] as const)
+        : ([med, "med", "medium"] as const);
+  const n = tier.size;
+  return {
+    terse: `${n} ${abbr}`,
+    full: `fixes ${n} ${word} ${n === 1 ? "CVE" : "CVEs"}`,
+    cves: [...tier].sort(),
+  };
 }
 
 // Dependency bumps that clear crit/high CVEs: group vulns by package, take the
 // highest published fix and highest current version, skip no-fix / already-fixed
 // / high-risk groups, rank by criticals-then-highs cleared.
-function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardItem[] {
+function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): RowItem[] {
   const groups = new Map<string, VulnRecord[]>();
   for (const v of vulns) {
     if (!v.package_name) continue;
@@ -490,7 +516,7 @@ function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardIt
     groups.set(v.package_name, arr);
   }
 
-  const rows: (CardItem & { crit: number; high: number })[] = [];
+  const rows: (RowItem & { crit: number; high: number })[] = [];
   for (const [pkg, members] of groups) {
     let to = "";
     for (const m of members) {
@@ -518,26 +544,38 @@ function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardIt
     }
     if (critCves.size + highCves.size + medCves.size === 0) continue;
 
-    const scope = [...new Set(members.map((m) => serviceOf(m.project_path)).filter(Boolean))]
-      .sort((a, b) => a.localeCompare(b))
-      .join(", ");
+    const scopeList = [
+      ...new Set(members.map((m) => serviceOf(m.project_path)).filter(Boolean)),
+    ].sort((a, b) => a.localeCompare(b));
     const url = members.find(
       (m) => fixes.get(osvFixKey(pkg, m.cve_id, m.current_version)) && m.web_url,
     )?.web_url;
+
+    const impact = quickWinImpact(critCves, highCves, medCves);
+    const label = artifactLabel(pkg);
+    const shown = impact.cves.slice(0, QUICK_WIN_CVES_CAP);
+    const cveLine =
+      impact.cves.length > shown.length
+        ? `${shown.join(", ")} +${impact.cves.length - shown.length} more`
+        : shown.join(", ");
+    const lines = [`${impact.full}: ${cveLine}`];
+    if (label !== pkg) lines.push(`Package: ${pkg}`);
+    if (scopeList.length > 0) {
+      lines.push(`Services (${scopeList.length}): ${scopeList.join(", ")}`);
+    }
+
     rows.push({
-      title: pkg,
-      pill: { label: "QUICK WIN", tone: "ok" },
+      text: `${label} ${from} → ${to}`,
+      trailing: impact.terse,
+      // package_name is GitLab's string; nothing here bounds it, and `detail` is
+      // the only field on this board with a schema max.
+      detail: lines.join("\n").slice(0, 4000),
       ...(url ? { href: url } : {}),
-      fields: [
-        { value: `${from} → ${to}` },
-        { value: quickWinImpact(critCves.size, highCves.size, medCves.size) },
-        ...(scope ? [{ value: scope }] : []),
-      ],
       crit: critCves.size,
       high: highCves.size,
     });
   }
-  rows.sort((a, b) => b.crit - a.crit || b.high - a.high || a.title.localeCompare(b.title));
+  rows.sort((a, b) => b.crit - a.crit || b.high - a.high || a.text.localeCompare(b.text));
   return rows.slice(0, QUICK_WINS_CAP).map(({ crit: _c, high: _h, ...row }) => row);
 }
 
@@ -563,8 +601,12 @@ export function buildSecurityBoard(inputs: SecurityInputs): CanvasBoardView {
   const services = report.services ?? [];
   // The group GraphQL query returns CVEs across every osdu/platform project;
   // scope them to core so the CVE sections agree with the core-scoped KPI tiles
-  // and offenders (both fed by the core-only release report).
-  const vulns = (inputs.vulns ?? []).filter((v) => VENUS_CORE.has(serviceOf(v.project_path)));
+  // and offenders (both fed by the core-only release report). Scoping first is
+  // the cheaper order: the filter keys on project_path, which is part of the
+  // dedupe identity, so a key's records are all kept or all dropped together.
+  const vulns = dedupeVulns(
+    (inputs.vulns ?? []).filter((v) => VENUS_CORE.has(serviceOf(v.project_path))),
+  );
   const fixes = inputs.fixes ?? new Map<string, string>();
   const mrs = inputs.mrs ?? [];
   const now = inputs.now ?? new Date();
@@ -592,13 +634,13 @@ export function buildSecurityBoard(inputs: SecurityInputs): CanvasBoardView {
   }
   if (aged.length > 0) {
     sections.push({
-      kind: "cards",
+      kind: "rows",
       title: `Aged criticals · ${agedTotals.crit} crit · ${agedTotals.high} high · >${agedDays}d`,
       items: aged,
     });
   }
   if (quickWins.length > 0) {
-    sections.push({ kind: "cards", title: "Quick wins", items: quickWins });
+    sections.push({ kind: "rows", title: "Quick wins", items: quickWins });
   }
 
   return {
