@@ -162,6 +162,50 @@ describe("osdu_quality tool", () => {
     expect(parsed.report).toEqual({ services: [] });
     expect(parsed.notes).toEqual(["quality degraded: down"]);
   });
+
+  test("passes --service through to the CLI when scoped", async () => {
+    const { exec, calls } = makeExec({ json: () => ({ ok: true, data: report }) });
+    const tool = registerOsduTools(ctxWith(exec)).find((t) => t.name === "osdu_quality");
+    if (!tool) throw new Error("osdu_quality missing");
+    const { tctx } = fakeToolCtx();
+
+    await tool.execute({ service: "partition" }, tctx);
+
+    expect(calls[0]?.args).toContain("--service");
+    expect(calls[0]?.args).toContain("partition");
+  });
+
+  // A stripped unknown key would parse as "no scope" and silently run the
+  // full-platform sweep the caller was avoiding, so the schema must refuse it.
+  test("refuses a misspelled argument instead of falling back to an unscoped sweep", async () => {
+    const { exec, calls } = makeExec({ json: () => ({ ok: true, data: report }) });
+    const tool = registerOsduTools(ctxWith(exec)).find((t) => t.name === "osdu_quality");
+    if (!tool) throw new Error("osdu_quality missing");
+    const { tctx, emits } = fakeToolCtx();
+
+    await tool.execute({ servicee: "partition" }, tctx);
+
+    const r = results(emits);
+    expect(r).toHaveLength(1);
+    expect(r[0]?.isError).toBe(true);
+    expect(r[0]?.content).toContain("invalid arguments");
+    // The decisive assertion: nothing was fetched.
+    expect(calls).toHaveLength(0);
+  });
+
+  test("refuses an unknown service without fetching", async () => {
+    const { exec, calls } = makeExec({ json: () => ({ ok: true, data: report }) });
+    const tool = registerOsduTools(ctxWith(exec)).find((t) => t.name === "osdu_quality");
+    if (!tool) throw new Error("osdu_quality missing");
+    const { tctx, emits } = fakeToolCtx();
+
+    await tool.execute({ service: "partitionn" }, tctx);
+
+    const parsed = JSON.parse(results(emits)[0]?.content ?? "{}");
+    expect(parsed.error).toContain("unknown service(s): partitionn");
+    expect(parsed.validServices).toContain("partition");
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe("osdu_cluster + osdu_topology tools (exec-injected)", () => {

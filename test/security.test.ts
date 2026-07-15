@@ -3,11 +3,16 @@ import { canvasViewSchema } from "@keelson/shared";
 import type { ReleaseReport } from "../src/quality.ts";
 import {
   buildSecurityBoard,
+  compareVulns,
+  dedupeVulns,
   extractVulns,
   hashTone,
   osvFixKey,
+  osvFixParts,
   parseOsvFixed,
   type SecurityMr,
+  severityRank,
+  type VulnRecord,
 } from "../src/security.ts";
 import osvFixes from "./fixtures/osv-fixes.json";
 import report from "./fixtures/security-report.json";
@@ -15,13 +20,13 @@ import vulnNodes from "./fixtures/security-vulns.json";
 
 const NOW = new Date("2026-06-01T00:00:00Z");
 const vulns = extractVulns(vulnNodes);
-// The fix map is keyed by (package, CVE) — mirror how the collector builds it
-// from the CVE-keyed fixture and each vuln's package.
+// The fix map is keyed by (package, CVE, installed version) — mirror how the
+// collector builds it from the CVE-keyed fixture and each vuln's package/version.
 const rawFixes = osvFixes as Record<string, string>;
 const fixes = new Map<string, string>();
 for (const v of vulns) {
   const fix = rawFixes[v.cve_id];
-  if (fix) fixes.set(osvFixKey(v.package_name, v.cve_id), fix);
+  if (fix) fixes.set(osvFixKey(v.package_name, v.cve_id, v.current_version), fix);
 }
 const board = buildSecurityBoard({
   report: report as ReleaseReport,
@@ -505,5 +510,137 @@ describe("parseOsvFixed", () => {
     expect(parseOsvFixed(body, "p")).toBe("");
     expect(parseOsvFixed({}, "p")).toBe("");
     expect(parseOsvFixed(null, "p")).toBe("");
+  });
+
+  // One advisory patches every supported line at once, so the fix chosen for a
+  // service depends on the line it is actually on.
+  const tomcat = {
+    affected: [
+      {
+        package: { name: "org.apache.tomcat.embed:tomcat-embed-core" },
+        ranges: [{ events: [{ fixed: "9.0.118" }, { fixed: "10.1.55" }, { fixed: "11.0.22" }] }],
+      },
+    ],
+  };
+  const TOMCAT = "org.apache.tomcat.embed/tomcat-embed-core";
+
+  test("picks the lowest fix above the installed version, not the highest", () => {
+    expect(parseOsvFixed(tomcat, TOMCAT, "10.1.54")).toBe("10.1.55");
+    expect(parseOsvFixed(tomcat, TOMCAT, "9.0.100")).toBe("9.0.118");
+    expect(parseOsvFixed(tomcat, TOMCAT, "11.0.1")).toBe("11.0.22");
+  });
+
+  test("reports no fix when the installed version is already patched", () => {
+    expect(parseOsvFixed(tomcat, TOMCAT, "11.0.22")).toBe("");
+    expect(parseOsvFixed(tomcat, TOMCAT, "12.0.0")).toBe("");
+  });
+
+  test("falls back to the newest fix when the version is absent or unparseable", () => {
+    expect(parseOsvFixed(tomcat, TOMCAT)).toBe("11.0.22");
+    expect(parseOsvFixed(tomcat, TOMCAT, "not-a-version")).toBe("11.0.22");
+  });
+
+  test("compares versions carrying a trailing qualifier", () => {
+    const netty = {
+      affected: [
+        {
+          package: { name: "io.netty:netty-handler" },
+          ranges: [{ events: [{ fixed: "4.1.133.Final" }, { fixed: "4.1.135.Final" }] }],
+        },
+      ],
+    };
+    expect(parseOsvFixed(netty, "io.netty/netty-handler", "4.1.131.Final")).toBe("4.1.133.Final");
+  });
+});
+
+describe("osvFixParts", () => {
+  test("round-trips a composite key without exposing the separator", () => {
+    const key = osvFixKey("io.netty/netty-handler", "CVE-2026-44249", "4.1.131.Final");
+    expect(osvFixParts(key)).toEqual({
+      packageName: "io.netty/netty-handler",
+      cveId: "CVE-2026-44249",
+      installedVersion: "4.1.131.Final",
+    });
+    // NUL separates because it cannot occur in any part.
+    expect(key).toBe("io.netty/netty-handler\u0000CVE-2026-44249\u00004.1.131.Final");
+  });
+
+  // The recommended fix depends on the line a package is installed on, so the
+  // same package+CVE on two lines must not collide — one entry would otherwise
+  // overwrite the other and hand a service the wrong branch's version.
+  test("keeps one CVE's fix distinct per installed version", () => {
+    const TOMCAT = "org.apache.tomcat.embed/tomcat-embed-core";
+    const CVE = "CVE-2026-43512";
+    const fixes = new Map([
+      [osvFixKey(TOMCAT, CVE, "10.1.54"), "10.1.55"],
+      [osvFixKey(TOMCAT, CVE, "9.0.100"), "9.0.118"],
+    ]);
+    expect(fixes.size).toBe(2);
+    expect(fixes.get(osvFixKey(TOMCAT, CVE, "10.1.54"))).toBe("10.1.55");
+    expect(fixes.get(osvFixKey(TOMCAT, CVE, "9.0.100"))).toBe("9.0.118");
+  });
+});
+
+describe("severity ordering", () => {
+  const row = (cve: string, severity: string, detected: string): VulnRecord => ({
+    project_path: "osdu/platform/system/partition",
+    cve_id: cve,
+    severity,
+    package_name: "pkg",
+    current_version: "1.0.0",
+    detected_at: detected,
+    state: "DETECTED",
+    web_url: "",
+  });
+
+  test("ranks worst first and puts unknown severities last", () => {
+    expect(severityRank("critical")).toBeLessThan(severityRank("high"));
+    expect(severityRank("high")).toBeLessThan(severityRank("medium"));
+    expect(severityRank("bogus")).toBeGreaterThan(severityRank("info"));
+  });
+
+  test("sorts by severity, then oldest first", () => {
+    const sorted = [
+      row("CVE-3", "high", "2026-01-01T00:00:00Z"),
+      row("CVE-1", "critical", "2026-05-01T00:00:00Z"),
+      row("CVE-2", "critical", "2026-01-01T00:00:00Z"),
+    ].sort(compareVulns);
+    expect(sorted.map((v) => v.cve_id)).toEqual(["CVE-2", "CVE-1", "CVE-3"]);
+  });
+});
+
+describe("dedupeVulns", () => {
+  const at = (detected: string, url: string): VulnRecord => ({
+    project_path: "osdu/platform/system/partition",
+    cve_id: "CVE-2026-43512",
+    severity: "critical",
+    package_name: "org.apache.tomcat.embed/tomcat-embed-core",
+    current_version: "10.1.54",
+    detected_at: detected,
+    state: "DETECTED",
+    web_url: url,
+  });
+
+  test("collapses a CVE repeated per detection site, keeping the earliest", () => {
+    const out = dedupeVulns([at("2026-05-19T00:00:00Z", "b"), at("2026-01-02T00:00:00Z", "a")]);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.detected_at).toBe("2026-01-02T00:00:00Z");
+  });
+
+  test("keeps rows that differ by package or installed version", () => {
+    const other = { ...at("2026-05-19T00:00:00Z", "c"), current_version: "10.1.40" };
+    expect(dedupeVulns([at("2026-05-19T00:00:00Z", "b"), other])).toHaveLength(2);
+  });
+
+  // Two services sharing a vulnerable dependency are two findings to remediate,
+  // so collapsing them would hide one service's detail and undercount the report.
+  test("keeps the same CVE reported against different services", () => {
+    const storage = {
+      ...at("2026-05-19T00:00:00Z", "c"),
+      project_path: "osdu/platform/system/storage",
+    };
+    const out = dedupeVulns([at("2026-05-19T00:00:00Z", "b"), storage]);
+    expect(out).toHaveLength(2);
+    expect(new Set(out.map((v) => v.project_path)).size).toBe(2);
   });
 });

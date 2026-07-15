@@ -1,4 +1,5 @@
 import type { CanvasBoardView, RibExec } from "@keelson/shared";
+import { errText } from "@keelson/shared";
 import {
   GITLAB_GROUP,
   GITLAB_HOST,
@@ -66,6 +67,41 @@ export function extractSecurityMrs(raw: unknown): SecurityMr[] {
     }
   }
   return out;
+}
+
+// GitLab's severity ladder, worst first. Exported as the vocabulary a caller can
+// filter on; `severityRank` orders a report so any row cap keeps what matters.
+export const SEVERITIES = ["critical", "high", "medium", "low", "unknown", "info"] as const;
+
+export function severityRank(severity: string): number {
+  const i = (SEVERITIES as readonly string[]).indexOf(severity);
+  return i === -1 ? SEVERITIES.length : i;
+}
+
+// Worst first, then oldest first: an aged critical is the most actionable row a
+// truncated report can lead with.
+export function compareVulns(a: VulnRecord, b: VulnRecord): number {
+  const bySeverity = severityRank(a.severity) - severityRank(b.severity);
+  if (bySeverity !== 0) return bySeverity;
+  return (parseMs(a.detected_at) ?? 0) - (parseMs(b.detected_at) ?? 0);
+}
+
+// One row per (project, CVE, package, version). GitLab records a vulnerability
+// per detection site, so a CVE in a shared dependency repeats once per module
+// that pulls it in — which a reader would otherwise count as separate findings.
+// The project stays in the identity: two services sharing a vulnerable
+// dependency are two findings to remediate, not one. The earliest detection
+// wins, since that is when the exposure actually started.
+export function dedupeVulns(vulns: readonly VulnRecord[]): VulnRecord[] {
+  const byKey = new Map<string, VulnRecord>();
+  for (const v of vulns) {
+    const key = `${v.project_path}|${v.cve_id}|${v.package_name}|${v.current_version}`;
+    const prior = byKey.get(key);
+    if (!prior || (parseMs(v.detected_at) ?? 0) < (parseMs(prior.detected_at) ?? 0)) {
+      byKey.set(key, v);
+    }
+  }
+  return [...byKey.values()];
 }
 
 const OFFENDERS_CAP = 8;
@@ -458,7 +494,7 @@ function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardIt
   for (const [pkg, members] of groups) {
     let to = "";
     for (const m of members) {
-      const fix = fixes.get(osvFixKey(pkg, m.cve_id));
+      const fix = fixes.get(osvFixKey(pkg, m.cve_id, m.current_version));
       if (fix && (!to || compareSemver(fix, to) > 0)) to = fix;
     }
     if (!to) continue;
@@ -475,7 +511,7 @@ function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardIt
     const highCves = new Set<string>();
     const medCves = new Set<string>();
     for (const m of members) {
-      if (!fixes.get(osvFixKey(pkg, m.cve_id))) continue;
+      if (!fixes.get(osvFixKey(pkg, m.cve_id, m.current_version))) continue;
       if (m.severity === "critical") critCves.add(m.cve_id);
       else if (m.severity === "high") highCves.add(m.cve_id);
       else if (m.severity === "medium") medCves.add(m.cve_id);
@@ -485,7 +521,9 @@ function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardIt
     const scope = [...new Set(members.map((m) => serviceOf(m.project_path)).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b))
       .join(", ");
-    const url = members.find((m) => fixes.get(osvFixKey(pkg, m.cve_id)) && m.web_url)?.web_url;
+    const url = members.find(
+      (m) => fixes.get(osvFixKey(pkg, m.cve_id, m.current_version)) && m.web_url,
+    )?.web_url;
     rows.push({
       title: pkg,
       pill: { label: "QUICK WIN", tone: "ok" },
@@ -619,11 +657,29 @@ function dependencyOf(location: unknown): { name: string; version: string } {
   };
 }
 
-// Composite key for the OSV fix map: a CVE's fixed version is package-specific
-// (one OSV record can list fixes for several packages/ecosystems), so quick-win
-// lookups must be keyed by package, not CVE alone.
-export function osvFixKey(packageName: string, cveId: string): string {
-  return `${packageName} ${cveId}`;
+// Composite key for the OSV fix map. The fix is specific to all three parts: a
+// CVE's fix is package-specific (one OSV record lists fixes for several
+// packages), and the recommended version depends on the line the package is
+// installed on — 10.1.54 and 9.0.100 take different fixes for the same CVE, so
+// keying without the version lets one overwrite the other. NUL separates because
+// it cannot occur in any part. Spell it as an escape, never a literal byte: a raw
+// NUL makes the whole file read as binary, which silently drops it from grep and
+// other text tooling.
+const OSV_KEY_SEP = "\0";
+
+export function osvFixKey(packageName: string, cveId: string, installedVersion: string): string {
+  return `${packageName}${OSV_KEY_SEP}${cveId}${OSV_KEY_SEP}${installedVersion}`;
+}
+
+// Split a fix-map key back into its parts so callers can present the map without
+// reproducing the key format — or leaking the separator into output a model reads.
+export function osvFixParts(key: string): {
+  packageName: string;
+  cveId: string;
+  installedVersion: string;
+} {
+  const [packageName = "", cveId = "", installedVersion = ""] = key.split(OSV_KEY_SEP);
+  return { packageName, cveId, installedVersion };
 }
 
 // GitLab dependency-scanning names a Maven coordinate `group/artifact` while OSV
@@ -643,9 +699,17 @@ const OSV_BATCH = 8;
 const OSV_TIMEOUT_MS = 4_000;
 const MAX_OSV_LOOKUPS = 400;
 
-function vulnQuery(group: string, cursor: string | null): string {
+const VULN_CONNECTION = (cursor: string | null): string => {
   const after = cursor ? `, after: ${JSON.stringify(cursor)}` : "";
-  return `{ group(fullPath: ${JSON.stringify(group)}) { vulnerabilities(state: [DETECTED, CONFIRMED], first: ${VULN_PAGE_SIZE}${after}) { pageInfo { hasNextPage endCursor } nodes { detectedAt severity state webUrl identifiers { externalType externalId } project { fullPath } location { ... on VulnerabilityLocationDependencyScanning { dependency { package { name } version } } ... on VulnerabilityLocationContainerScanning { dependency { package { name } version } } } } } } }`;
+  return `vulnerabilities(state: [DETECTED, CONFIRMED], first: ${VULN_PAGE_SIZE}${after}) { pageInfo { hasNextPage endCursor } nodes { detectedAt severity state webUrl identifiers { externalType externalId } project { fullPath } location { ... on VulnerabilityLocationDependencyScanning { dependency { package { name } version } } ... on VulnerabilityLocationContainerScanning { dependency { package { name } version } } } } }`;
+};
+
+function vulnQuery(group: string, cursor: string | null): string {
+  return `{ group(fullPath: ${JSON.stringify(group)}) { ${VULN_CONNECTION(cursor)} } }`;
+}
+
+function projectVulnQuery(fullPath: string, cursor: string | null): string {
+  return `{ project(fullPath: ${JSON.stringify(fullPath)}) { ${VULN_CONNECTION(cursor)} } }`;
 }
 
 interface VulnConnection {
@@ -653,67 +717,177 @@ interface VulnConnection {
   nodes?: unknown[];
 }
 
-async function collectVulns(errors: string[]): Promise<VulnRecord[]> {
-  const nodes: unknown[] = [];
+// Page one vulnerabilities connection to exhaustion (or the page cap), appending
+// raw nodes. `label` names the scope in the degraded/cap notes.
+async function pageVulns(
+  query: (cursor: string | null) => string,
+  read: (json: unknown) => VulnConnection | undefined,
+  label: string,
+  nodes: unknown[],
+  errors: string[],
+): Promise<void> {
   let cursor: string | null = null;
   for (let page = 0; page < MAX_VULN_PAGES; page++) {
-    const res = await runGraphql(vulnQuery(GITLAB_GROUP, cursor));
+    const res = await runGraphql(query(cursor));
     if (res.error || !res.json) {
-      errors.push(`vulns degraded: ${res.error ?? "no data"}`);
-      break;
+      errors.push(`vulns degraded for ${label}: ${res.error ?? "no data"}`);
+      return;
     }
-    const conn = (res.json as { data?: { group?: { vulnerabilities?: VulnConnection } | null } })
-      ?.data?.group?.vulnerabilities;
-    nodes.push(...(conn?.nodes ?? []));
-    if (!conn?.pageInfo?.hasNextPage || !conn.pageInfo.endCursor) break;
+    const conn = read(res.json);
+    // A successful envelope carrying no connection (an inaccessible or renamed
+    // project resolves to `data.project: null`) is missing data, not an absence
+    // of findings — report it rather than let the scope read as clean.
+    if (!conn) {
+      errors.push(`vulns degraded for ${label}: response carried no vulnerability connection`);
+      return;
+    }
+    nodes.push(...(conn.nodes ?? []));
+    if (!conn.pageInfo?.hasNextPage || !conn.pageInfo.endCursor) return;
     cursor = conn.pageInfo.endCursor;
     if (page === MAX_VULN_PAGES - 1) {
-      errors.push(`vulns: hit the ${MAX_VULN_PAGES}-page cap — CVE detail may underreport`);
+      errors.push(
+        `vulns: hit the ${MAX_VULN_PAGES}-page cap for ${label} — CVE detail may underreport`,
+      );
     }
+  }
+}
+
+// The whole group's CVE detail, for an unscoped report.
+async function collectVulns(errors: string[]): Promise<VulnRecord[]> {
+  const nodes: unknown[] = [];
+  await pageVulns(
+    (cursor) => vulnQuery(GITLAB_GROUP, cursor),
+    (json) =>
+      (json as { data?: { group?: { vulnerabilities?: VulnConnection } | null } })?.data?.group
+        ?.vulnerabilities,
+    GITLAB_GROUP,
+    nodes,
+    errors,
+  );
+  return extractVulns(nodes);
+}
+
+// CVE detail for named projects, for a scoped report. The group sweep pages every
+// project in the group against one shared page cap, so a service ordered late in
+// it loses most of its detail — querying each project directly is what makes a
+// scoped report complete rather than merely smaller.
+async function collectProjectVulns(
+  paths: readonly string[],
+  errors: string[],
+): Promise<VulnRecord[]> {
+  const nodes: unknown[] = [];
+  for (const path of paths) {
+    await pageVulns(
+      (cursor) => projectVulnQuery(path, cursor),
+      (json) =>
+        (json as { data?: { project?: { vulnerabilities?: VulnConnection } | null } })?.data
+          ?.project?.vulnerabilities,
+      path,
+      nodes,
+      errors,
+    );
   }
   return extractVulns(nodes);
 }
 
+// GitLab dependency-scanning writes a Maven coordinate as `group/artifact`; OSV
+// keys the same package as `group:artifact`. Returns null for anything that
+// isn't a single-slash coordinate, which is then simply left without a fix
+// rather than queried under a guessed ecosystem.
+function mavenCoordinate(packageName: string): string | null {
+  const parts = packageName.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  return `${parts[0]}:${parts[1]}`;
+}
+
+// Every CVE id a record answers to: OSV returns the ecosystem advisory (GHSA-…)
+// and carries the CVE it fixes in `aliases`.
+function osvRecordCves(record: unknown): string[] {
+  const r = record as { id?: unknown; aliases?: unknown };
+  const ids = [r?.id, ...(Array.isArray(r?.aliases) ? r.aliases : [])];
+  return ids.filter((i): i is string => typeof i === "string" && i.startsWith("CVE-"));
+}
+
+// Ask OSV which advisories affect one installed package version. A failure is
+// recorded rather than swallowed: an unreachable or rate-limited OSV drops every
+// fix recommendation, and an empty fix list is otherwise indistinguishable from
+// "this package has no published fix".
+async function osvQueryPackage(
+  coordinate: string,
+  version: string,
+  errors: string[],
+): Promise<unknown[]> {
+  try {
+    const r = await fetch("https://api.osv.dev/v1/query", {
+      method: "POST",
+      body: JSON.stringify({
+        package: { name: coordinate, ecosystem: "Maven" },
+        version,
+      }),
+      signal: AbortSignal.timeout(OSV_TIMEOUT_MS),
+    });
+    if (!r.ok) {
+      errors.push(`osv degraded for ${coordinate}@${version}: HTTP ${r.status}`);
+      return [];
+    }
+    const body = (await r.json()) as { vulns?: unknown };
+    return Array.isArray(body?.vulns) ? body.vulns : [];
+  } catch (e) {
+    errors.push(`osv degraded for ${coordinate}@${version}: ${errText(e)}`);
+    return [];
+  }
+}
+
+// Fix versions for the CVEs we found, keyed by (package, CVE).
+//
+// Queried by installed package+version, NOT by CVE id: OSV's CVE-keyed record is
+// the upstream advisory, which carries no package coordinates and expresses its
+// fixes as git SHAs, so matching it against a package never resolves and every
+// lookup came back empty. The ecosystem advisory (GHSA-…) is the one holding
+// `{package, ranges.events.fixed}`, and it is only reachable by querying the
+// package. Querying per package also collapses the request count: many CVEs
+// share one vulnerable dependency.
 async function collectFixes(vulns: VulnRecord[], errors: string[]): Promise<Map<string, string>> {
   const fixes = new Map<string, string>();
-  // Distinct (package, CVE) pairs needing a fix; the OSV fix is package-specific
-  // (one CVE record can carry fixes for several packages), so we extract per
-  // pair. OSV is queried once per CVE and the body shared across its packages.
-  const pairs = [
-    ...new Map(
-      vulns
-        .filter((v) => v.cve_id && v.package_name)
-        .map((v) => [osvFixKey(v.package_name, v.cve_id), v]),
-    ).values(),
-  ];
-  let cves = [...new Set(pairs.map((v) => v.cve_id))];
-  if (cves.length > MAX_OSV_LOOKUPS) {
-    errors.push(
-      `osv: ${cves.length} CVEs exceeds the ${MAX_OSV_LOOKUPS} lookup cap — quick wins may underreport`,
-    );
-    cves = cves.slice(0, MAX_OSV_LOOKUPS);
+  // The CVEs we hold per package — a fix is only recorded for a CVE actually
+  // reported against that package, never for everything OSV knows about it.
+  const wanted = new Map<string, Set<string>>();
+  const targets = new Map<string, { packageName: string; version: string }>();
+  for (const v of vulns) {
+    if (!v.cve_id || !v.package_name || !v.current_version) continue;
+    const key = `${v.package_name}@${v.current_version}`;
+    if (!wanted.has(key)) wanted.set(key, new Set());
+    wanted.get(key)?.add(v.cve_id);
+    targets.set(key, { packageName: v.package_name, version: v.current_version });
   }
-  const bodies = new Map<string, unknown>();
-  for (let i = 0; i < cves.length; i += OSV_BATCH) {
-    const batch = cves.slice(i, i + OSV_BATCH);
-    const results = await Promise.all(
-      batch.map(async (cve): Promise<[string, unknown]> => {
-        try {
-          const r = await fetch(`https://api.osv.dev/v1/vulns/${encodeURIComponent(cve)}`, {
-            signal: AbortSignal.timeout(OSV_TIMEOUT_MS),
-          });
-          return [cve, r.ok ? await r.json() : null];
-        } catch {
-          return [cve, null];
+
+  let keys = [...targets.keys()];
+  if (keys.length > MAX_OSV_LOOKUPS) {
+    errors.push(
+      `osv: ${keys.length} packages exceeds the ${MAX_OSV_LOOKUPS} lookup cap — quick wins may underreport`,
+    );
+    keys = keys.slice(0, MAX_OSV_LOOKUPS);
+  }
+
+  for (let i = 0; i < keys.length; i += OSV_BATCH) {
+    const batch = keys.slice(i, i + OSV_BATCH);
+    await Promise.all(
+      batch.map(async (key) => {
+        const target = targets.get(key);
+        if (!target) return;
+        const coordinate = mavenCoordinate(target.packageName);
+        if (!coordinate) return;
+        const records = await osvQueryPackage(coordinate, target.version, errors);
+        const cves = wanted.get(key) ?? new Set<string>();
+        for (const record of records) {
+          const fix = parseOsvFixed(record, target.packageName, target.version);
+          if (!fix) continue;
+          for (const cve of osvRecordCves(record)) {
+            if (cves.has(cve)) fixes.set(osvFixKey(target.packageName, cve, target.version), fix);
+          }
         }
       }),
     );
-    for (const [cve, body] of results) bodies.set(cve, body);
-  }
-  for (const v of pairs) {
-    if (!bodies.has(v.cve_id)) continue;
-    const fix = parseOsvFixed(bodies.get(v.cve_id), v.package_name);
-    if (fix) fixes.set(osvFixKey(v.package_name, v.cve_id), fix);
   }
   return fixes;
 }
@@ -727,37 +901,67 @@ export interface SecurityFetchResult {
 // report (counts + Sonar), per-CVE GitLab detail, OSV fix versions, and the
 // core-scoped vuln MRs from the shared Venus bundle. The three independent
 // sources fetch concurrently; only the OSV fix lookup depends on the vulns.
+//
+// `services` narrows every source to the named core services; empty means all of
+// them (the collectors' shape, so the published boards stay platform-wide).
+// Narrowing before `collectFixes` is what makes a scoped call cheap: OSV is
+// queried once per distinct vulnerable (package, installed version), which is
+// both the slow leg and the one under a truncating cap.
 export async function fetchSecurityInputs(
   exec: RibExec = localExec(),
+  services: readonly string[] = [],
 ): Promise<SecurityFetchResult> {
   const errors: string[] = [];
-  const [bundle, quality, vulnsAll] = await Promise.all([
+  const scope = new Set(services);
+  const [bundle, quality, sweptVulns] = await Promise.all([
     loadVenusBundle(),
-    fetchReleaseReport(exec),
-    collectVulns(errors),
+    fetchReleaseReport(exec, services),
+    // Only the unscoped sweep can run concurrently with the report; a scoped run
+    // queries each project by the gitlab_path the report carries, so it has to
+    // wait for it.
+    scope.size === 0 ? collectVulns(errors) : Promise.resolve(null),
   ]);
   errors.push(...bundle.errors);
   if (quality.error) errors.push(`quality degraded: ${quality.error}`);
+  const vulnsAll =
+    sweptVulns ??
+    (await collectProjectVulns(
+      (quality.report.services ?? [])
+        .map((s) => s.gitlab_path)
+        .filter((p): p is string => Boolean(p)),
+      errors,
+    ));
   // Scope CVEs to the core services so the tool result agrees with the board
   // (buildSecurityBoard applies the same VENUS_CORE filter) and OSV lookups skip
   // off-core packages.
-  const vulns = vulnsAll.filter((v) => VENUS_CORE.has(serviceOf(v.project_path)));
-  const mrs = extractSecurityMrs(bundle.mrsRaw);
+  const inScope = (path: string | null | undefined): boolean => {
+    const svc = serviceOf(path);
+    return VENUS_CORE.has(svc) && (scope.size === 0 || scope.has(svc));
+  };
+  const vulns = vulnsAll.filter((v) => inScope(v.project_path));
+  const mrs = extractSecurityMrs(bundle.mrsRaw).filter((mr) => inScope(mr.project_path));
   const fixes = await collectFixes(vulns, errors);
   return { inputs: { report: quality.report, vulns, fixes, mrs, now: new Date() }, errors };
 }
 
-// OSV.dev `/v1/vulns/{id}` body → highest published fixed version for the given
-// package, or "" when no usable fix exists. Only `affected` entries whose
-// package matches `packageName` are considered — a CVE can carry fixes for
-// unrelated packages, and applying the wrong one would recommend a bogus bump.
-// Git-SHA "fixed" events are rejected (not installable).
+// An OSV record → the fixed version to recommend for `packageName`, or "" when
+// none applies. Only `affected` entries whose package matches are considered — a
+// record can carry fixes for unrelated packages, and applying the wrong one
+// would recommend a bogus bump. Git-SHA "fixed" events are rejected (not
+// installable).
+//
+// With `currentVersion`, this is the LOWEST fix above it — the minimal upgrade
+// that clears the CVE. One advisory usually patches every supported line at
+// once (Tomcat 9.0.118 / 10.1.55 / 11.0.22), so taking the highest would tell a
+// service on 10.1.54 to jump a major version when the patch beside it does the
+// job. Without a version to compare against, the newest fix is the only honest
+// answer.
 const VERSION_RE = /^v?\d+(?:\.\w+)*(?:[-+][\w.\-+]+)?$/;
-export function parseOsvFixed(body: unknown, packageName: string): string {
+export function parseOsvFixed(body: unknown, packageName: string, currentVersion?: string): string {
   const affected = (body as { affected?: unknown })?.affected;
   if (!Array.isArray(affected)) return "";
   const target = normalizePackageName(packageName);
-  let best = "";
+  const candidates: string[] = [];
   for (const entry of affected) {
     const name = (entry as { package?: { name?: unknown } })?.package?.name;
     if (typeof name !== "string" || normalizePackageName(name) !== target) continue;
@@ -769,9 +973,19 @@ export function parseOsvFixed(body: unknown, packageName: string): string {
       for (const event of events) {
         const fixed = (event as { fixed?: unknown })?.fixed;
         if (typeof fixed !== "string" || !VERSION_RE.test(fixed)) continue;
-        if (!best || compareSemver(fixed, best) > 0) best = fixed;
+        candidates.push(fixed);
       }
     }
   }
-  return best;
+  if (candidates.length === 0) return "";
+  const upgrades =
+    currentVersion && semverParts(currentVersion)
+      ? candidates.filter((c) => compareSemver(c, currentVersion) > 0)
+      : [];
+  if (upgrades.length > 0) {
+    return upgrades.reduce((lowest, c) => (compareSemver(c, lowest) < 0 ? c : lowest));
+  }
+  // No comparable current version: fall back to the newest known fix.
+  if (currentVersion && semverParts(currentVersion)) return "";
+  return candidates.reduce((highest, c) => (compareSemver(c, highest) > 0 ? c : highest));
 }
