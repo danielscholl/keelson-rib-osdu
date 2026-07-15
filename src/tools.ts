@@ -1,6 +1,6 @@
 import type { RibContext, RibExec, ToolContext, ToolDefinition } from "@keelson/shared";
 import { errText, z } from "@keelson/shared";
-import { fetchMyMergeRequests, loadVenusBundle, VENUS_CORE } from "./activity.ts";
+import { fetchMyMergeRequests, loadVenusBundle, serviceOf, VENUS_CORE } from "./activity.ts";
 import { fetchClusterInfo } from "./cluster.ts";
 import {
   CLUSTER_LIFECYCLE_ARGS,
@@ -255,26 +255,41 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
         }
         // Keep the fix list aligned with the rows actually returned, so a fix
         // never references a CVE the caller cannot see.
-        const shown = new Set(vulns.map((v) => osvFixKey(v.package_name, v.cve_id)));
+        const shown = new Set(
+          vulns.map((v) => osvFixKey(v.package_name, v.cve_id, v.current_version)),
+        );
+        // The report carries whatever the CLI's service map holds, which is not
+        // the same set the CVEs and MRs are filtered to. Hold it to the same
+        // scope this result claims, or it labels itself "all core services" while
+        // listing services nothing else in the payload accounts for.
+        const inScope = (s: { name?: string; gitlab_path?: string | null }): boolean => {
+          const svc = serviceOf(s.gitlab_path ?? s.name ?? "");
+          return VENUS_CORE.has(svc) && (services.length === 0 || services.includes(svc));
+        };
 
         return {
           scope: scopeLabel(services),
           severityFilter: severities.length > 0 ? severities : "all",
           vulnCounts: { matched: matched.length, returned: vulns.length },
-          services: inputs.report.services?.map((s) => ({
+          services: (inputs.report.services ?? []).filter(inScope).map((s) => ({
             name: s.display_name || s.name,
             security_rating: s.sonar?.security_rating ?? null,
             vulnerabilities: s.vulnerabilities ?? null,
           })),
           vulns,
-          // A list of {package, cve, fixedVersion} rather than the raw fix map:
-          // its keys are an internal composite, and serializing them straight
-          // would put the NUL separator in front of the model.
+          // A list of {package, cve, installed, fixedVersion} rather than the raw
+          // fix map: its keys are an internal composite, and serializing them
+          // straight would put the NUL separator in front of the model.
           fixes: [...(inputs.fixes ?? new Map())]
             .filter(([key]) => shown.has(key))
             .map(([key, fixedVersion]) => {
-              const { packageName, cveId } = osvFixParts(key);
-              return { package: packageName, cve: cveId, fixedVersion };
+              const { packageName, cveId, installedVersion } = osvFixParts(key);
+              return {
+                package: packageName,
+                cve: cveId,
+                installed: installedVersion,
+                fixedVersion,
+              };
             }),
           vulnMrs: inputs.mrs,
           notes,

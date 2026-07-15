@@ -1,4 +1,5 @@
 import type { CanvasBoardView, RibExec } from "@keelson/shared";
+import { errText } from "@keelson/shared";
 import {
   GITLAB_GROUP,
   GITLAB_HOST,
@@ -491,7 +492,7 @@ function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardIt
   for (const [pkg, members] of groups) {
     let to = "";
     for (const m of members) {
-      const fix = fixes.get(osvFixKey(pkg, m.cve_id));
+      const fix = fixes.get(osvFixKey(pkg, m.cve_id, m.current_version));
       if (fix && (!to || compareSemver(fix, to) > 0)) to = fix;
     }
     if (!to) continue;
@@ -508,7 +509,7 @@ function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardIt
     const highCves = new Set<string>();
     const medCves = new Set<string>();
     for (const m of members) {
-      if (!fixes.get(osvFixKey(pkg, m.cve_id))) continue;
+      if (!fixes.get(osvFixKey(pkg, m.cve_id, m.current_version))) continue;
       if (m.severity === "critical") critCves.add(m.cve_id);
       else if (m.severity === "high") highCves.add(m.cve_id);
       else if (m.severity === "medium") medCves.add(m.cve_id);
@@ -518,7 +519,9 @@ function buildQuickWins(vulns: VulnRecord[], fixes: Map<string, string>): CardIt
     const scope = [...new Set(members.map((m) => serviceOf(m.project_path)).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b))
       .join(", ");
-    const url = members.find((m) => fixes.get(osvFixKey(pkg, m.cve_id)) && m.web_url)?.web_url;
+    const url = members.find(
+      (m) => fixes.get(osvFixKey(pkg, m.cve_id, m.current_version)) && m.web_url,
+    )?.web_url;
     rows.push({
       title: pkg,
       pill: { label: "QUICK WIN", tone: "ok" },
@@ -652,24 +655,29 @@ function dependencyOf(location: unknown): { name: string; version: string } {
   };
 }
 
-// Composite key for the OSV fix map: a CVE's fixed version is package-specific
-// (one OSV record can list fixes for several packages/ecosystems), so quick-win
-// lookups must be keyed by package, not CVE alone. NUL separates because it
-// cannot occur in either half. Spell it as an escape, never a literal byte: a
-// raw NUL makes the whole file read as binary, which silently drops it from
-// grep and other text tooling.
+// Composite key for the OSV fix map. The fix is specific to all three parts: a
+// CVE's fix is package-specific (one OSV record lists fixes for several
+// packages), and the recommended version depends on the line the package is
+// installed on — 10.1.54 and 9.0.100 take different fixes for the same CVE, so
+// keying without the version lets one overwrite the other. NUL separates because
+// it cannot occur in any part. Spell it as an escape, never a literal byte: a raw
+// NUL makes the whole file read as binary, which silently drops it from grep and
+// other text tooling.
 const OSV_KEY_SEP = "\0";
 
-export function osvFixKey(packageName: string, cveId: string): string {
-  return `${packageName}${OSV_KEY_SEP}${cveId}`;
+export function osvFixKey(packageName: string, cveId: string, installedVersion: string): string {
+  return `${packageName}${OSV_KEY_SEP}${cveId}${OSV_KEY_SEP}${installedVersion}`;
 }
 
-// Split a fix-map key back into its halves so callers can present the map
-// without reproducing the key format — or leaking the separator into output a
-// model reads.
-export function osvFixParts(key: string): { packageName: string; cveId: string } {
-  const [packageName = "", cveId = ""] = key.split(OSV_KEY_SEP);
-  return { packageName, cveId };
+// Split a fix-map key back into its parts so callers can present the map without
+// reproducing the key format — or leaking the separator into output a model reads.
+export function osvFixParts(key: string): {
+  packageName: string;
+  cveId: string;
+  installedVersion: string;
+} {
+  const [packageName = "", cveId = "", installedVersion = ""] = key.split(OSV_KEY_SEP);
+  return { packageName, cveId, installedVersion };
 }
 
 // GitLab dependency-scanning names a Maven coordinate `group/artifact` while OSV
@@ -791,8 +799,15 @@ function osvRecordCves(record: unknown): string[] {
   return ids.filter((i): i is string => typeof i === "string" && i.startsWith("CVE-"));
 }
 
-// Ask OSV which advisories affect one installed package version.
-async function osvQueryPackage(coordinate: string, version: string): Promise<unknown[]> {
+// Ask OSV which advisories affect one installed package version. A failure is
+// recorded rather than swallowed: an unreachable or rate-limited OSV drops every
+// fix recommendation, and an empty fix list is otherwise indistinguishable from
+// "this package has no published fix".
+async function osvQueryPackage(
+  coordinate: string,
+  version: string,
+  errors: string[],
+): Promise<unknown[]> {
   try {
     const r = await fetch("https://api.osv.dev/v1/query", {
       method: "POST",
@@ -802,10 +817,14 @@ async function osvQueryPackage(coordinate: string, version: string): Promise<unk
       }),
       signal: AbortSignal.timeout(OSV_TIMEOUT_MS),
     });
-    if (!r.ok) return [];
+    if (!r.ok) {
+      errors.push(`osv degraded for ${coordinate}@${version}: HTTP ${r.status}`);
+      return [];
+    }
     const body = (await r.json()) as { vulns?: unknown };
     return Array.isArray(body?.vulns) ? body.vulns : [];
-  } catch {
+  } catch (e) {
+    errors.push(`osv degraded for ${coordinate}@${version}: ${errText(e)}`);
     return [];
   }
 }
@@ -849,13 +868,13 @@ async function collectFixes(vulns: VulnRecord[], errors: string[]): Promise<Map<
         if (!target) return;
         const coordinate = mavenCoordinate(target.packageName);
         if (!coordinate) return;
-        const records = await osvQueryPackage(coordinate, target.version);
+        const records = await osvQueryPackage(coordinate, target.version, errors);
         const cves = wanted.get(key) ?? new Set<string>();
         for (const record of records) {
           const fix = parseOsvFixed(record, target.packageName, target.version);
           if (!fix) continue;
           for (const cve of osvRecordCves(record)) {
-            if (cves.has(cve)) fixes.set(osvFixKey(target.packageName, cve), fix);
+            if (cves.has(cve)) fixes.set(osvFixKey(target.packageName, cve, target.version), fix);
           }
         }
       }),

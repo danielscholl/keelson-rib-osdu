@@ -20,13 +20,13 @@ import vulnNodes from "./fixtures/security-vulns.json";
 
 const NOW = new Date("2026-06-01T00:00:00Z");
 const vulns = extractVulns(vulnNodes);
-// The fix map is keyed by (package, CVE) — mirror how the collector builds it
-// from the CVE-keyed fixture and each vuln's package.
+// The fix map is keyed by (package, CVE, installed version) — mirror how the
+// collector builds it from the CVE-keyed fixture and each vuln's package/version.
 const rawFixes = osvFixes as Record<string, string>;
 const fixes = new Map<string, string>();
 for (const v of vulns) {
   const fix = rawFixes[v.cve_id];
-  if (fix) fixes.set(osvFixKey(v.package_name, v.cve_id), fix);
+  if (fix) fixes.set(osvFixKey(v.package_name, v.cve_id, v.current_version), fix);
 }
 const board = buildSecurityBoard({
   report: report as ReleaseReport,
@@ -555,13 +555,29 @@ describe("parseOsvFixed", () => {
 
 describe("osvFixParts", () => {
   test("round-trips a composite key without exposing the separator", () => {
-    const key = osvFixKey("io.netty/netty-handler", "CVE-2026-44249");
+    const key = osvFixKey("io.netty/netty-handler", "CVE-2026-44249", "4.1.131.Final");
     expect(osvFixParts(key)).toEqual({
       packageName: "io.netty/netty-handler",
       cveId: "CVE-2026-44249",
+      installedVersion: "4.1.131.Final",
     });
-    // NUL separates because it cannot occur in either half.
-    expect(key).toBe("io.netty/netty-handler\u0000CVE-2026-44249");
+    // NUL separates because it cannot occur in any part.
+    expect(key).toBe("io.netty/netty-handler\u0000CVE-2026-44249\u00004.1.131.Final");
+  });
+
+  // The recommended fix depends on the line a package is installed on, so the
+  // same package+CVE on two lines must not collide — one entry would otherwise
+  // overwrite the other and hand a service the wrong branch's version.
+  test("keeps one CVE's fix distinct per installed version", () => {
+    const TOMCAT = "org.apache.tomcat.embed/tomcat-embed-core";
+    const CVE = "CVE-2026-43512";
+    const fixes = new Map([
+      [osvFixKey(TOMCAT, CVE, "10.1.54"), "10.1.55"],
+      [osvFixKey(TOMCAT, CVE, "9.0.100"), "9.0.118"],
+    ]);
+    expect(fixes.size).toBe(2);
+    expect(fixes.get(osvFixKey(TOMCAT, CVE, "10.1.54"))).toBe("10.1.55");
+    expect(fixes.get(osvFixKey(TOMCAT, CVE, "9.0.100"))).toBe("9.0.118");
   });
 });
 
