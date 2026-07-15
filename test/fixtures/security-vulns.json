@@ -35,7 +35,7 @@
     "project": { "fullPath": "osdu/platform/security-and-compliance/legal" },
     "location": {
       "dependency": {
-        "package": { "name": "org.apache.tomcat.embed.tomcat-embed-core" },
+        "package": { "name": "org.apache.tomcat.embed/tomcat-embed-core" },
         "version": "9.0.50"
       }
     }
@@ -93,5 +93,14 @@
     "identifiers": [{ "externalType": "cve", "externalId": "CVE-2024-9999" }],
     "project": { "fullPath": "osdu/platform/samples/java-service" },
     "location": { "dependency": { "package": { "name": "noncorepkg" }, "version": "1.0.0" } }
+  },
+  {
+    "detectedAt": "2026-03-10T00:00:00Z",
+    "severity": "CRITICAL",
+    "state": "DETECTED",
+    "webUrl": "https://community.opengroup.org/osdu/platform/system/storage/-/security/vulnerabilities/11",
+    "identifiers": [{ "externalType": "cve", "externalId": "CVE-2024-0001" }],
+    "project": { "fullPath": "osdu/platform/system/storage" },
+    "location": { "dependency": { "package": { "name": "golang.org/x/net" }, "version": "0.17.0" } }
   }
 ]

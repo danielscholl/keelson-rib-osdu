@@ -289,48 +289,60 @@ describe("buildSecurityBoard", () => {
     expect(notificationBar?.trailing).toBe("0 crit · 2 high");
   });
 
-  test("aged criticals: red-mono CVE id, hash-toned svc chip, no per-row age", () => {
-    const cards = section("cards", "Aged criticals");
-    expect(cards?.kind).toBe("cards");
-    if (cards?.kind !== "cards") return;
-    expect(cards.title).toBe("Aged criticals · 5 crit · 0 high · >30d");
-    expect(cards.items.map((c) => c.title)).toEqual([
-      "CVE-2024-0001",
-      "CVE-2024-0004",
-      "CVE-2024-0002",
-      "CVE-2024-0007",
-      "CVE-2024-0008",
+  test("aged criticals: red glyph, hash-toned svc chip, one row per finding", () => {
+    const rows = section("rows", "Aged criticals");
+    expect(rows?.kind).toBe("rows");
+    if (rows?.kind !== "rows") return;
+    // 5, not 6: CVE-2024-0001's second detection site collapses into the first.
+    expect(rows.title).toBe("Aged criticals · 5 crit · 0 high · >30d");
+    expect(rows.items.map((r) => r.text)).toEqual([
+      "CVE-2024-0001 · golang.org/x/net",
+      "CVE-2024-0004 · tomcat-embed-core",
+      "CVE-2024-0002 · golang.org/x/net",
+      "CVE-2024-0007 · alreadyfixed",
+      "CVE-2024-0008 · nofixpkg",
     ]);
-    const first = cards.items[0];
-    expect(first?.titleTone).toBe("error");
-    expect(first?.mono).toBe(true);
-    expect(first?.pill?.label).toBe("storage");
-    expect(first?.pill?.tone).toBe(hashTone("storage"));
-    expect(first?.fields?.[0]?.value).toBe("golang.org/x/net 0.17.0");
-    // Age lives in the section header, not per row.
-    expect(first?.footnote).toBeUndefined();
+    const first = rows.items[0];
+    expect(first?.glyph).toBe("error");
+    expect(first?.chip?.label).toBe("storage");
+    expect(first?.chip?.tone).toBe(hashTone("storage"));
+    expect(first?.trailing).toBe("0.17.0");
+    // The earliest detection wins the dedupe: site /1 (Jan), not site /11 (Mar).
+    expect(first?.href).toBe(
+      "https://community.opengroup.org/osdu/platform/system/storage/-/security/vulnerabilities/1",
+    );
     // Non-core CVE (samples/java-service) is excluded despite being the oldest.
-    expect(cards.items.some((c) => c.title === "CVE-2024-9999")).toBe(false);
+    expect(rows.items.some((r) => r.text.includes("CVE-2024-9999"))).toBe(false);
   });
 
   test("quick wins: groups by package, ranks by criticals, drops risky/no-fix/fixed", () => {
-    const cards = section("cards", "Quick wins");
-    expect(cards?.kind).toBe("cards");
-    if (cards?.kind !== "cards") return;
-    expect(cards.items.map((c) => c.title)).toEqual(["golang.org/x/net", "leftpad", "somepkg"]);
-
-    const net = cards.items[0];
-    expect(net?.fields?.map((f) => f.value)).toEqual([
-      "0.18.0 → 0.36.0",
-      "fixes 2 critical CVEs",
-      "search-service, storage",
+    const rows = section("rows", "Quick wins");
+    expect(rows?.kind).toBe("rows");
+    if (rows?.kind !== "rows") return;
+    expect(rows.items.map((r) => r.text)).toEqual([
+      "golang.org/x/net 0.18.0 → 0.36.0",
+      "leftpad 1.0.0 → 1.0.1",
+      "somepkg 2.0.0 → 2.0.5",
     ]);
-    // org.apache.* major bump is high-risk and excluded.
-    expect(cards.items.some((c) => c.title.startsWith("org.apache"))).toBe(false);
+
+    const net = rows.items[0];
+    expect(net?.trailing).toBe("2 crit");
+    // The scope enumeration that drove the lane's height is disclosed, not inline.
+    expect(net?.detail).toBe(
+      "fixes 2 critical CVEs: CVE-2024-0001, CVE-2024-0002\nServices (2): search-service, storage",
+    );
+    // A 3-part Go module path is already the whole identity, so no restatement.
+    expect(net?.detail).not.toContain("Package:");
+    // A constant "QUICK WIN" chip in a section titled "Quick wins" is redundant.
+    expect(net?.chip).toBeUndefined();
+    // org.apache.* major bump is high-risk and excluded. Anchored on the
+    // shortened label — the row no longer starts with the Maven group.
+    expect(rows.items.some((r) => r.text.startsWith("tomcat-embed-core"))).toBe(false);
     // alreadyfixed (downgrade) and nofixpkg (no OSV fix) excluded.
-    expect(cards.items.some((c) => c.title === "alreadyfixed")).toBe(false);
-    expect(cards.items.some((c) => c.title === "nofixpkg")).toBe(false);
-    expect(cards.items[2]?.fields?.[1]?.value).toBe("fixes 1 medium CVE");
+    expect(rows.items.some((r) => r.text.startsWith("alreadyfixed"))).toBe(false);
+    expect(rows.items.some((r) => r.text.startsWith("nofixpkg"))).toBe(false);
+    expect(rows.items[2]?.trailing).toBe("1 med");
+    expect(rows.items[2]?.detail).toContain("fixes 1 medium CVE");
   });
 
   test("Vuln MRs tile counts core, vuln-labeled, open MRs deduped by readiness", () => {
@@ -443,7 +455,8 @@ describe("buildSecurityBoard edge cases", () => {
 
 describe("extractVulns", () => {
   test("normalizes GraphQL nodes and drops non-CVE findings", () => {
-    expect(vulns).toHaveLength(9);
+    // 10 raw records: extractVulns does not dedupe, the board does.
+    expect(vulns).toHaveLength(10);
     expect(vulns.some((v) => v.cve_id.startsWith("GHSA"))).toBe(false);
     const first = vulns[0];
     expect(first).toMatchObject({
