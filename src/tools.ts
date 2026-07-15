@@ -1,6 +1,6 @@
 import type { RibContext, RibExec, ToolContext, ToolDefinition } from "@keelson/shared";
 import { errText, z } from "@keelson/shared";
-import { fetchMyMergeRequests, loadVenusBundle } from "./activity.ts";
+import { fetchMyMergeRequests, loadVenusBundle, VENUS_CORE } from "./activity.ts";
 import { fetchClusterInfo } from "./cluster.ts";
 import {
   CLUSTER_LIFECYCLE_ARGS,
@@ -20,7 +20,14 @@ import {
 } from "./kubectl.ts";
 import { fetchReleaseReport } from "./quality.ts";
 import { extractMilestoneFilter, extractReleaseMrs } from "./release.ts";
-import { fetchSecurityInputs } from "./security.ts";
+import {
+  compareVulns,
+  dedupeVulns,
+  fetchSecurityInputs,
+  osvFixKey,
+  osvFixParts,
+  SEVERITIES,
+} from "./security.ts";
 import { fetchSetupCheck, SETUP_PROVIDERS } from "./setup.ts";
 import { composeQueue } from "./waiting.ts";
 
@@ -45,25 +52,97 @@ function emitResult(ctx: ToolContext, content: string, isError = false): void {
 // Never throws — a degraded source surfaces as an error tool_result. The fetched
 // result is always emitted (no abort early-return): suppressing the emit would
 // make a cancelled read look like an empty-but-successful result to the model.
-function readTool(
+// `inputSchema` defaults to the no-argument shape; pass one to take arguments,
+// and `fetch` receives the parsed input.
+function readTool<S extends z.ZodType = z.ZodType<Record<string, never>>>(
   name: string,
   description: string,
-  fetch: () => Promise<unknown>,
+  fetch: (input: z.infer<S>) => Promise<unknown>,
+  inputSchema?: S,
 ): ToolDefinition {
+  const schema = (inputSchema ?? z.object({})) as S;
   return {
     name,
     description,
-    inputSchema: z.object({}),
+    inputSchema: schema,
     state_changing: false,
-    async execute(_input, ctx) {
+    async execute(input, ctx) {
+      // Refuse malformed arguments rather than falling back to the argument-free
+      // fetch: every argument here narrows scope, so silently dropping one turns
+      // a cheap read into the full-platform sweep the caller was avoiding.
+      const parsed = schema.safeParse(input ?? {});
+      if (!parsed.success) {
+        emitResult(ctx, `${name}: invalid arguments — ${parsed.error.message}`, true);
+        return;
+      }
       try {
-        emitResult(ctx, boundedJson(await fetch()));
+        emitResult(ctx, boundedJson(await fetch(parsed.data)));
       } catch (e) {
         emitResult(ctx, `${name} failed: ${errText(e)}`, true);
       }
     },
   };
 }
+
+// Comma-separated service names -> the validated scope both scoped read tools
+// take. Unknown names are returned separately so the tool can refuse loudly: a
+// typo silently scoping to nothing would read as "this service is clean".
+function parseServices(raw: string | undefined): { services: string[]; unknown: string[] } {
+  const names = (raw ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return {
+    services: names.filter((n) => VENUS_CORE.has(n)),
+    unknown: names.filter((n) => !VENUS_CORE.has(n)),
+  };
+}
+
+const serviceScopeSchema = z.object({ service: z.string().optional() });
+const securityScopeSchema = z.object({
+  service: z.string().optional(),
+  severity: z.string().optional(),
+});
+
+// Per-CVE rows kept in a security result. The rows are ordered worst-first, so
+// the cap drops the least actionable detail — and the count it dropped is
+// reported inside the JSON rather than by slicing the JSON itself.
+const VULN_ROWS_CAP = 40;
+
+function parseSeverities(raw: string | undefined): { severities: string[]; unknown: string[] } {
+  const names = (raw ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const valid = new Set<string>(SEVERITIES);
+  return {
+    severities: names.filter((n) => valid.has(n)),
+    unknown: names.filter((n) => !valid.has(n)),
+  };
+}
+
+function scopeLabel(services: readonly string[]): string {
+  return services.length > 0 ? services.join(",") : "all core services";
+}
+
+// Refuse an unrecognized service instead of scoping to nothing, which would
+// otherwise hand back an empty report the model would read as "no findings".
+function unknownServiceError(unknown: readonly string[]): {
+  error: string;
+  validServices: string[];
+} {
+  return {
+    error: `unknown service(s): ${unknown.join(", ")} — no report was fetched`,
+    validServices: [...VENUS_CORE].sort(),
+  };
+}
+
+const SERVICE_SCOPE_DOC =
+  "Optional `service` scopes the report to one or more core services (comma-separated, e.g. " +
+  "'partition' or 'partition,storage'). STRONGLY prefer it when the question is about specific " +
+  `services: unscoped covers all ${VENUS_CORE.size} core services, which is slow enough to time out ` +
+  "and large enough to truncate. Valid names are the core service slugs (e.g. partition, storage, " +
+  "legal, entitlements); an unrecognized name is refused rather than silently ignored.";
 
 const confirmSchema = z.object({ confirm: z.boolean().default(false) });
 const setupProviderSchema = z.object({ provider: z.enum(SETUP_PROVIDERS).optional() });
@@ -131,29 +210,72 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
   return [
     readTool(
       "osdu_quality",
-      "Use when the user asks about platform release quality, test pass rates, Sonar grades, coverage, or which services are failing. Returns the live `osdu-quality release` report: per-service acceptance/unit pass rates, coverage, reliability/security/maintainability grades, and vulnerability counts. Read-only. NOT for changing pipelines or merging.",
-      async () => {
-        const { report, error } = await fetchReleaseReport(exec);
-        return { report, notes: error ? [`quality degraded: ${error}`] : [] };
+      `Use when the user asks about platform release quality, test pass rates, Sonar grades, coverage, or which services are failing. Returns the live \`osdu-quality release\` report: per-service acceptance/unit pass rates, coverage, reliability/security/maintainability grades, and vulnerability counts. ${SERVICE_SCOPE_DOC} Read-only. NOT for changing pipelines or merging.`,
+      async ({ service }) => {
+        const { services, unknown } = parseServices(service);
+        if (unknown.length > 0) return unknownServiceError(unknown);
+        const { report, error } = await fetchReleaseReport(exec, services);
+        return {
+          scope: scopeLabel(services),
+          report,
+          notes: error ? [`quality degraded: ${error}`] : [],
+        };
       },
+      serviceScopeSchema,
     ),
     readTool(
       "osdu_security",
-      "Use when the user asks about platform security posture — critical/high CVEs, aged vulnerabilities, vulnerable dependencies, quick-win bumps, or security MRs. Returns live per-service security ratings and vuln counts, per-CVE detail (severity/state/package), OSV fix versions, and open vulnerability-labeled MRs. Read-only. NOT for patching or merging.",
-      async () => {
-        const { inputs, errors } = await fetchSecurityInputs(exec);
+      `Use when the user asks about platform security posture — critical/high CVEs, aged vulnerabilities, vulnerable dependencies, quick-win bumps, or security MRs. Returns live per-service security ratings and vuln counts, per-CVE detail (severity/state/package), OSV fix versions, and open vulnerability-labeled MRs. ${SERVICE_SCOPE_DOC} Optional \`severity\` narrows the per-CVE rows (comma-separated: ${SEVERITIES.join(", ")}); rows come back worst-first and are capped at ${VULN_ROWS_CAP}, so narrow by severity to see past the cap. Read-only. NOT for patching or merging.`,
+      async ({ service, severity }) => {
+        const { services, unknown } = parseServices(service);
+        if (unknown.length > 0) return unknownServiceError(unknown);
+        const { severities, unknown: badSeverity } = parseSeverities(severity);
+        if (badSeverity.length > 0) {
+          return {
+            error: `unknown severity: ${badSeverity.join(", ")} — no report was fetched`,
+            validSeverities: [...SEVERITIES],
+          };
+        }
+        const { inputs, errors } = await fetchSecurityInputs(exec, services);
+        const notes = [...errors];
+
+        const matched = dedupeVulns(inputs.vulns ?? [])
+          .filter((v) => severities.length === 0 || severities.includes(v.severity))
+          .sort(compareVulns);
+        const vulns = matched.slice(0, VULN_ROWS_CAP);
+        if (matched.length > vulns.length) {
+          notes.push(
+            `vulns: returned the ${vulns.length} most severe of ${matched.length} matching rows — narrow with severity (e.g. "critical,high") to see the rest`,
+          );
+        }
+        // Keep the fix list aligned with the rows actually returned, so a fix
+        // never references a CVE the caller cannot see.
+        const shown = new Set(vulns.map((v) => osvFixKey(v.package_name, v.cve_id)));
+
         return {
+          scope: scopeLabel(services),
+          severityFilter: severities.length > 0 ? severities : "all",
+          vulnCounts: { matched: matched.length, returned: vulns.length },
           services: inputs.report.services?.map((s) => ({
             name: s.display_name || s.name,
             security_rating: s.sonar?.security_rating ?? null,
             vulnerabilities: s.vulnerabilities ?? null,
           })),
-          vulns: inputs.vulns,
-          fixes: Object.fromEntries(inputs.fixes ?? new Map()),
+          vulns,
+          // A list of {package, cve, fixedVersion} rather than the raw fix map:
+          // its keys are an internal composite, and serializing them straight
+          // would put the NUL separator in front of the model.
+          fixes: [...(inputs.fixes ?? new Map())]
+            .filter(([key]) => shown.has(key))
+            .map(([key, fixedVersion]) => {
+              const { packageName, cveId } = osvFixParts(key);
+              return { package: packageName, cve: cveId, fixedVersion };
+            }),
           vulnMrs: inputs.mrs,
-          notes: errors,
+          notes,
         };
       },
+      securityScopeSchema,
     ),
     readTool(
       "osdu_features",

@@ -37,6 +37,7 @@ export interface VulnCounts {
 export interface ServiceReport {
   name?: string;
   display_name?: string | null;
+  gitlab_path?: string | null;
   pipeline_url?: string | null;
   sonar?: SonarMetrics | null;
   unit?: TestMetrics | null;
@@ -54,10 +55,17 @@ export interface ReleaseReport {
 // Degrades to an empty report with `error` set, so a CLI-missing / auth-expired
 // failure is distinguishable from a genuinely empty report (collectors log it;
 // the tool surfaces it in `notes`).
+//
+// `services` scopes the report to named services via the CLI's own `--service`
+// flag; empty means every service in the CLI's service map. The collectors pass
+// nothing, so the published boards stay platform-wide.
 export async function fetchReleaseReport(
   exec: RibExec = localExec(),
+  services: readonly string[] = [],
 ): Promise<{ report: ReleaseReport; error?: string }> {
-  const res = await exec.runJSON<ReleaseReport>("osdu-quality", ["release", "--output", "json"], {
+  const args = ["release", "--output", "json"];
+  if (services.length > 0) args.push("--service", services.join(","));
+  const res = await exec.runJSON<ReleaseReport>("osdu-quality", args, {
     timeoutMs: 120_000,
   });
   return res.ok ? { report: res.data } : { report: { services: [] }, error: res.error };
