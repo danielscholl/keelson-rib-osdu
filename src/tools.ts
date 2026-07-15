@@ -265,7 +265,7 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
     ),
     readTool(
       "osdu_security",
-      `Use when the user asks about platform security posture — critical/high CVEs, aged vulnerabilities, vulnerable dependencies, quick-win bumps, or security MRs. Returns live per-service security ratings and vuln counts, per-CVE detail (severity/state/package), OSV fix versions, and open vulnerability-labeled MRs. ${SERVICE_SCOPE_DOC} Optional \`severity\` narrows the per-CVE rows (comma-separated: ${SEVERITIES.join(", ")}); rows come back worst-first and are trimmed to fit the result size limit, with \`vulnCounts\` and \`notes\` reporting how many matched versus how many were returned — narrow by severity to see the rest. Read-only. NOT for patching or merging.`,
+      `Use when the user asks about platform security posture — critical/high CVEs, aged vulnerabilities, vulnerable dependencies, quick-win bumps, or security MRs. Returns, per service, SonarCloud's static-analysis grade for the service's OWN code (\`sonar_security_rating\`) and — separately — CVE counts in its DEPENDENCIES (\`dependency_vulnerabilities\`); the grade says nothing about those CVEs, so a service can rate A and still carry criticals. Also returns per-CVE detail (severity/state/package), OSV fix versions, and open vulnerability-labeled MRs. ${SERVICE_SCOPE_DOC} Optional \`severity\` narrows the per-CVE rows (comma-separated: ${SEVERITIES.join(", ")}); rows come back worst-first and are trimmed to fit the result size limit, with \`vulnCounts\` and \`notes\` reporting how many matched versus how many were returned — narrow by severity to see the rest. Read-only. NOT for patching or merging.`,
       async ({ service, severity }) => {
         const { services, unknown } = parseServices(service);
         if (unknown.length > 0) return unknownServiceError(unknown);
@@ -312,8 +312,13 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
             notes,
             services: (inputs.report.services ?? []).filter(inScope).map((s) => ({
               name: s.display_name || s.name,
-              security_rating: s.sonar?.security_rating ?? null,
-              vulnerabilities: s.vulnerabilities ?? null,
+              // Two different scans of two different things, and the pairing is
+              // easy to misread: the Sonar grade covers the code this service's
+              // team wrote, and is blind to every CVE counted beside it — those
+              // live in the libraries it imports. A service rates A here and
+              // still carries criticals there.
+              sonar_security_rating: s.sonar?.security_rating ?? null,
+              dependency_vulnerabilities: s.vulnerabilities ?? null,
             })),
             vulns: kept,
             // A list of {package, cve, installed, fixedVersion} rather than the raw
