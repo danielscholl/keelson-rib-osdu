@@ -98,11 +98,16 @@ function parseServices(raw: string | undefined): { services: string[]; unknown: 
   };
 }
 
-const serviceScopeSchema = z.object({ service: z.string().optional() });
-const securityScopeSchema = z.object({
-  service: z.string().optional(),
-  severity: z.string().optional(),
-});
+// Strict: a stray key must fail rather than be stripped. Every argument here
+// narrows scope, so a silently-dropped typo (`servicee`) would parse as "no
+// scope" and run the full-platform sweep the caller was trying to avoid.
+const serviceScopeSchema = z.object({ service: z.string().optional() }).strict();
+const securityScopeSchema = z
+  .object({
+    service: z.string().optional(),
+    severity: z.string().optional(),
+  })
+  .strict();
 
 // Per-CVE rows kept in a security result. The rows are ordered worst-first, so
 // the cap drops the least actionable detail — and the count it dropped is

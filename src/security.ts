@@ -877,8 +877,8 @@ export interface SecurityFetchResult {
 // `services` narrows every source to the named core services; empty means all of
 // them (the collectors' shape, so the published boards stay platform-wide).
 // Narrowing before `collectFixes` is what makes a scoped call cheap: OSV is
-// queried once per surviving CVE, and that lookup is both the slow leg and the
-// one under a truncating cap.
+// queried once per distinct vulnerable (package, installed version), which is
+// both the slow leg and the one under a truncating cap.
 export async function fetchSecurityInputs(
   exec: RibExec = localExec(),
   services: readonly string[] = [],
