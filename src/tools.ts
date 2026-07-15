@@ -32,16 +32,47 @@ import { fetchSetupCheck, SETUP_PROVIDERS } from "./setup.ts";
 import { composeQueue } from "./waiting.ts";
 
 // Tool results stream to chat as `tool_result` chunks; keep each one well under
-// the chat context budget. Truncation is signalled, never silent.
+// the chat context budget.
 const MAX_TOOL_RESULT_CHARS = 16_000;
 
-// Compact (not pretty) so the cap carries more data and large payloads aren't
-// fully pretty-printed just to be sliced away.
+// Compact (not pretty) so the cap carries more data.
+//
+// An oversized result becomes a valid envelope rather than a slice of the real
+// one. The reader is a model: a JSON document cut at a byte boundary does not
+// parse, so slicing does not cost it the tail — it costs it everything, and the
+// note explaining why arrives inside the wreckage. A tool that can overflow is
+// expected to bound its own payload (see fitToCap) and report what it dropped;
+// this is the floor that keeps a miss from emitting garbage.
 function boundedJson(data: unknown): string {
   const full = JSON.stringify(data);
   if (full.length <= MAX_TOOL_RESULT_CHARS) return full;
-  const omitted = full.length - MAX_TOOL_RESULT_CHARS;
-  return `${full.slice(0, MAX_TOOL_RESULT_CHARS)}\n…(truncated — ${omitted} more chars; ask for a narrower slice)`;
+  return JSON.stringify({
+    error: `result is ${full.length} chars, over the ${MAX_TOOL_RESULT_CHARS} limit, and was not returned`,
+    hint: "narrow the request (e.g. a single service, or a severity filter) and call again",
+  });
+}
+
+// The largest prefix of `rows` whose built result still fits. Callers order rows
+// worst-first, so dropping from the tail sheds the least actionable detail, and
+// `build` recomputes the whole result — including its own count of what was
+// dropped — for whatever prefix survives.
+//
+// Bound by serialized size, not a row count: a fixed count is tuned against one
+// service and silently wrong for the next, which is how `legal` (49 rows) sailed
+// past a cap that held for `partition` (28).
+function fitToCap<T>(rows: readonly T[], build: (kept: readonly T[]) => unknown): number {
+  const fits = (n: number): boolean =>
+    JSON.stringify(build(rows.slice(0, n))).length <= MAX_TOOL_RESULT_CHARS;
+  if (fits(rows.length)) return rows.length;
+  // Each probe serializes the whole result, so bisect rather than walk.
+  let lo = 0;
+  let hi = rows.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (fits(mid)) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
 }
 
 function emitResult(ctx: ToolContext, content: string, isError = false): void {
@@ -108,11 +139,6 @@ const securityScopeSchema = z
     severity: z.string().optional(),
   })
   .strict();
-
-// Per-CVE rows kept in a security result. The rows are ordered worst-first, so
-// the cap drops the least actionable detail — and the count it dropped is
-// reported inside the JSON rather than by slicing the JSON itself.
-const VULN_ROWS_CAP = 40;
 
 function parseSeverities(raw: string | undefined): { severities: string[]; unknown: string[] } {
   const names = (raw ?? "")
@@ -230,7 +256,7 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
     ),
     readTool(
       "osdu_security",
-      `Use when the user asks about platform security posture — critical/high CVEs, aged vulnerabilities, vulnerable dependencies, quick-win bumps, or security MRs. Returns live per-service security ratings and vuln counts, per-CVE detail (severity/state/package), OSV fix versions, and open vulnerability-labeled MRs. ${SERVICE_SCOPE_DOC} Optional \`severity\` narrows the per-CVE rows (comma-separated: ${SEVERITIES.join(", ")}); rows come back worst-first and are capped at ${VULN_ROWS_CAP}, so narrow by severity to see past the cap. Read-only. NOT for patching or merging.`,
+      `Use when the user asks about platform security posture — critical/high CVEs, aged vulnerabilities, vulnerable dependencies, quick-win bumps, or security MRs. Returns live per-service security ratings and vuln counts, per-CVE detail (severity/state/package), OSV fix versions, and open vulnerability-labeled MRs. ${SERVICE_SCOPE_DOC} Optional \`severity\` narrows the per-CVE rows (comma-separated: ${SEVERITIES.join(", ")}); rows come back worst-first and are trimmed to fit the result size limit, with \`vulnCounts\` and \`notes\` reporting how many matched versus how many were returned — narrow by severity to see the rest. Read-only. NOT for patching or merging.`,
       async ({ service, severity }) => {
         const { services, unknown } = parseServices(service);
         if (unknown.length > 0) return unknownServiceError(unknown);
@@ -242,22 +268,10 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
           };
         }
         const { inputs, errors } = await fetchSecurityInputs(exec, services);
-        const notes = [...errors];
 
         const matched = dedupeVulns(inputs.vulns ?? [])
           .filter((v) => severities.length === 0 || severities.includes(v.severity))
           .sort(compareVulns);
-        const vulns = matched.slice(0, VULN_ROWS_CAP);
-        if (matched.length > vulns.length) {
-          notes.push(
-            `vulns: returned the ${vulns.length} most severe of ${matched.length} matching rows — narrow with severity (e.g. "critical,high") to see the rest`,
-          );
-        }
-        // Keep the fix list aligned with the rows actually returned, so a fix
-        // never references a CVE the caller cannot see.
-        const shown = new Set(
-          vulns.map((v) => osvFixKey(v.package_name, v.cve_id, v.current_version)),
-        );
         // The report carries whatever the CLI's service map holds, which is not
         // the same set the CVEs and MRs are filtered to. Hold it to the same
         // scope this result claims, or it labels itself "all core services" while
@@ -267,33 +281,51 @@ export function registerOsduTools(ctx: RibContext): ToolDefinition[] {
           return VENUS_CORE.has(svc) && (services.length === 0 || services.includes(svc));
         };
 
-        return {
-          scope: scopeLabel(services),
-          severityFilter: severities.length > 0 ? severities : "all",
-          vulnCounts: { matched: matched.length, returned: vulns.length },
-          services: (inputs.report.services ?? []).filter(inScope).map((s) => ({
-            name: s.display_name || s.name,
-            security_rating: s.sonar?.security_rating ?? null,
-            vulnerabilities: s.vulnerabilities ?? null,
-          })),
-          vulns,
-          // A list of {package, cve, installed, fixedVersion} rather than the raw
-          // fix map: its keys are an internal composite, and serializing them
-          // straight would put the NUL separator in front of the model.
-          fixes: [...(inputs.fixes ?? new Map())]
-            .filter(([key]) => shown.has(key))
-            .map(([key, fixedVersion]) => {
-              const { packageName, cveId, installedVersion } = osvFixParts(key);
-              return {
-                package: packageName,
-                cve: cveId,
-                installed: installedVersion,
-                fixedVersion,
-              };
-            }),
-          vulnMrs: inputs.mrs,
-          notes,
+        // Built for whatever prefix of `matched` survives the cap, so the counts
+        // and the note describe the rows actually returned. `vulnCounts` and
+        // `notes` lead: they are what a reader checks the rest against.
+        const build = (kept: readonly (typeof matched)[number][]) => {
+          const notes = [...errors];
+          if (matched.length > kept.length) {
+            notes.push(
+              `vulns: returned the ${kept.length} most severe of ${matched.length} matching rows — narrow with severity (e.g. "critical,high") to see the rest`,
+            );
+          }
+          // Keep the fix list aligned with the rows actually returned, so a fix
+          // never references a CVE the caller cannot see.
+          const shown = new Set(
+            kept.map((v) => osvFixKey(v.package_name, v.cve_id, v.current_version)),
+          );
+          return {
+            scope: scopeLabel(services),
+            severityFilter: severities.length > 0 ? severities : "all",
+            vulnCounts: { matched: matched.length, returned: kept.length },
+            notes,
+            services: (inputs.report.services ?? []).filter(inScope).map((s) => ({
+              name: s.display_name || s.name,
+              security_rating: s.sonar?.security_rating ?? null,
+              vulnerabilities: s.vulnerabilities ?? null,
+            })),
+            vulns: kept,
+            // A list of {package, cve, installed, fixedVersion} rather than the raw
+            // fix map: its keys are an internal composite, and serializing them
+            // straight would put the NUL separator in front of the model.
+            fixes: [...(inputs.fixes ?? new Map())]
+              .filter(([key]) => shown.has(key))
+              .map(([key, fixedVersion]) => {
+                const { packageName, cveId, installedVersion } = osvFixParts(key);
+                return {
+                  package: packageName,
+                  cve: cveId,
+                  installed: installedVersion,
+                  fixedVersion,
+                };
+              }),
+            vulnMrs: inputs.mrs,
+          };
         };
+
+        return build(matched.slice(0, fitToCap(matched, build)));
       },
       securityScopeSchema,
     ),

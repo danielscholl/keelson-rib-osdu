@@ -208,6 +208,52 @@ describe("osdu_quality tool", () => {
   });
 });
 
+// A result that overflows must still parse. The reader is a model: a document cut
+// at a byte boundary costs it everything, not just the tail — and the note saying
+// the data is short is the last field, so slicing destroyed the warning first.
+describe("result size bounding", () => {
+  function bigReport(services: number) {
+    return {
+      services: Array.from({ length: services }, (_, i) => ({
+        name: `svc-${i}`,
+        display_name: `Service ${i}`,
+        // Padding so the report cannot fit under the cap.
+        pipeline_url: `https://example.com/${"x".repeat(400)}/${i}`,
+        vulnerabilities: { critical: 1, high: 2, medium: 3, low: 0, info: 0, unknown: 0 },
+      })),
+    };
+  }
+
+  test("an oversized result is valid JSON carrying an error, not a slice", async () => {
+    const { exec } = makeExec({ json: () => ({ ok: true, data: bigReport(200) }) });
+    const tool = registerOsduTools(ctxWith(exec)).find((t) => t.name === "osdu_quality");
+    if (!tool) throw new Error("osdu_quality missing");
+    const { tctx, emits } = fakeToolCtx();
+
+    await tool.execute({}, tctx);
+
+    const content = results(emits)[0]?.content ?? "";
+    expect(content.length).toBeLessThanOrEqual(16_000);
+    // The decisive assertion: it parses at all.
+    const parsed = JSON.parse(content);
+    expect(parsed.error).toContain("over the 16000 limit");
+    expect(parsed.hint).toContain("narrow");
+  });
+
+  test("a result that fits is returned whole", async () => {
+    const { exec } = makeExec({ json: () => ({ ok: true, data: bigReport(1) }) });
+    const tool = registerOsduTools(ctxWith(exec)).find((t) => t.name === "osdu_quality");
+    if (!tool) throw new Error("osdu_quality missing");
+    const { tctx, emits } = fakeToolCtx();
+
+    await tool.execute({}, tctx);
+
+    const parsed = JSON.parse(results(emits)[0]?.content ?? "{}");
+    expect(parsed.report.services).toHaveLength(1);
+    expect(parsed.error).toBeUndefined();
+  });
+});
+
 describe("osdu_cluster + osdu_topology tools (exec-injected)", () => {
   function tool(name: string, exec: RibExec) {
     const t = registerOsduTools(ctxWith(exec)).find((x) => x.name === name);
