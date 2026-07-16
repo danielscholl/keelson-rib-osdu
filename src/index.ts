@@ -268,6 +268,8 @@ const rib: Rib = {
     {
       id: "cimpl",
       title: "CIMPL",
+      // The tab stays the terse "CIMPL"; the page heading spells it out.
+      heading: "OSDU Community Implementation",
       layout: {
         header: {
           key: CLUSTER_KEY,
