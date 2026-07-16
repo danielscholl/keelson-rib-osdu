@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.10.3...v0.11.0) (2026-07-16)
+
+
+### Added
+
+* **surface:** give the CIMPL surface a spelled-out page heading ([#124](https://github.com/danielscholl/keelson-rib-osdu/issues/124)) ([b0ce4e2](https://github.com/danielscholl/keelson-rib-osdu/commit/b0ce4e2ef37e78d19d1f0691996006c61df296dd))
+
 ## [0.10.3](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.10.2...v0.10.3) (2026-07-15)
 
 
