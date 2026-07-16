@@ -102,14 +102,24 @@ keelson restart
 The rib keeps almost nothing of its own. It writes two things, neither of
 which holds cluster state or secrets:
 
-- a `cluster-create.json` dispatch marker in its harness data dir, which
-  exists only while a create is in flight and is cleared when the run
-  settles;
+- a `cluster-create.json` dispatch marker in its harness data dir, written
+  while a create is in flight. It is what flips the Cluster board to its
+  Bootstrapping state and what refuses a second create over the first. A
+  run that completes or is cancelled clears it; a run that **fails** leaves
+  a `failed` marker behind on purpose, so the board can warn you rather
+  than quietly forget. Anything left over settles on its own: a collect
+  that sees a live deployment beside a settled marker clears it, and a
+  marker older than 24 hours is treated as abandoned and cleared too.
 - a cached activity fetch (`rib-osdu-cache`, beside the harness DB when
   `KEELSON_DB` is set, otherwise in the OS temp dir), shared so that
-  collectors on staggered cadences reuse one GitLab read.
+  collectors on staggered cadences reuse one GitLab read. It is pure cache:
+  delete it and the next collect refetches.
 
-Both are disposable: delete them and the next collect rebuilds them.
+Removing the rib leaves both behind, and neither is worth hunting down. The
+cache expires by TTL. Do not delete the marker by hand **during** a create,
+though: it is the in-flight guard, so removing it lets a second create
+dispatch over the first.
+
 Snapshots are the harness's to keep or expire.
 
 ## Related

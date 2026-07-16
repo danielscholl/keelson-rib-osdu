@@ -77,8 +77,11 @@ a suspended source is the normal operating mode rather than a health state.
 
 This is the one region that can mutate the cluster. Expanded, it offers
 Reconcile, Suspend or Resume, Delete, Create cluster, and Switch active
-context. Every verb it emits carries the cluster stamp described in
-[Guardrails](../../concepts/guardrails/).
+context. The five that act on the current cluster carry the cluster stamp
+described in [Guardrails](../../concepts/guardrails/); Create and Switch
+active context cannot be stamped against a cluster they do not act on, and
+carry their own gates instead. See
+[Tools and actions](../tools-and-actions/) for the verb-by-verb table.
 
 <figure>
   <Image src={clusterShot} alt="The expanded Cluster board: lifecycle rows for context, cluster, Flux, and services beside the action buttons, above an access grid of service cards with credential copy buttons." />

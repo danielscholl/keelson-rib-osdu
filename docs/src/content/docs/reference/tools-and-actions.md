@@ -28,9 +28,14 @@ than the board itself:
 | `osdu_release` | The active milestone, open release MRs, and recently merged core MRs. |
 | `osdu_waiting` | Your priority-sorted queue: MRs needing you, not-ready Flux resources, failed jobs. |
 
-Most take an optional `service` argument that scopes the read to named core
-service slugs, which is also how you narrow a result that would otherwise
-overflow the cap below.
+Two of them take arguments that scope the read, which is also how you narrow
+a result that would otherwise overflow the cap below: `osdu_quality` and
+`osdu_security` accept an optional `service` (named core service slugs, with
+an unrecognized name refused rather than silently ignored), and
+`osdu_security` also accepts an optional `severity`. `osdu_setup_check`
+takes an optional `provider`. The rest take no arguments, and each tool's
+overflow hint says which is true of it, so a caller is never told to narrow
+a request it has nothing to narrow with.
 
 `osdu_security` names two different things deliberately, because conflating
 them reads as a contradiction: `sonar_security_rating` is SonarCloud's

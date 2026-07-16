@@ -31,11 +31,11 @@ clipboard and never gets a copy affordance in the first place.
 ## Cluster actions are identity-guarded
 
 `cimpl` always acts on the live kubectl current-context, so a stale board
-must never mutate whatever cluster happens to be current. Every action a
-board emits carries a **cluster stamp**: the context name and, when
-readable, a stable fingerprint (the `kube-system` namespace UID) captured
-at collection time. Before a stamped action runs, `actionGuardError`
-checks:
+must never mutate whatever cluster happens to be current. Every action that
+acts on the current cluster carries a **cluster stamp**: the context name
+and, when readable, a stable fingerprint (the `kube-system` namespace UID)
+captured at collection time. Before a stamped action runs,
+`actionGuardError` checks:
 
 - a stamp with no captured context is refused outright;
 - a context-name change since the board loaded is refused (drift);
@@ -64,9 +64,16 @@ actually catch its failure, not that every verb runs the same check.
 
 ## Exec is async and timeout-bounded
 
-Every CLI call routes through the harness's async exec surface
-(`ctx.getExec()`), so a slow or unreachable cluster cannot block the
-server event loop. Timeouts scale with the verb rather than sharing one
+The invariant is about the server process, not about every CLI call in the
+repo. Rib code running inside the server (the board actions and the chat
+tools) routes every CLI call through the harness's async exec surface
+(`ctx.getExec()`), so a slow or unreachable cluster cannot block the server
+event loop. Collectors are exempt because they cannot violate it: a
+collector runs out of process as its own short-lived subprocess, so its
+bounded reads (some of them synchronous) block only itself, and the
+workflow node's timeout bounds the whole thing.
+
+Timeouts scale with the verb rather than sharing one
 number: a kubeconfig edit gets seconds, reads and reversible verbs get
 about two minutes, Delete gets ten because teardown waits on Flux pruning
 and namespace termination, and Create gets fifty because a cloud create

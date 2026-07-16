@@ -58,11 +58,15 @@ page is authoritative.
 - **Secrets never enter a snapshot.** The cluster collector sanitizes
   `cimpl info --show-secrets` before building the board; a revealed credential
   is loopback-only.
-- **Cluster actions are identity-guarded.** Every mutating verb matches the live
-  kubectl context and fingerprint; Delete re-verifies a live CIMPL context and
-  Create refuses over one.
-- **Exec is async and timeout-bounded**, so a slow cluster cannot block the
-  server event loop.
+- **Cluster actions are identity-guarded.** Every verb acting on the current
+  cluster matches the live kubectl context and fingerprint before it runs, and
+  Delete re-verifies a live CIMPL context first. Create and switch-context are
+  gated differently, since neither acts on the cluster the board was built
+  against: Create refuses unless `cimpl` confirms no deployment on the context,
+  and switch-context runs its own target and staleness chain.
+- **Exec in the server is async and timeout-bounded**, so a slow cluster cannot
+  block the server event loop. Collectors run out of process, where a bounded
+  read blocks only their own subprocess.
 - **Fail closed.** A malformed view fails the run rather than publishing.
 
 ## Lineage
