@@ -33,8 +33,24 @@ rib ids; this rib's id is `osdu`:
 KEELSON_RIBS=osdu keelson start
 ```
 
-That variable belongs to the harness, not the rib. The rib has no env-based
-configuration of its own.
+That variable belongs to the harness, not the rib.
+
+## Configure the rib
+
+The defaults target the OSDU community instance, so a normal install needs
+none of these. Each is read from the server process's environment:
+
+| Variable | Default | Changes |
+|---|---|---|
+| `KEELSON_OSDU_GITLAB_HOST` | `community.opengroup.org` | The GitLab instance the activity CLIs query. |
+| `KEELSON_OSDU_GITLAB_GROUP` | `osdu/platform` | The group the Features, Release, Events, and Security reads scope to. |
+| `KEELSON_OSDU_PMC_URL` | the PMC dashboard's Pages site | The base URL behind the Release Train's PMC link grid. |
+| `KEELSON_OSDU_BUNDLE_TTL_MS` | `600000` (10 min) | How long the shared activity fetch is cached before a re-fetch. |
+| `CIMPL_CONTEXT_PREFIXES` | `cimpl-,kind-cimpl,k3d-cimpl,cimpl_` | Which kubectl context prefixes count as cimpl-managed. A non-empty value **replaces** the default set. |
+
+`CIMPL_CONTEXT_PREFIXES` is the load-bearing one. A context outside the
+prefix set is treated as a real (non-managed) cluster and is refused for
+write actions, so widening it widens what the rib will act on.
 
 ## Put the toolchain on PATH
 
@@ -83,8 +99,18 @@ keelson rib remove osdu
 keelson restart
 ```
 
-The rib persists nothing of its own, so removal leaves no data home behind;
-snapshots are the harness's to keep or expire.
+The rib keeps almost nothing of its own. It writes two things, neither of
+which holds cluster state or secrets:
+
+- a `cluster-create.json` dispatch marker in its harness data dir, which
+  exists only while a create is in flight and is cleared when the run
+  settles;
+- a cached activity fetch (`rib-osdu-cache`, beside the harness DB when
+  `KEELSON_DB` is set, otherwise in the OS temp dir), shared so that
+  collectors on staggered cadences reuse one GitLab read.
+
+Both are disposable: delete them and the next collect rebuilds them.
+Snapshots are the harness's to keep or expire.
 
 ## Related
 

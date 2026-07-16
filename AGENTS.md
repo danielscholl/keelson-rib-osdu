@@ -34,7 +34,7 @@ bun run link:keelson         # symlink this rib into ../keelson (override with K
 cd ../keelson && KEELSON_RIBS=osdu bun dev   # exercise it in a running harness
 
 # Smoke-test a collector against the live toolchain (cimpl / kubectl / glab on PATH):
-bun run collect:cluster | jq .   # also: collect:topology / :quality / :features / :security / :waiting
+bun run collect:cluster | jq .   # also: collect:doctor / :topology / :quality / :features / :security / :waiting
 ```
 
 `CONTRIBUTING.md` gates every PR on `bun run check`, `bun run typecheck`, and
@@ -45,13 +45,15 @@ contract change that breaks this rib turns CI red here.
 ## Architecture
 
 The whole rib is one `Rib` object exported from `src/index.ts`. It contributes a
-**CIMPL** nav surface composed of eight views, each bound to a `rib:osdu:*`
-snapshot key and fed by a deterministic workflow:
+**CIMPL** nav surface, out of nine views each bound to a `rib:osdu:*` snapshot
+key and fed by a deterministic workflow:
 
-- **Views + the surface** — `cluster` (board), `topology` (graph), `quality`,
-  `features`, `security`, `events`, `release`, `waiting`. The Cluster board is the
-  collapsible header; the rest fill the banner / rows / footer regions. No
-  hand-coded UI: every view is a board (or graph) a workflow publishes.
+- **Views + the surface** — `cluster` (board), `topology` (graph), `doctor`,
+  `quality`, `features`, `security`, `events`, `release`, `waiting`. The Cluster
+  board is the surface's collapsible header; `waiting` / `release` / the three
+  lanes / `events` fill the banner / rows / footer regions. `topology` and
+  `doctor` render from the Ribs page rather than a CIMPL region. No hand-coded
+  UI: every view is a board (or graph) a workflow publishes.
 - **Workflows** (`contributeWorkflows`) — one per view (`osdu-cluster`,
   `osdu-topology`, …). Each is a single node that runs a **collector** in `bin/`
   (`collect-*.ts`); the node declares `output_schema`, so the executor promotes

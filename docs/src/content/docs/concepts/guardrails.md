@@ -5,10 +5,10 @@ sidebar:
   order: 3
 ---
 
-Most of the rib is read-only, but the Cluster board can mutate a live cluster
-(Reconcile, Suspend, Resume, Delete) and can reveal credentials. Four
-guarantees hold on that surface, and each one is enforced in code rather
-than by convention.
+Most of the rib is read-only, but the Cluster board can mutate a live
+cluster (Reconcile, Suspend, Resume, Delete), create and switch between
+clusters, and reveal credentials. Four guarantees hold on that surface, and
+each one is enforced in code rather than by convention.
 
 ## Secrets never enter a snapshot
 
@@ -34,7 +34,8 @@ clipboard and never gets a copy affordance in the first place.
 must never mutate whatever cluster happens to be current. Every action a
 board emits carries a **cluster stamp**: the context name and, when
 readable, a stable fingerprint (the `kube-system` namespace UID) captured
-at collection time. Before any action runs, `actionGuardError` checks:
+at collection time. Before a stamped action runs, `actionGuardError`
+checks:
 
 - a stamp with no captured context is refused outright;
 - a context-name change since the board loaded is refused (drift);
@@ -49,14 +50,29 @@ refused. Without this, `cimpl down` would remove fixed namespaces from
 whatever cluster is current. The chat lifecycle tools, which have no board
 stamp to guard against, use the same fresh probe as their identity check.
 
+Two verbs run before the stamp check, because the question it asks does not
+apply to them. `create` runs when there is no current cluster to stamp, and
+`switch-context` exists precisely to change which cluster is current;
+guarding either against "the context must not have changed" would refuse
+the verb's own purpose. Neither is ungated. `create` fires only when a
+bounded probe confirms **no** CIMPL deployment on the context, so it cannot
+clobber a live one, and an in-flight dispatch marker refuses a double
+create. `switch-context` refuses a non-cimpl target, a vanished target, a
+current context that moved since the board loaded, and a fingerprint that
+drifted. The guarantee is that every verb is gated on the question that can
+actually catch its failure, not that every verb runs the same check.
+
 ## Exec is async and timeout-bounded
 
 Every CLI call routes through the harness's async exec surface
 (`ctx.getExec()`), so a slow or unreachable cluster cannot block the
-server event loop. Timeouts scale with the verb: reads and reversible
-verbs get about two minutes, while Delete gets ten, because teardown waits
-on Flux pruning and namespace termination and an aborted delete would
-leave the cluster half-removed.
+server event loop. Timeouts scale with the verb rather than sharing one
+number: a kubeconfig edit gets seconds, reads and reversible verbs get
+about two minutes, Delete gets ten because teardown waits on Flux pruning
+and namespace termination, and Create gets fifty because a cloud create
+provisions a managed cluster and then waits for Flux to converge. The
+ceiling is picked to outlast a legitimate slow run, since a timeout that
+fires early kills real work instead of catching stuck work.
 
 ## Views fail closed
 
