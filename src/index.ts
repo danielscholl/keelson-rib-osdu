@@ -268,6 +268,7 @@ const rib: Rib = {
     {
       id: "cimpl",
       title: "CIMPL",
+      heading: "OSDU Community Implementation",
       layout: {
         header: {
           key: CLUSTER_KEY,
