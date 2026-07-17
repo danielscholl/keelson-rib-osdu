@@ -116,6 +116,14 @@ if (claimedKeys !== null && claimedKeys !== keys.length) {
   fail(`docs say the rib publishes ${WORDS[claimedKeys]} snapshot keys; src/index.ts binds ${keys.length}.`);
 }
 
+// One key per view, so the key count is the view count. Checked separately
+// because "declares eight views" was the original drift and a correct
+// snapshot-key sentence elsewhere does not catch it.
+const claimedViews = stated(/rib declares (\w+) views/i);
+if (claimedViews !== null && claimedViews !== keys.length) {
+  fail(`docs say the rib declares ${WORDS[claimedViews]} views; src/index.ts binds ${keys.length} view keys.`);
+}
+
 const claimedWorkflows = stated(/rib contributes (\w+) workflows/i);
 if (claimedWorkflows !== null && claimedWorkflows !== workflows.length) {
   fail(`docs say the rib contributes ${WORDS[claimedWorkflows]} workflows; src/index.ts contributes ${workflows.length}.`);

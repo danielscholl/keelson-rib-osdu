@@ -47,7 +47,11 @@ carry criticals.
 Behavioral contract, shared by all ten:
 
 - **Never throws.** A degraded source surfaces as an error tool result, and
-  partial degradation rides along in a `notes` array next to the data.
+  partial degradation rides along in a `notes` array next to the data. One
+  exception: `osdu_contexts` has nothing partial to report, so an
+  unavailable kubectl degrades to a successful, empty
+  `{ current: null, contexts: [] }` with no `notes`. Read it as "no
+  cimpl-managed contexts found," not as proof that kubectl answered.
 - **Bounded output.** Results are compact JSON capped at 16,000 characters.
   A tool that can overflow bounds its own payload first: it orders rows
   worst-first, keeps the largest prefix that fits, and reports how many

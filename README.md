@@ -105,8 +105,10 @@ Workflows tab.
 The Cluster board also wires in-board **actions** (Reconcile / Suspend / Resume /
 Delete / Create / Switch context → `cimpl` and `kubectl`, plus a
 `reveal-credential` action that re-fetches one password on demand so secrets
-never enter the board snapshot). Every mutating verb is identity-guarded against
-the live cluster; see
+never enter the board snapshot). Every verb acting on the current cluster is
+stamped against the live context and fingerprint; Create and Switch context act
+on a cluster the board wasn't built against, so each carries its own gate
+instead. See
 [Guardrails](https://danielscholl.github.io/keelson-rib-osdu/concepts/guardrails/).
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the shape of the pipeline

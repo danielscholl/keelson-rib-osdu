@@ -60,7 +60,10 @@ possible without ever putting a secret in the snapshot.
 The `Rib` contract already had `actions` + `onAction`, but the SPA could not
 render action buttons on a rib view, call `onAction`, confirm a destructive
 one, or reflect the result. This gated the Cluster board, the one surface that
-mutates a real cluster. It now carries seven verbs behind the identity guard.
+mutates a real cluster. It now carries seven verbs, each behind the gate that
+fits it: five stamped against the live context and fingerprint, and `create`
+and `switch-context` behind their own checks, since neither acts on the
+cluster the board was built against.
 
 ### G4 — Top-level rib surface + region layout *(✓ shipped)*
 The reference layout (`full-layout.png` in this directory) is **one top-level

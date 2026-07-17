@@ -48,9 +48,17 @@ none of these. Each is read from the server process's environment:
 | `KEELSON_OSDU_BUNDLE_TTL_MS` | `600000` (10 min) | How long the shared activity fetch is cached before a re-fetch. |
 | `CIMPL_CONTEXT_PREFIXES` | `cimpl-,kind-cimpl,k3d-cimpl,cimpl_` | Which kubectl context prefixes count as cimpl-managed. A non-empty value **replaces** the default set. |
 
-`CIMPL_CONTEXT_PREFIXES` is the load-bearing one. A context outside the
-prefix set is treated as a real (non-managed) cluster and is refused for
-write actions, so widening it widens what the rib will act on.
+`CIMPL_CONTEXT_PREFIXES` decides which contexts the rib presents as yours to
+pick from. It filters the context list, limits what Switch active context
+will accept as a target, and decides whether a context with no CIMPL
+deployment on it renders the foreign-context board (create and switch only,
+no cluster verbs).
+
+It is **not** the security boundary on cluster actions. A live CIMPL
+deployment on a context outside the prefix set still renders the operating
+board and keeps its lifecycle verbs. What actually gates those verbs is the
+cluster stamp and, for Delete, a fresh CIMPL probe. See
+[Guardrails](../../concepts/guardrails/).
 
 ## Put the toolchain on PATH
 
