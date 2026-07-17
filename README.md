@@ -8,45 +8,37 @@
 **The OSDU / CIMPL bridge for [Keelson](https://github.com/danielscholl/keelson).**
 
 This rib turns your OSDU CIMPL cluster into live views inside Keelson — cluster
-health, Flux topology, and platform-health lanes for quality, features, and
-security. Each view is fed by a deterministic workflow whose structured output
-drives a canvas snapshot. The harness stays domain-free: all OSDU and cluster
-knowledge lives in the rib, and it ships **zero React** into the trusted SPA.
+health and lifecycle, Flux topology, and platform-health lanes for quality,
+features, security, the release train, your review queue, and recent events.
+Each view is fed by a deterministic workflow whose structured output drives a
+canvas snapshot. The harness stays domain-free: all OSDU and cluster knowledge
+lives in the rib, and it ships **zero React** into the trusted SPA.
 
-> Status: **early / under active design.** The Cluster board, topology graph,
-> Quality, Features, and Security boards work end-to-end. Release Train, Waiting
-> on You, and Events are still planned. See [docs/PRD.md](docs/PRD.md) for scope
-> and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it works.
+> Full documentation:
+> **[danielscholl.github.io/keelson-rib-osdu](https://danielscholl.github.io/keelson-rib-osdu/)**.
 
 ## What it adds
 
-A **CIMPL** surface composed of five views, each backed by a workflow:
+Nine views, each backed by a workflow. Seven compose into the **CIMPL** nav
+surface; Topology and Doctor render from the Ribs page.
 
 | View | Source | Shows |
 |---|---|---|
-| **Cluster** | `cimpl info`, kubectl Flux | health pill, lifecycle, access grid + copy-on-reveal credentials |
-| **Topology** | kubectl Flux Kustomizations | dependency graph |
-| **Quality** | `osdu-quality release` | per-service quality board |
+| **Cluster** | `cimpl info`, kubectl Flux | health pill, lifecycle, actions, access grid + copy-on-reveal credentials |
+| **Waiting on You** | `glab` dashboard MRs, kubectl | your priority-sorted queue |
+| **Release Train** | `osdu-activity` mr / epic | active milestone, new MR queue, platform wins |
 | **Features** | `osdu-activity` epic / MR | epic and MR activity board |
+| **Quality** | `osdu-quality release` | per-service quality board |
 | **Security** | `osdu-quality` + GitLab / OSV | CVE and remediation board |
+| **Current Events** | `osdu-activity` mr / epic, kubectl jobs | newest-first platform and cluster motion |
+| **Topology** | kubectl Flux Kustomizations | dependency graph |
+| **Cluster Doctor** | `cimpl check` | installed vs missing cluster CLI tools |
 
 Three design choices keep it honest:
 
 - **No sidecar** — every view is gathered through one-shot CLI invocations, nothing resident.
 - **No domain logic in Keelson** — OSDU and CIMPL knowledge stays in the rib.
 - **No trusted React from the rib** — views render through Keelson's canvas primitives.
-
-## Scope
-
-This rib surfaces CIMPL **platform delivery and operations** — cluster health and
-Flux topology, release quality, epic/MR activity, and CVE remediation — as live
-Keelson boards over the OSDU/CIMPL CLIs it already wraps.
-
-The OSDU **data plane** (storage records, schemas, search, entitlements, legal
-tags) is deliberately **out of scope**. That surface is reached through direct
-OSDU platform API access (authenticated gateway calls), not through this rib — so
-the rib stays a thin, sidecar-free view over delivery/ops and does not become a
-general OSDU query engine.
 
 ## Install into Keelson
 
@@ -67,15 +59,19 @@ common case). Without them the rib still loads; its lanes just render empty.
 
 ## Try it
 
-Open `http://127.0.0.1:7878` → the **CIMPL** surface, then run the workflows that
-feed it:
+Open `http://127.0.0.1:7878` → the **CIMPL** surface. It refreshes its regions on
+their own cadences while the tab is open; to collect one on demand:
 
 ```bash
 keelson workflow run osdu-cluster    # Cluster
-keelson workflow run osdu-topology   # dependency graph
+keelson workflow run osdu-waiting    # Waiting on You
+keelson workflow run osdu-release    # Release Train
+keelson workflow run osdu-features   # epic / MR activity
 keelson workflow run osdu-quality    # quality board
-keelson workflow run osdu-features    # epic / MR activity
 keelson workflow run osdu-security   # CVE board
+keelson workflow run osdu-events     # Current Events
+keelson workflow run osdu-topology   # dependency graph
+keelson workflow run osdu-doctor     # local CLI toolchain
 ```
 
 The CIMPL surface composes the lanes into one nav tab, with the Cluster board as
@@ -90,20 +86,34 @@ stdout to structured output, which the rib publishes (fail-closed, through
 
 ```
 osdu-cluster    →  collect-cluster.ts    →  board view  →  rib:osdu:cluster   →  "Cluster"
-osdu-topology   →  collect-topology.ts   →  graph view  →  rib:osdu:topology  →  "Cluster Topology"
-osdu-quality    →  collect-quality.ts    →  board view  →  rib:osdu:quality   →  "Quality"
+osdu-waiting    →  collect-waiting.ts    →  board view  →  rib:osdu:waiting   →  "Waiting on You"
+osdu-release    →  collect-release.ts    →  board view  →  rib:osdu:release   →  "Release Train"
 osdu-features   →  collect-features.ts   →  board view  →  rib:osdu:features  →  "Features"
+osdu-quality    →  collect-quality.ts    →  board view  →  rib:osdu:quality   →  "Quality"
 osdu-security   →  collect-security.ts   →  board view  →  rib:osdu:security  →  "Security"
+osdu-events     →  collect-events.ts     →  board view  →  rib:osdu:events    →  "Current Events"
+osdu-topology   →  collect-topology.ts   →  graph view  →  rib:osdu:topology  →  "Cluster Topology"
+osdu-doctor     →  collect-doctor.ts     →  board view  →  rib:osdu:doctor    →  "Cluster Doctor"
 ```
 
 Each collector is a thin Bun script that shells a domain CLI and shapes its
 output with a pure builder — no domain logic in the rib glue, no analyzer
-reimplemented. The Cluster board also wires in-board **actions**
-(Reconcile / Suspend / Delete → `cimpl`, plus a `reveal-credential` action that
-re-fetches one password on demand so secrets never enter the board snapshot).
+reimplemented. Two further workflows act rather than publish: `osdu-cluster-create`
+(`cimpl up`) and `osdu-cluster-delete` (`cimpl down`), both streaming in the
+Workflows tab.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the collector-by-collector
-breakdown and the Keelson base gaps this rib depends on.
+The Cluster board also wires in-board **actions** (Reconcile / Suspend / Resume /
+Delete / Create / Switch context → `cimpl` and `kubectl`, plus a
+`reveal-credential` action that re-fetches one password on demand so secrets
+never enter the board snapshot). Every verb acting on the current cluster is
+stamped against the live context and fingerprint; Create and Switch context act
+on a cluster the board wasn't built against, so each carries its own gate
+instead. See
+[Guardrails](https://danielscholl.github.io/keelson-rib-osdu/concepts/guardrails/).
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the shape of the pipeline
+and [the reference tier](https://danielscholl.github.io/keelson-rib-osdu/reference/)
+for the full contract.
 
 ## Develop locally
 
@@ -111,7 +121,7 @@ breakdown and the Keelson base gaps this rib depends on.
 bun install
 bun link @keelson/shared   # resolve the contract from your local keelson checkout
 
-bun test                   # pure builder coverage (topology + quality + features + security)
+bun test                   # pure builder coverage (topology / quality / features / security / …)
 bun run typecheck
 bun run check              # biome lint + format
 
@@ -125,20 +135,25 @@ the collectors directly:
 
 ```bash
 bun run collect:cluster | jq .    # cimpl info + kubectl flux/helm readiness
+bun run collect:doctor | jq .     # cimpl check --json
 bun run collect:topology | jq .
 bun run collect:quality | jq .    # osdu-quality release --output json
 bun run collect:features | jq .   # osdu-activity epic list + mr --output json
 bun run collect:security | jq .   # osdu-quality release + glab group vulns + OSV fixes
+bun run collect:waiting | jq .    # your GitLab queue + cluster readiness
 ```
 
-## Roadmap
+## Scope
 
-The Cluster board, topology, Quality, Features, and Security boards render today.
-Still ahead: the **Release Train**, **Waiting on You**, and **Current Events**
-boards that fill out the surface's banner and footer regions. Each lane wraps an
-existing OSDU / CIMPL CLI plus public CVE lookups (GitLab / OSV) — no
-reimplemented analyzers, no resident sidecar. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the gap taxonomy.
+This rib surfaces CIMPL **platform delivery and operations** — cluster health and
+Flux topology, release quality, epic/MR activity, and CVE remediation — as live
+Keelson boards over the OSDU/CIMPL CLIs it already wraps.
+
+The OSDU **data plane** (storage records, schemas, search, entitlements, legal
+tags) is deliberately **out of scope**. That surface is reached through direct
+OSDU platform API access (authenticated gateway calls), not through this rib — so
+the rib stays a thin, sidecar-free view over delivery/ops and does not become a
+general OSDU query engine.
 
 ## Acknowledgments
 

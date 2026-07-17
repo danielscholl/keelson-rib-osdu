@@ -19,6 +19,11 @@ The surface has a stable identity:
 |---|---|
 | `id` | `cimpl` |
 | `title` | `CIMPL` |
+| `heading` | `OSDU Community Implementation` |
+
+`title` is the nav tab's label; `heading` is the page's spelled-out H1. The
+harness treats the heading as opt-in, so a surface that declares none falls
+back to no page heading rather than repeating the tab name.
 
 ## Layout
 
@@ -28,7 +33,7 @@ open.
 
 | Region | Key | Workflow | Cadence | Collapsible |
 |---|---|---|---|---|
-| Header | `rib:osdu:cluster` | `osdu-cluster` | 10 min | yes, starts collapsed |
+| Header | `rib:osdu:cluster` | `osdu-cluster` | 1 min | yes, starts collapsed |
 | Banner | `rib:osdu:waiting` | `osdu-waiting` | 10 min | no |
 | Row 1 | `rib:osdu:release` | `osdu-release` | 30 min | no |
 | Row 2, column 1 | `rib:osdu:features` | `osdu-features` | 2 h | no |
@@ -36,29 +41,52 @@ open.
 | Row 2, column 3 | `rib:osdu:security` | `osdu-security` | 2 h | no |
 | Footer | `rib:osdu:events` | `osdu-events` | 30 min | yes, starts collapsed |
 
-The cadences follow how fast each source actually changes. Cluster state
-and your personal queue move in minutes, so the header and banner refresh
-every ten. The release train and the events feed move with MR traffic
-(thirty minutes). The three lane boards aggregate whole-platform reports
-that change a few times a day, so they refresh every two hours; each lane
-also re-collects on demand when you run its workflow by hand.
+The cadences follow how fast each source actually changes. The header
+refreshes every minute, fast enough that a provisioning or reconciling
+cluster visibly tracks while you watch it (a create settles in minutes).
+Your personal queue moves in minutes too, so the banner refreshes every
+ten. The release train and the events feed move with MR traffic (thirty
+minutes). The three lane boards aggregate whole-platform reports that
+change a few times a day, so they refresh every two hours. Every cadence
+only runs while the CIMPL tab is open, and each lane also re-collects on
+demand when you run its workflow by hand.
 
 ### Header: Cluster
 
 The collapsible header is the cluster's health and access strip. Collapsed,
-it shows the board's header pill (Healthy / Degraded / Suspended /
-Unreachable), the context chip, and Flux and service readiness segments.
-Expanded, it adds lifecycle rows, the Reconcile / Suspend / Delete actions,
-and the access grid with copy-on-reveal credentials.
+it shows the board's header pill, the context chip, and Flux and service
+readiness segments. Expanded, it adds lifecycle rows (context, cluster,
+Flux, services), the action strip, and the access grid with copy-on-reveal
+credentials.
+
+The pill is a ladder, not a binary. It reports where the cluster is, not
+just whether it is well:
+
+| Pill | Means |
+|---|---|
+| `✓ Ready` | Every Kustomization and HelmRelease is reconciled. |
+| `◌ Bootstrapping` | A create run is in flight; incomplete counts are expected, so health is not judged yet. |
+| `◌ Reconciling` | Counts are incomplete but nothing is stuck: the post-create converge, or an ordinary drift reconcile. |
+| `⚠ Degraded` | A resource is stalled or suspended, or the readiness read itself did not complete. |
+| `⚠ No deployment` | The cluster answers, but `cimpl` confirms no CIMPL deployment on it. |
+| `✕ Unreachable` | No probe got an answer from the API server. |
+
+A fully reconciled cluster reads `Ready` even with its GitRepository
+suspended, because `cimpl up` pins the GitOps source after every create, so
+a suspended source is the normal operating mode rather than a health state.
+
+This is the one region that can mutate the cluster. Expanded, it offers
+Reconcile, Suspend or Resume, Delete, Create cluster, and Switch active
+context. The five that act on the current cluster carry the cluster stamp
+described in [Guardrails](../../concepts/guardrails/); Create and Switch
+active context cannot be stamped against a cluster they do not act on, and
+carry their own gates instead. See
+[Tools and actions](../tools-and-actions/) for the verb-by-verb table.
 
 <figure>
   <Image src={clusterShot} alt="The expanded Cluster board: lifecycle rows for context, cluster, Flux, and services beside the action buttons, above an access grid of service cards with credential copy buttons." />
   <figcaption>Figure 1. The expanded Cluster board: lifecycle rows and actions, above the curated access grid.</figcaption>
 </figure>
-
-This is the one region that can mutate the cluster; every action it emits
-carries the cluster stamp described in
-[Guardrails](../../concepts/guardrails/).
 
 ### Banner: Waiting on You
 
@@ -71,11 +99,17 @@ the one region whose rows demand action from you specifically.
 
 Row 1 is the Release Train alone, which promotes it to a lead panel: the
 active milestone as the header chip, the queue of new MRs, and the week's
-platform wins, with a compact strip of PMC dashboard links trailing them.
+platform wins, with a compact grid of PMC dashboard links trailing them.
+The links sit last because they are constants; the panel leads with what
+changes.
+
 Row 2 holds the three platform-health lanes side by side:
-Features (movers and stalled epics, MR KPIs), Quality (pass rates, Sonar
-table, test performance), and Security (CVE pulse, aged criticals, quick
-wins).
+
+- **Features**: MR KPI tiles, then Movers and Stalled cards.
+- **Quality**: KPI tiles, the per-service Sonar table, then the
+  test-performance pulse, bars, and worst-acceptance table.
+- **Security**: a severity pulse and KPI tiles, a low-security-rating grid,
+  top-offender bars, then aged-critical and quick-win rows.
 
 ### Footer: Current Events
 
@@ -83,11 +117,17 @@ A collapsed, newest-first feed of recent motion, each row tagged PLATFORM
 (an opened or merged MR) or CLUSTER (a bootstrap or cron job). It stays
 collapsed by default because it is a catch-up view, not a monitoring one.
 
-## One view outside the surface
+## The views outside the surface
 
-The rib declares eight views, but only seven fill CIMPL regions. **Cluster
-Topology** (`rib:osdu:topology`, the Flux dependency graph) stands alone;
-it renders from the Ribs page rather than a CIMPL region.
+The rib declares nine views, and seven of them fill the CIMPL regions
+above. Two stand alone and render from the Ribs page rather than a CIMPL
+region:
+
+- **Cluster Topology** (`rib:osdu:topology`): the Flux dependency graph.
+  It is the rib's only `graph` view, so it has no region to fit.
+- **Cluster Doctor** (`rib:osdu:doctor`): the local cluster-CLI toolchain
+  inventory from `cimpl check`. It answers a question you ask before you
+  have a cluster, so it sits outside the cluster's own surface.
 
 ## Related
 

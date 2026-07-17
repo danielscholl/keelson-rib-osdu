@@ -17,7 +17,8 @@ pipes cleanly into `jq`:
 
 ```bash
 bun run collect:cluster | jq .    # cimpl info + kubectl readiness
-bun run collect:topology | jq .   # Flux Kustomizations → graph
+bun run collect:doctor | jq .     # cimpl check: the local CLI toolchain
+bun run collect:topology | jq .   # Flux Kustomizations and HelmReleases → graph
 bun run collect:quality | jq .    # osdu-quality release
 bun run collect:features | jq .   # osdu-activity epic + mr
 bun run collect:security | jq .   # osdu-quality + glab vulns + OSV fixes
@@ -43,8 +44,12 @@ Collectors never crash on a missing CLI or an unreachable cluster. They
 degrade to a valid empty view and explain themselves on stderr:
 
 ```text
-[rib-osdu] topology degraded: kubectl: command not found
+[rib-osdu] topology kustomizations degraded: kubectl: command not found
 ```
+
+Each source names itself, because a collector degrades per source rather
+than all at once: the topology collector reads Kustomizations and
+HelmReleases separately, so one can fail while the other still renders.
 
 Stdout stays pure JSON either way, because the workflow executor promotes
 stdout to structured output and a stray log line would corrupt the payload.

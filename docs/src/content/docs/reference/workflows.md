@@ -1,12 +1,12 @@
 ---
 title: Workflows
-description: The ten workflows the rib contributes, including eight collectors and two action-only cluster lifecycle workflows.
+description: The eleven workflows the rib contributes, including nine collectors and two action-only cluster lifecycle workflows.
 sidebar:
   order: 4
 ---
 
-The rib contributes ten workflows to the catalog, all defined in code in
-its `contributeWorkflows` hook, so there are no YAML files to edit. Eight
+The rib contributes eleven workflows to the catalog, all defined in code in
+its `contributeWorkflows` hook, so there are no YAML files to edit. Nine
 refresh views with a single bash node (`collect`) that runs a
 `bin/collect-*.ts` script. Each has an `output_schema` that promotes the
 script's stdout to structured output, a `bindSnapshotKey`, and a
@@ -20,11 +20,12 @@ snapshots.
 Each workflow ships a description in the `Use when / Triggers / Does / NOT
 for` shape, so the catalog and the surface render it scannably.
 
-## The ten
+## The eleven
 
 | Workflow | Shape | Shells | Builder or result |
 |---|---|---|---|
 | `osdu-cluster` | `collect-cluster.ts` | `cimpl info --json` + kubectl readiness | `src/cluster.ts` |
+| `osdu-doctor` | `collect-doctor.ts` | `cimpl check --json` | `src/setup.ts` |
 | `osdu-topology` | `collect-topology.ts` | `kubectl get kustomizations` | `src/topology.ts` |
 | `osdu-quality` | `collect-quality.ts` | `osdu-quality release --output json` | `src/quality.ts` |
 | `osdu-features` | `collect-features.ts` | `osdu-activity` epic + mr | `src/features.ts` |
@@ -39,16 +40,21 @@ Each collector workflow runs its script by absolute path, resolved at
 module load, so a run publishes the right script regardless of the run's
 working directory.
 
-Create has one `provision` node with a 10 minute timeout. Delete first runs
-the `verify` node with a 1 minute timeout. Its dependent `down` node starts
-only after verification succeeds and has a 10 minute timeout for Flux
-pruning and namespace termination.
+Create has one `provision` node with a 50 minute timeout. The ceiling is
+deliberate: a cloud create provisions the managed cluster and then waits on
+Flux to converge, which can run most of an hour, so a shorter timeout kills
+legitimate runs rather than catching stuck ones.
+
+Delete first runs the `verify` node with a 1 minute timeout. Its dependent
+`down` node starts only after verification succeeds and has a 10 minute
+timeout for Flux pruning and namespace termination.
 
 ## What each one is for
 
 | Workflow | Use when | NOT for |
 |---|---|---|
-| `osdu-cluster` | Checking the deployment's health and access: is the cluster up, where is Airflow or the portal. | Deleting or creating clusters. |
+| `osdu-cluster` | Checking the deployment's health and access: is the cluster up, where is Airflow or the portal, or choosing a kube-context. | Bypassing typed confirmations or identity guards. |
+| `osdu-doctor` | Checking whether the local cluster-CLI toolchain is ready to deploy: what is installed, what is missing. | Installing tools or changing cluster state. |
 | `osdu-topology` | Checking cluster reconciliation health as a dependency graph. | Changing cluster state. |
 | `osdu-quality` | Reviewing platform release quality: pass rates, Sonar grades, coverage. | Changing pipelines or merging. |
 | `osdu-features` | Tracking delivery: what is moving, what is stalled, open MRs. | Merging or editing MRs. |
@@ -71,7 +77,7 @@ The action-only workflows have no snapshot binding or view payload.
 ## Related
 
 - [The collector pipeline](../../concepts/the-collector-pipeline/): the
-  shared shape of the eight collector workflows, stage by stage.
+  shared shape of the nine collector workflows, stage by stage.
 - [Snapshot keys](../snapshot-keys/): the key each workflow publishes.
 - [Surface](../surface/): the cadence each workflow runs on while the
   CIMPL tab is open.

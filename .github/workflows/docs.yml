@@ -11,6 +11,12 @@ on:
     paths:
       - "docs/**"
       - ".github/workflows/docs.yml"
+      # Drift originates in the rib, not the docs: a PR that adds a view,
+      # workflow, key, or tool must run the drift check that fails when the
+      # docs never learned about it. Validation only — deploy is gated to
+      # non-PR events below, so a src change never redeploys the site.
+      - "src/**"
+      - "bin/**"
   workflow_dispatch:
 
 permissions:
@@ -44,6 +50,12 @@ jobs:
       - name: Build
         working-directory: docs
         run: bun run build
+
+      # Cross-checks the built llms-full.txt against src/: a view, workflow,
+      # key, or tool that ships without reaching the docs fails here.
+      - name: Check docs for drift
+        working-directory: docs
+        run: bun scripts/check-docs-drift.mjs
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5

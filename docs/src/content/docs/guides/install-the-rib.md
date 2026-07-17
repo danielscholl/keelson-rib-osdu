@@ -33,8 +33,32 @@ rib ids; this rib's id is `osdu`:
 KEELSON_RIBS=osdu keelson start
 ```
 
-That variable belongs to the harness, not the rib. The rib has no env-based
-configuration of its own.
+That variable belongs to the harness, not the rib.
+
+## Configure the rib
+
+The defaults target the OSDU community instance, so a normal install needs
+none of these. Each is read from the server process's environment:
+
+| Variable | Default | Changes |
+|---|---|---|
+| `KEELSON_OSDU_GITLAB_HOST` | `community.opengroup.org` | The GitLab instance the activity CLIs query. |
+| `KEELSON_OSDU_GITLAB_GROUP` | `osdu/platform` | The group the Features, Release, Events, and Security reads scope to. |
+| `KEELSON_OSDU_PMC_URL` | the PMC dashboard's Pages site | The base URL behind the Release Train's PMC link grid. |
+| `KEELSON_OSDU_BUNDLE_TTL_MS` | `600000` (10 min) | How long the shared activity fetch is cached before a re-fetch. |
+| `CIMPL_CONTEXT_PREFIXES` | `cimpl-,kind-cimpl,k3d-cimpl,cimpl_` | Which kubectl context prefixes count as cimpl-managed. A non-empty value **replaces** the default set. |
+
+`CIMPL_CONTEXT_PREFIXES` decides which contexts the rib presents as yours to
+pick from. It filters the context list, limits what Switch active context
+will accept as a target, and decides whether a context with no CIMPL
+deployment on it renders the foreign-context board (create and switch only,
+no cluster verbs).
+
+It is **not** the security boundary on cluster actions. A live CIMPL
+deployment on a context outside the prefix set still renders the operating
+board and keeps its lifecycle verbs. What actually gates those verbs is the
+cluster stamp and, for Delete, a fresh CIMPL probe. See
+[Guardrails](../../concepts/guardrails/).
 
 ## Put the toolchain on PATH
 
@@ -83,8 +107,28 @@ keelson rib remove osdu
 keelson restart
 ```
 
-The rib persists nothing of its own, so removal leaves no data home behind;
-snapshots are the harness's to keep or expire.
+The rib keeps almost nothing of its own. It writes two things, neither of
+which holds cluster state or secrets:
+
+- a `cluster-create.json` dispatch marker in its harness data dir, written
+  while a create is in flight. It is what flips the Cluster board to its
+  Bootstrapping state and what refuses a second create over the first. A
+  run that completes or is cancelled clears it; a run that **fails** leaves
+  a `failed` marker behind on purpose, so the board can warn you rather
+  than quietly forget. Anything left over settles on its own: a collect
+  that sees a live deployment beside a settled marker clears it, and a
+  marker older than 24 hours is treated as abandoned and cleared too.
+- a cached activity fetch (`rib-osdu-cache`, beside the harness DB when
+  `KEELSON_DB` is set, otherwise in the OS temp dir), shared so that
+  collectors on staggered cadences reuse one GitLab read. It is pure cache:
+  delete it and the next collect refetches.
+
+Removing the rib leaves both behind, and neither is worth hunting down. The
+cache expires by TTL. Do not delete the marker by hand **during** a create,
+though: it is the in-flight guard, so removing it lets a second create
+dispatch over the first.
+
+Snapshots are the harness's to keep or expire.
 
 ## Related
 
