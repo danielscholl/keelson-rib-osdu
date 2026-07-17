@@ -5,91 +5,105 @@ allowed-tools: Bash, Read, Glob, Grep
 
 <prime-command>
   <objective>
-    Build a working mental model of @keelson/rib-osdu — the OSDU / CIMPL bridge
-    that turns a live cluster into Keelson canvas views — fast enough to navigate
-    it and respect its invariants before making a change.
+    Build a working, current mental model of @keelson/rib-osdu — the OSDU /
+    CIMPL bridge that turns a live cluster into Keelson canvas views — fast
+    enough to navigate it and respect its invariants before making a change.
+    AGENTS.md (already in context) carries the stable contract, patterns, and
+    invariants; this command's job is to discover what is true RIGHT NOW — the
+    views, workflows, collectors, and guards — from the code itself. Report only
+    what you derived this pass; never recall a count or name list from memory
+    or from a doc.
   </objective>
 
   <constraints>
-    <rule>Stay bounded. Read the few load-bearing files named below in full; for
+    <rule>Stay bounded. Read the few load-bearing files named below; for
       everything else, LIST and skim — don't deep-read.</rule>
-    <rule>DO NOT read test files — note their existence and count only.</rule>
-    <rule>DO NOT read every collector or builder — read one of each as the pattern, list the rest.</rule>
+    <rule>DO NOT read test files — count them only.</rule>
+    <rule>DO NOT read every collector or builder — read ONE of each as the
+      pattern, list the rest.</rule>
     <rule>DO NOT launch subagents — this is a single-pass orientation.</rule>
-    <rule>CLAUDE.md / AGENTS.md are already project context; build on them, don't re-read.</rule>
+    <rule>AGENTS.md / CLAUDE.md are already project context; build on them, don't
+      re-read them. The code is the truth. If something you read materially
+      contradicts AGENTS.md or a docs/ page, note it in ONE closing line and move
+      on — auditing docs is not this command's job.</rule>
   </constraints>
 
   <phase number="1" name="orient">
     <step name="layout">
-      <action>Map the package shape — directories and rough size, not every file.</action>
+      <action>Map the package shape — directories and rough sizes, not every file.</action>
       <command>git ls-files | sed 's#/[^/]*$##' | sort | uniq -c | sort -rn | head -20</command>
+      <command>wc -l src/*.ts bin/*.ts | sort -rn | head -15</command>
     </step>
     <step name="readme">
       <action>Read README.md.</action>
-      <extract>The pitch: a CIMPL surface of views, each fed by a workflow whose
-        collector shells a domain CLI and shapes it with a pure builder; zero React.</extract>
+      <learn>The current pitch: what the surface shows, what CLIs it depends on,
+        how it installs.</learn>
     </step>
   </phase>
 
   <phase number="2" name="the-contract-surface">
-    <intent>This rib is one Rib object plus its pipeline. Read these.</intent>
     <step name="rib">
-      <action>Read src/index.ts.</action>
-      <extract>The exported `Rib`: the eight views + the CIMPL surface;
-        contributeWorkflows (one per view, each running a bin/collect-*.ts);
-        onAction (cluster lifecycle verbs + reveal-credential); registerTools;
-        and the fail-closed wiring (output_schema + expectView).</extract>
+      <action>Read src/index.ts in full.</action>
+      <learn>The exported `Rib`: which views exist and where the surface layout
+        places each; how contributeWorkflows binds each view to its collector;
+        how onAction guards the cluster verbs and handles credential reveals;
+        what registerTools exposes; how the fail-closed wiring (output_schema +
+        expectView) is applied.</learn>
     </step>
     <step name="pipeline">
-      <action>Read ONE collector and its builder as the pattern.</action>
-      <points>
-        <point>bin/collect-topology.ts — a thin script that shells kubectl and prints a view.</point>
-        <point>src/topology.ts — the pure builder it shapes output with. The others
-          (quality, features, security, …) follow the same collector→builder split.</point>
-      </points>
+      <action>Read ONE collector and its builder as the pattern
+        (bin/collect-topology.ts → src/topology.ts is a good pair); list the
+        rest of bin/ and the builder modules.</action>
+      <learn>The collector→builder split: what the thin script does (shell a
+        CLI, print a view) vs what the pure builder owns (parsing, shaping),
+        and how a collector degrades when its CLI is absent or fails.</learn>
     </step>
     <step name="cluster">
       <action>Skim src/cluster.ts and src/cluster-actions.ts.</action>
-      <extract>The security-sensitive surface: the identity guard (actionGuardError),
-        the live-context re-verification before Delete (verifyCimplContext), and the
-        loopback-only credential handling (hasRealSecret, reveal).</extract>
+      <learn>The security-sensitive surface: how the identity guard works, what
+        the irreversible verbs re-verify before acting, and how revealed
+        credentials stay loopback-only.</learn>
     </step>
   </phase>
 
   <phase number="3" name="inventory">
-    <step name="tests">
-      <action>Count test files; report the count only.</action>
-      <command>git ls-files 'test/**/*.test.ts' | wc -l</command>
-    </step>
-    <step name="commands"><command>ls .claude/commands/ 2>/dev/null</command></step>
+    <intent>Derive every number you will report. These commands are the only
+      legitimate source for counts — not AGENTS.md, not docs/, not memory.</intent>
+    <command>grep -cE 'canvasKind:' src/index.ts             # views</command>
+    <command>grep -nE 'name: "osdu-' src/index.ts            # workflows</command>
+    <command>ls bin/                                          # collectors</command>
+    <command>git ls-files 'test/**/*.test.ts' | wc -l         # test files</command>
+    <command>ls .claude/commands/ 2>/dev/null</command>
   </phase>
 
   <phase number="4" name="conventions">
-    <action>Skim CONTRIBUTING.md for the rules that gate a PR.</action>
-    <points>
-      <point>Green before a PR: `bun run check`, `bun run typecheck`, `bun test`.</point>
-      <point>Invariants: zero React; attach only via the Rib contract; no domain
-        logic in glue; secrets never in a snapshot; cluster actions identity-guarded;
-        async + timeout-bounded exec; fail closed.</point>
-      <point>Comments: default to none; capture non-obvious why; no narration.</point>
-    </points>
+    <action>Skim CONTRIBUTING.md for the rules that gate a PR — the required
+      checks, commit/PR-title format, and architecture rules.</action>
   </phase>
 
   <phase number="5" name="summarize">
-    <format>Concise markdown — no multi-page dump:</format>
+    <format>Concise markdown — no multi-page dump. Every count and name list
+      must come from this pass's commands and reads.</format>
     <sections>
-      <section>Project: 1–2 sentences (a Keelson rib; the OSDU/CIMPL bridge).</section>
-      <section>The Rib surface: views/surface, workflows, actions, tools.</section>
-      <section>The pipeline: workflow → collector (shell CLI) → pure builder → fail-closed view.</section>
-      <section>Commands: test / typecheck / check / link:keelson / collect:*.</section>
-      <section>Invariants to respect for the change at hand (esp. secrets + cluster identity).</section>
-      <section>Where to start: which file to open first.</section>
+      <section>Project: 1–2 sentences.</section>
+      <section>The Rib surface: the views and surface layout as currently
+        defined, workflows, actions, tools.</section>
+      <section>The pipeline: workflow → collector (shell CLI) → pure builder →
+        fail-closed view.</section>
+      <section>Commands: the package scripts that gate a PR, plus the collect:*
+        smoke tests.</section>
+      <section>Invariants bearing on the change at hand (esp. secrets + cluster
+        identity), from AGENTS.md, confirmed against what you just read.</section>
+      <section>Where to start: which file to open first for this task.</section>
+      <section>Only if found: one closing line naming any material contradiction
+        between the code and AGENTS.md / docs/.</section>
     </sections>
   </phase>
 
   <anti-patterns>
-    <avoid>Reading every collector/builder/test to "understand patterns" — read one of each, list the rest.</avoid>
-    <avoid>Launching subagents.</avoid>
-    <avoid>A multi-page summary.</avoid>
+    <avoid>Reading every collector/builder/test — one of each, list the rest.</avoid>
+    <avoid>Reporting a count or name list you did not derive this pass.</avoid>
+    <avoid>Turning orientation into a docs audit — one closing drift line at most.</avoid>
+    <avoid>Launching subagents. A multi-page summary.</avoid>
   </anti-patterns>
 </prime-command>
