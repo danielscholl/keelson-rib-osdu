@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.11.0...v0.11.1) (2026-07-17)
+
+
+### Documentation
+
+* realign the docs set with the shipped rib ([#126](https://github.com/danielscholl/keelson-rib-osdu/issues/126)) ([c19f0a8](https://github.com/danielscholl/keelson-rib-osdu/commit/c19f0a8d741308a597ba7381046c89cb84bde73e))
+
 ## [0.11.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.10.3...v0.11.0) (2026-07-16)
 
 
