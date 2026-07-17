@@ -5,6 +5,12 @@ Copilot's coding agent, and (via an import in `CLAUDE.md`) Claude Code — worki
 in this repository. `CONTRIBUTING.md` is the authoritative human guide; this is
 its agent-facing distillation.
 
+It records only what stays true across changes: the contract, the commands, the
+recurring patterns, and the invariants. Inventories — how many views, workflows,
+collectors, or tools exist and what they are named — live in the code, change
+often, and are deliberately NOT recorded here. Derive them from the code when
+you need them; the `/prime` command does exactly that.
+
 ## What this is
 
 `@keelson/rib-osdu` is a **rib** (extension) for
@@ -12,10 +18,9 @@ its agent-facing distillation.
 A rib is a standalone package the harness discovers at runtime and attaches
 through one typed contract — the `Rib` interface from `@keelson/shared`. This rib
 is the **OSDU / CIMPL bridge**: it turns a live OSDU CIMPL cluster into canvas
-views inside Keelson — cluster health, Flux topology, and platform-health lanes
-for quality, features, and security. The harness stays domain-free; all OSDU and
-cluster knowledge lives here, and the rib ships **zero React** into the trusted
-SPA.
+views inside Keelson — cluster health, Flux topology, and platform-health lanes.
+The harness stays domain-free; all OSDU and cluster knowledge lives here, and
+the rib ships **zero React** into the trusted SPA.
 
 ## Commands
 
@@ -25,7 +30,7 @@ Bun. Everything is workspace-local; there is no monorepo.
 bun install                  # one-time
 bun link @keelson/shared     # resolve the Rib contract from a local keelson checkout
 
-bun test                     # pure builder coverage (topology / quality / features / security / …)
+bun test                     # pure builder coverage
 bun run typecheck            # tsc --noEmit (needs @keelson/shared linked)
 bun run check                # Biome lint + format (required pre-PR)
 bun run check:fix            # auto-fix safe lint/format
@@ -34,7 +39,7 @@ bun run link:keelson         # symlink this rib into ../keelson (override with K
 cd ../keelson && KEELSON_RIBS=osdu bun dev   # exercise it in a running harness
 
 # Smoke-test a collector against the live toolchain (cimpl / kubectl / glab on PATH):
-bun run collect:cluster | jq .   # also: collect:doctor / :topology / :quality / :features / :security / :waiting
+bun run collect:cluster | jq .   # one collect:<view> script per view — see package.json
 ```
 
 `CONTRIBUTING.md` gates every PR on `bun run check`, `bun run typecheck`, and
@@ -42,36 +47,31 @@ bun run collect:cluster | jq .   # also: collect:doctor / :topology / :quality /
 `danielscholl/keelson` checkout's `packages/shared` from `main`, so a harness
 contract change that breaks this rib turns CI red here.
 
-## Architecture
+## Architecture (the shapes, not the inventory)
 
 The whole rib is one `Rib` object exported from `src/index.ts`. It contributes a
-**CIMPL** nav surface, out of nine views each bound to a `rib:osdu:*` snapshot
-key and fed by a deterministic workflow:
+**CIMPL** nav surface of views, each bound to a `rib:osdu:*` snapshot key and
+fed by a deterministic workflow. The recurring shapes:
 
-- **Views + the surface** — `cluster` (board), `topology` (graph), `doctor`,
-  `quality`, `features`, `security`, `events`, `release`, `waiting`. The Cluster
-  board is the surface's collapsible header; `waiting` / `release` / the three
-  lanes / `events` fill the banner / rows / footer regions. `topology` and
-  `doctor` render from the Ribs page rather than a CIMPL region. No hand-coded
-  UI: every view is a board (or graph) a workflow publishes.
-- **Workflows** (`contributeWorkflows`) — one per view (`osdu-cluster`,
-  `osdu-topology`, …). Each is a single node that runs a **collector** in `bin/`
+- **One pipeline per view: workflow → collector → pure builder → fail-closed
+  publish.** Each workflow is a single node that runs a **collector** in `bin/`
   (`collect-*.ts`); the node declares `output_schema`, so the executor promotes
-  the collector's stdout to structured output, which the rib publishes fail-closed
-  through `validate` (`expectView`) to the bound key.
-- **Collectors + builders** — a collector is a thin Bun script that shells a
-  domain CLI (`cimpl`, `kubectl`, `osdu-activity`, `osdu-quality`, `glab`) and
-  shapes its JSON with a **pure builder** (`src/topology.ts`, `quality.ts`,
-  `features.ts`, `security.ts`, …). No domain logic in the rib glue; no analyzer
-  reimplemented.
-- **Actions** (`onAction`) — the Cluster board's lifecycle verbs
-  (Reconcile / Suspend / Resume / Delete) dispatch to `cimpl` via the async exec
-  surface; `reveal-credential` re-fetches one password and returns it to the
-  caller (loopback) for a clipboard copy.
+  the collector's stdout to structured output, which the rib publishes
+  fail-closed through `validate` (`expectView`) to the bound key. No hand-coded
+  UI: every view is a board (or graph) a workflow publishes.
+- **Collectors shell, builders shape.** A collector is a thin Bun script that
+  shells a domain CLI (`cimpl`, `kubectl`, `osdu-activity`, `osdu-quality`,
+  `glab`) and shapes its JSON with a **pure builder** in `src/`. No domain
+  logic in the rib glue; no analyzer reimplemented — parsing/aggregation stays
+  in the builders, side effects in the collectors.
+- **Actions** (`onAction`) — the Cluster board's lifecycle verbs dispatch to
+  `cimpl` via the async exec surface, identity-guarded against the live cluster;
+  credential reveals are loopback-only (returned to the caller, never
+  published).
 - **Tools** (`registerTools`) — the OSDU domains exposed as chat tools (the same
   data layer the panels visualize) plus the reversible cluster verbs.
 
-### Invariants worth protecting
+## Invariants worth protecting
 
 - **Zero React into the trusted SPA.** Views render through the canvas `board` /
   `graph` contract, never hand-coded UI shipped from the rib.
