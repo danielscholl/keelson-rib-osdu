@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.2](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.11.1...v0.11.2) (2026-07-17)
+
+
+### Documentation
+
+* update prime.md and AGENTS.md contents ([#128](https://github.com/danielscholl/keelson-rib-osdu/issues/128)) ([6ec1a75](https://github.com/danielscholl/keelson-rib-osdu/commit/6ec1a759310a1023746c3ef998ec1757c7f9b5e2))
+
 ## [0.11.1](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.11.0...v0.11.1) (2026-07-17)
 
 
