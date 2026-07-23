@@ -24,7 +24,7 @@ surface; Topology and Doctor render from the Ribs page.
 
 | View | Source | Shows |
 |---|---|---|
-| **Cluster** | `cimpl info`, kubectl Flux | health pill, lifecycle, actions, access grid + copy-on-reveal credentials |
+| **Cluster** | `cimpl info`, kubectl Flux | health pill, context + verbs toolbar, access shelf + copy-on-reveal credentials |
 | **Waiting on You** | `glab` dashboard MRs, kubectl | your priority-sorted queue |
 | **Release Train** | `osdu-activity` mr / epic | active milestone, new MR queue, platform wins |
 | **Features** | `osdu-activity` epic / MR | epic and MR activity board |
