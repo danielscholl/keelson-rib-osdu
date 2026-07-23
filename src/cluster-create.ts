@@ -213,9 +213,7 @@ export function selectionFromRunInputs(inputs: Record<string, string>): ClusterC
 // (blank) input expands to "" rather than aborting.
 export const CLUSTER_CREATE_BASH = [
   "set -eo pipefail",
-  // cimpl (Rich) strips color when stdout isn't a TTY; force it so the streamed
-  // create trace renders cimpl's own ANSI (RunTrace <AnsiText>). Safe here — this
-  // node streams human output; the JSON collectors never set it.
+  // cimpl (Rich) strips color when stdout isn't a TTY.
   "export FORCE_COLOR=1",
   // The subprocess inherits the server env; clear any stray private-network flag
   // so it's enabled ONLY when this create explicitly asked for it below.

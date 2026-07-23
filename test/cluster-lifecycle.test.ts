@@ -806,7 +806,6 @@ describe("osdu-cluster-delete workflow shape", () => {
     // The verify gate parses its own output — it must stay uncolored.
     expect(verify?.bash).not.toContain("FORCE_COLOR");
     expect(down?.depends_on).toEqual(["verify"]);
-    // The streaming teardown forces cimpl's ANSI so the trace renders in color.
     expect(down?.bash).toBe(`FORCE_COLOR=1 cimpl ${CLUSTER_LIFECYCLE_ARGS.delete.join(" ")}`);
     expect(down?.timeout).toBe(600_000);
   });

@@ -447,9 +447,7 @@ const rib: Rib = {
           },
           {
             id: "down",
-            // FORCE_COLOR so cimpl streams its own ANSI into the trace (RunTrace
-            // <AnsiText>). Only this streaming node — the verify gate parses its
-            // own output and the JSON collectors must stay uncolored.
+            // cimpl (Rich) strips color when stdout isn't a TTY.
             bash: `FORCE_COLOR=1 cimpl ${CLUSTER_LIFECYCLE_ARGS.delete.join(" ")}`,
             depends_on: ["verify"],
             timeout: 600_000,
