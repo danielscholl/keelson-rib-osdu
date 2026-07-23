@@ -14,9 +14,9 @@ import type { CreateMarker } from "../src/create-marker.ts";
 // appear in the board or a committed fixture.
 // Mirrors the raw `cimpl info` shape: the gateway, an Elasticsearch endpoint,
 // the MinIO S3 API, SeaweedFS variants, per-namespace Redis, and an OIDC client
-// secret all appear here — the Cluster board must curate them down to the eight
-// operator-facing services. Credentials carry service + username ONLY (never a
-// password — that's fetched on demand by reveal-credential).
+// secret all appear here — the Cluster board must curate them down to the
+// operator-facing portals + SeaweedFS. Credentials carry service + username
+// ONLY (never a password — that's fetched on demand by reveal-credential).
 const healthy: ClusterInput = {
   info: {
     suspended: false,
@@ -59,6 +59,7 @@ const healthy: ClusterInput = {
       { service: "RabbitMQ", username: "osdu" },
       { service: "MinIO", username: "osdu" },
       { service: "Redis", username: "" },
+      { service: "SeaweedFS", username: "" },
       { service: "OIDC Client", username: "datafier" },
       { service: "Airflow", username: "admin" },
     ],
@@ -73,24 +74,33 @@ const healthy: ClusterInput = {
 
 type Board = ReturnType<typeof buildClusterBoard>;
 
+function leafSections(b: Board) {
+  return b.sections.flatMap((s) =>
+    s.kind === "columns" ? s.columns.flatMap((c) => c.sections) : [s],
+  );
+}
+
 function columnsSection(b: Board) {
   const col = b.sections.find((s) => s.kind === "columns");
   if (col?.kind !== "columns") throw new Error("expected a columns section");
   return col;
 }
 
-function rowsOf(b: Board) {
-  for (const column of columnsSection(b).columns) {
-    for (const s of column.sections) if (s.kind === "rows") return s;
+// The primary actions section — the lifecycle verbs on the operating board, or
+// the create tabs on a bring-up board. The context switcher rides its own
+// "Active context" section, skipped here.
+function actionsOf(b: Board) {
+  for (const s of leafSections(b)) {
+    if (s.kind === "actions" && s.title !== "Active context") return s;
   }
-  throw new Error("expected a rows section in the columns body");
+  throw new Error("expected a primary actions section");
 }
 
-function actionsOf(b: Board) {
-  for (const column of columnsSection(b).columns) {
-    for (const s of column.sections) if (s.kind === "actions") return s;
+function switchBar(b: Board) {
+  for (const s of leafSections(b)) {
+    if (s.kind === "actions" && s.title === "Active context") return s;
   }
-  throw new Error("expected an actions section in the columns body");
+  throw new Error("expected an Active context switcher section");
 }
 
 function accessSection(b: Board) {
@@ -108,16 +118,20 @@ describe("buildClusterBoard", () => {
     expect(canvasViewSchema.safeParse(buildClusterBoard(healthy)).success).toBe(true);
   });
 
-  test("a fully reconciled cluster shows a ✓ Ready header status pill + flux/service segments", () => {
+  test("a fully reconciled cluster shows a ✓ Ready header status pill + kustomization/service segments", () => {
     const board = buildClusterBoard(healthy);
     expect(board.header?.status).toEqual({ label: "✓ Ready", tone: "ok" });
     expect(board.header?.chip).toBe("cimpl-stack-ms");
-    expect(board.header?.segments?.map((s) => s.label)).toEqual(["Flux", "Services"]);
+    // Health lives in the header pips — the only readout when the region is
+    // collapsed. "Flux" reads as "Kustomizations" everywhere.
+    expect(board.header?.segments?.map((s) => s.label)).toEqual(["Kustomizations", "Services"]);
   });
 
   test("a suspended source never dims a fully reconciled cluster — cimpl up pins it on every create", () => {
     const board = buildClusterBoard({ ...healthy, info: { ...healthy.info, suspended: true } });
-    expect(board.header?.status).toEqual({ label: "✓ Ready", tone: "ok" });
+    // Suspension is the normal pinned-source mode: the pill stays ok and only
+    // gains a ⏸ marker. Cluster state lives in the pill, not a lifecycle row.
+    expect(board.header?.status).toEqual({ label: "✓ Ready ⏸", tone: "ok" });
   });
 
   test("a partly-reconciled cluster reads as Degraded (warn)", () => {
@@ -128,35 +142,62 @@ describe("buildClusterBoard", () => {
     expect(board.header?.status).toEqual({ label: "⚠ Degraded", tone: "warn" });
   });
 
-  test("the body is a two-column Lifecycle | Actions layout", () => {
-    const col = columnsSection(buildClusterBoard(healthy));
-    expect(col.columns).toHaveLength(2);
-    expect(col.columns[0]?.sections.map((s) => s.kind)).toEqual(["rows"]);
-    expect(col.columns[1]?.sections.map((s) => s.kind)).toEqual(["actions"]);
-  });
-
-  // The context lives in the header chip and the switch-context picker; a
-  // Contexts rows section beside Lifecycle would be a third copy of it.
-  test("the lifecycle column carries no Contexts section beside the lifecycle rows", () => {
-    const col = columnsSection(buildClusterBoard(healthy));
-    expect(col.columns[0]?.sections).toHaveLength(1);
-    expect(rowsOf(buildClusterBoard(healthy)).title).toBe("Lifecycle");
-    expect(
-      col.columns.flatMap((c) => c.sections).some((s) => "title" in s && s.title === "Contexts"),
-    ).toBe(false);
-  });
-
-  test("lifecycle rows cover context / cluster / flux / services with reconciled counts", () => {
-    const rows = rowsOf(buildClusterBoard(healthy));
-    expect(rows.items.map((r) => r.text)).toEqual(["Context", "Cluster", "Flux", "Services"]);
-    expect(rows.items[2]?.trailing).toBe("29/29 reconciled");
-    expect(rows.items[3]?.trailing).toBe("32/32 ready");
-  });
-
-  test("lifecycle rows and access cards render boxed (status-list / pill styling)", () => {
+  // The operating board carries no Lifecycle rows: cluster state is the header
+  // pill, the counts are the header pips, and the context is the header chip —
+  // the rows only said all three a second time.
+  test("the operating board drops the Lifecycle rows entirely", () => {
     const board = buildClusterBoard(healthy);
-    expect(rowsOf(board).boxed).toBe(true);
+    const titles = leafSections(board)
+      .map((s) => ("title" in s ? s.title : undefined))
+      .filter(Boolean);
+    expect(titles).not.toContain("Lifecycle");
+    expect(leafSections(board).some((s) => s.kind === "rows")).toBe(false);
+  });
+
+  // With a single context there's no switch target, so the verbs stand alone as
+  // the toolbar — a wrapping chip row, not a stack of full-width buttons.
+  test("the verbs are a single wrapping actions toolbar when there's no switch target", () => {
+    const board = buildClusterBoard(healthy);
+    const actions = actionsOf(board);
+    expect(actions.title).toBe("Actions");
+    expect(actions.wrap).toBe(true);
+    expect(actions.items.map((a) => a.type)).toEqual(["reconcile", "suspend", "delete"]);
+    // No standalone lifecycle columns section on the operating board anymore.
+    expect(board.sections.some((s) => s.kind === "columns")).toBe(false);
+  });
+
+  test("with a switch target the toolbar is context dropdown | verb chips, one strip", () => {
+    const switchable: ClusterInput = {
+      ...healthy,
+      lifecycle: {
+        ...healthy.lifecycle,
+        contexts: ["cimpl-stack-ms", "cimpl-stack-seismic"],
+        fingerprint: "uid-1",
+      },
+    };
+    const board = buildClusterBoard(switchable);
+    // A single toolbar columns section leads the body: switcher left, verbs right.
+    const toolbar = board.sections[0];
+    if (toolbar?.kind !== "columns") throw new Error("expected the toolbar columns section");
+    const left = toolbar.columns[0]?.sections[0];
+    const right = toolbar.columns[1]?.sections[0];
+    expect(left?.kind === "actions" && left.title).toBe("Active context");
+    expect(left?.kind === "actions" && left.items.map((a) => a.type)).toEqual(["switch-context"]);
+    expect(right?.kind === "actions" && right.title).toBe("Actions");
+    expect(right?.kind === "actions" && right.items.map((a) => a.type)).toEqual([
+      "reconcile",
+      "suspend",
+      "delete",
+    ]);
+    // The verbs toolbar and the switcher are distinct sections.
+    expect(actionsOf(board).items.map((a) => a.type)).toEqual(["reconcile", "suspend", "delete"]);
+    expect(switchBar(board).items.map((a) => a.type)).toEqual(["switch-context"]);
+  });
+
+  test("access cards render as a boxed auto-fit grid shelf (reveal pills, side by side)", () => {
+    const board = buildClusterBoard(healthy);
     expect(accessSection(board).boxed).toBe(true);
+    expect(accessSection(board).grid).toBe(true);
   });
 
   test("a running cluster offers Reconcile (non-destructive) + Suspend + a destructive Delete", () => {
@@ -179,21 +220,14 @@ describe("buildClusterBoard", () => {
     expect(types).toContain("delete");
   });
 
-  test("ACCESS is curated to the eight operator-facing services, in order", () => {
+  test("ACCESS is curated to the operator-facing services, in order", () => {
     const titles = accessSection(buildClusterBoard(healthy)).items.map((c) => c.title);
-    expect(titles).toEqual([
-      "Airflow",
-      "Keycloak",
-      "Kibana",
-      "MinIO",
-      "RabbitMQ",
-      "SeaweedFS",
-      "PostgreSQL",
-      "Redis",
-    ]);
+    // The four portals you open, plus SeaweedFS. PostgreSQL and Redis are
+    // credential-only (no link) and dropped from the shelf.
+    expect(titles).toEqual(["Airflow", "Keycloak", "Kibana", "RabbitMQ", "SeaweedFS"]);
   });
 
-  test("ACCESS drops the gateway, API-only endpoints, variants, and the OIDC client", () => {
+  test("ACCESS drops the gateway, API-only endpoints, variants, OIDC client, and credential-only PostgreSQL/Redis", () => {
     const titles = accessSection(buildClusterBoard(healthy)).items.map((c) => c.title);
     for (const dropped of [
       "Gateway (HTTPS)",
@@ -203,6 +237,8 @@ describe("buildClusterBoard", () => {
       "SeaweedFS S3",
       "SeaweedFS Admin",
       "OIDC Client",
+      "PostgreSQL",
+      "Redis",
     ]) {
       expect(titles).not.toContain(dropped);
     }
@@ -210,7 +246,7 @@ describe("buildClusterBoard", () => {
 
   test("ACCESS portals render as green cards with a portal link", () => {
     const byTitle = accessByTitle(buildClusterBoard(healthy));
-    for (const ui of ["Airflow", "Keycloak", "Kibana", "MinIO", "RabbitMQ"]) {
+    for (const ui of ["Airflow", "Keycloak", "Kibana", "RabbitMQ"]) {
       expect(byTitle[ui]?.dot).toBe("ok");
       expect(byTitle[ui]?.href).toBeTruthy();
     }
@@ -235,57 +271,34 @@ describe("buildClusterBoard", () => {
     expect(swfs?.href).toBeUndefined();
   });
 
-  test("ACCESS internal services keep credentials reveal-only beside a copyable port-forward", () => {
+  test("ACCESS internal services show reveal-only credentials and no port-forward command", () => {
     const byTitle = accessByTitle(buildClusterBoard(healthy));
-    expect(byTitle.PostgreSQL?.dot).toBe("neutral");
-    const fields = byTitle.PostgreSQL?.fields ?? [];
-    const copyable = fields.filter((f) => f.copyable);
-    expect(copyable).toHaveLength(1);
-    expect(String(copyable[0]?.value)).toContain("kubectl port-forward");
-    expect(copyable[0]?.copyAction).toBeUndefined();
-
+    expect(byTitle.SeaweedFS?.dot).toBe("neutral");
+    const fields = byTitle.SeaweedFS?.fields ?? [];
+    // No inline shell command: the rib is sidecar-free and no longer surfaces a
+    // copyable port-forward. Only the reveal-on-copy credentials remain.
+    expect(fields.some((f) => f.copyable)).toBe(false);
     const credentials = fields.filter((f) => f.copyAction);
-    expect(credentials).toHaveLength(2);
+    expect(credentials).toHaveLength(1);
     expect(credentials.every((f) => f.copyable !== true)).toBe(true);
   });
 
-  test("PostgreSQL uses cimpl's port-forward command verbatim", () => {
-    const fields = accessByTitle(buildClusterBoard(healthy)).PostgreSQL?.fields ?? [];
-    const portForward = fields.find((f) => f.copyable);
-    expect(portForward?.value).toBe(
-      "kubectl port-forward -n platform svc/postgresql-rw 15432:5432",
-    );
-  });
-
-  test("Redis synthesizes its default port-forward command", () => {
-    const fields = accessByTitle(buildClusterBoard(healthy)).Redis?.fields ?? [];
-    const portForward = fields.find((f) => f.copyable);
-    expect(portForward?.value).toBe("kubectl port-forward svc/redis 6379:6379 -n platform");
-  });
-
-  test("SeaweedFS suppresses port-forward when a gateway route exists", () => {
-    const fields = accessByTitle(buildClusterBoard(healthy)).SeaweedFS?.fields ?? [];
-    expect(fields.some((f) => f.copyable)).toBe(false);
-  });
-
-  test("SeaweedFS surfaces its internal port-forward when no route exists", () => {
-    const noGateway: ClusterInput = {
+  test("a service with neither a portal link nor a credential is dropped (no empty card)", () => {
+    const noSeaweedCred: ClusterInput = {
       ...healthy,
-      info: { ...healthy.info, endpoints: [] },
+      info: {
+        ...healthy.info,
+        credentials: (healthy.info?.credentials ?? []).filter((c) => c.service !== "SeaweedFS"),
+      },
     };
-    const fields = accessByTitle(buildClusterBoard(noGateway)).SeaweedFS?.fields ?? [];
-    const portForward = fields.find((f) => f.copyable);
-    expect(portForward?.value).toBe("kubectl port-forward -n platform svc/seaweedfs-s3 8333:8333");
+    const titles = accessSection(buildClusterBoard(noSeaweedCred)).items.map((c) => c.title);
+    // SeaweedFS is not a portal and now has no credential, so it renders nothing
+    // rather than an empty title-only card.
+    expect(titles).not.toContain("SeaweedFS");
   });
 
   test("credentials join onto their service card as copy-on-reveal fields (never a password)", () => {
     const byTitle = accessByTitle(buildClusterBoard(healthy));
-    // Two PostgreSQL credentials on one card (osdu + superuser).
-    const pgCreds = (byTitle.PostgreSQL?.fields ?? []).filter((f) => f.copyAction);
-    expect(pgCreds.map((f) => f.copyAction?.payload)).toEqual([
-      { service: "PostgreSQL", context: "cimpl-stack-ms" },
-      { service: "PostgreSQL (superuser)", context: "cimpl-stack-ms" },
-    ]);
     // Curated join: the "Keycloak Admin" credential lands on the Keycloak card.
     const kcCred = (byTitle.Keycloak?.fields ?? []).find((f) => f.copyAction);
     expect(kcCred?.copyAction).toEqual({
@@ -307,16 +320,13 @@ describe("buildClusterBoard", () => {
         if (field.copyAction) credValues.push(String(field.value));
       }
     }
+    // RabbitMQ → osdu, Keycloak → admin, Kibana → elastic; SeaweedFS has no
+    // username so its reveal pill reads "password".
     expect(credValues).toContain("osdu");
-    expect(credValues).toContain("postgres");
     expect(credValues).toContain("admin");
     expect(credValues).toContain("elastic");
+    expect(credValues).toContain("password");
     expect(credValues).not.toContain("••••••");
-  });
-
-  test("Redis instance variants collapse into one card with an instance count", () => {
-    const redis = accessByTitle(buildClusterBoard(healthy)).Redis;
-    expect(redis?.footnote).toBe("3 instances");
   });
 
   test("Kibana picks up the Elasticsearch '(actual)' credential under password drift", () => {
@@ -343,11 +353,11 @@ describe("buildClusterBoard", () => {
     });
   });
 
-  test("Redis carries its (usernameless) credential as a reveal pill", () => {
-    const redis = accessByTitle(buildClusterBoard(healthy)).Redis;
-    const cred = (redis?.fields ?? []).find((f) => f.copyAction);
+  test("SeaweedFS carries its (usernameless) credential as a reveal pill", () => {
+    const swfs = accessByTitle(buildClusterBoard(healthy)).SeaweedFS;
+    const cred = (swfs?.fields ?? []).find((f) => f.copyAction);
     expect(cred?.value).toBe("password");
-    expect(cred?.copyAction?.payload).toEqual({ service: "Redis", context: "cimpl-stack-ms" });
+    expect(cred?.copyAction?.payload).toEqual({ service: "SeaweedFS", context: "cimpl-stack-ms" });
   });
 
   test("actions carry the board's context so onAction can guard against drift", () => {
@@ -365,12 +375,6 @@ describe("buildClusterBoard", () => {
       contexts: [],
     },
   };
-
-  function leafSections(b: Board) {
-    return b.sections.flatMap((s) =>
-      s.kind === "columns" ? s.columns.flatMap((c) => c.sections) : [s],
-    );
-  }
 
   test("no cluster + no context leads with the create surface, not empty lifecycle rows", () => {
     const board = buildClusterBoard(noCluster);
@@ -536,8 +540,8 @@ describe("buildClusterBoard", () => {
       },
     });
     expect(canvasViewSchema.safeParse(board).success).toBe(true);
+    // Cluster state is the header pill now (no lifecycle row repeats it).
     expect(board.header?.status).toEqual({ label: "✕ Unreachable", tone: "error" });
-    expect(rowsOf(board).items[1]?.trailing).toBe("unreachable");
     // Reconcile/Delete stay so a dead-but-known cluster isn't stranded.
     const types = actionsOf(board).items.map((a) => a.type);
     expect(types).toContain("reconcile");
@@ -562,7 +566,7 @@ describe("buildClusterBoard", () => {
     // Create leaves the lifecycle actions column…
     expect(actionsOf(board).items.map((a) => a.type)).not.toContain("create");
     // …and rides its own full-width tabs strip, same shape as the empty state.
-    const tabs = board.sections.find((s) => s.kind === "actions");
+    const tabs = board.sections.find((s) => s.kind === "actions" && s.title === "Create cluster");
     if (tabs?.kind !== "actions") throw new Error("expected a create tabs section");
     expect(tabs.title).toBe("Create cluster");
     expect(tabs.tabs).toBe(true);
@@ -572,7 +576,12 @@ describe("buildClusterBoard", () => {
   test("a live cimpl deployment offers no create surface at all", () => {
     const board = buildClusterBoard(healthy);
     expect(actionsOf(board).items.map((a) => a.type)).not.toContain("create");
-    expect(board.sections.some((s) => s.kind === "actions")).toBe(false);
+    // The verb toolbar is always present; what's absent is any create action.
+    expect(
+      leafSections(board).some(
+        (s) => s.kind === "actions" && s.items.some((a) => a.type === "create"),
+      ),
+    ).toBe(false);
   });
 
   const foreign: ClusterInput = {
@@ -659,7 +668,11 @@ describe("buildClusterBoard", () => {
     expect(types).toContain("reconcile");
     expect(types).toContain("delete");
     // …and bring-up is not offered over an unconfirmed absence.
-    expect(board.sections.find((s) => s.kind === "actions")).toBeUndefined();
+    expect(
+      leafSections(board).some(
+        (s) => s.kind === "actions" && s.items.some((a) => a.type === "create"),
+      ),
+    ).toBe(false);
   });
 
   const NOW = Date.parse("2026-07-13T12:00:00Z");
@@ -730,7 +743,8 @@ describe("buildClusterBoard", () => {
     // board should already read Ready rather than hold Bootstrapping.
     const board = buildClusterBoard({ ...healthy, createMarker: dispatched, now: NOW });
     expect(board.header?.status).toEqual({ label: "✓ Ready", tone: "ok" });
-    expect(board.sections[0]?.kind).toBe("columns");
+    // The operating board, not the provisioning one — its Access shelf is present.
+    expect(board.sections.some((s) => s.kind === "cards" && s.title === "Access")).toBe(true);
   });
 
   test("a live-but-converging deployment reads Bootstrapping while the create run is in flight", () => {

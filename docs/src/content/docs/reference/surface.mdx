@@ -54,10 +54,13 @@ demand when you run its workflow by hand.
 ### Header: Cluster
 
 The collapsible header is the cluster's health and access strip. Collapsed,
-it shows the board's header pill, the context chip, and Flux and service
-readiness segments. Expanded, it adds lifecycle rows (context, cluster,
-Flux, services), the action strip, and the access grid with copy-on-reveal
-credentials.
+it shows the board's header pill, the context chip, and Kustomization and
+service readiness segments — the health glance survives the collapse.
+Expanded, it adds a control toolbar (the active-context dropdown beside the
+Reconcile / Suspend / Delete verbs) and the access shelf of service cards
+with copy-on-reveal credentials. Cluster state, its context, and the
+readiness counts all live in the header, so the body carries no lifecycle
+rows that would repeat them.
 
 The pill is a ladder, not a binary. It reports where the cluster is, not
 just whether it is well:
@@ -84,8 +87,8 @@ carry their own gates instead. See
 [Tools and actions](../tools-and-actions/) for the verb-by-verb table.
 
 <figure>
-  <Image src={clusterShot} alt="The expanded Cluster board: lifecycle rows for context, cluster, Flux, and services beside the action buttons, above an access grid of service cards with credential copy buttons." />
-  <figcaption>Figure 1. The expanded Cluster board: lifecycle rows and actions, above the curated access grid.</figcaption>
+  <Image src={clusterShot} alt="The expanded Cluster board: a control toolbar with the active-context dropdown beside the Reconcile, Suspend, and Delete verbs, above an access shelf of service cards with credential copy buttons." />
+  <figcaption>Figure 1. The expanded Cluster board: the context-and-verbs toolbar, above the curated access shelf.</figcaption>
 </figure>
 
 ### Banner: Waiting on You

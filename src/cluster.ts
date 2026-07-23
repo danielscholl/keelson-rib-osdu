@@ -203,11 +203,6 @@ function matchKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-// "Redis (dataset)" → "Redis" — the base used to collapse instance variants.
-function baseName(name: string): string {
-  return name.replace(/\s*\(.*\)\s*$/, "").trim();
-}
-
 // The header's overall health pill. Glyph is baked into the label (the base
 // renders the label verbatim); tone drives the colour. A reachable cluster
 // whose deployment is cimpl-confirmed absent reads "No deployment" — its 0/0
@@ -267,34 +262,6 @@ function credentialField(cred: CimplCredential, stamp: ClusterStamp): FieldItem 
   };
 }
 
-function portForwardField(
-  svc: AccessService,
-  base: string,
-  internal: CimplInternalService[],
-  endpoints: Map<string, CimplEndpoint>,
-): FieldItem | undefined {
-  if (svc.portal) return undefined;
-  const hasRoute = [...endpoints.values()].some(
-    (e) => matchKey(e.name).startsWith(base) && Boolean(e.url),
-  );
-  if (hasRoute) return undefined;
-  const match =
-    internal.find((s) => matchKey(baseName(s.name)) === base) ??
-    internal.find((s) => matchKey(s.name).startsWith(base));
-  const fromCimpl =
-    typeof match?.port_forward === "string" && match.port_forward.trim().length > 0
-      ? match.port_forward.trim()
-      : undefined;
-  const synth = PORT_FORWARDS[svc.title];
-  const command =
-    fromCimpl ??
-    (synth
-      ? `kubectl port-forward svc/${synth.service} ${synth.port}:${synth.port} -n platform`
-      : undefined);
-  if (!command) return undefined;
-  return { label: "Port-forward", value: command, copyable: true };
-}
-
 // The operator-facing services the ACCESS grid surfaces, in display order.
 // cimpl info enumerates every Kubernetes service (the gateway, API-only
 // endpoints like minio-api, the per-namespace Redis variants, an OIDC client
@@ -309,24 +276,15 @@ interface AccessService {
   portal: boolean;
   endpoint?: string;
   creds: string[];
-  instances?: boolean;
 }
 
 const ACCESS_SERVICES: readonly AccessService[] = [
   { title: "Airflow", portal: true, endpoint: "Airflow", creds: ["Airflow"] },
   { title: "Keycloak", portal: true, endpoint: "Keycloak", creds: ["Keycloak Admin"] },
   { title: "Kibana", portal: true, endpoint: "Kibana", creds: ["Elasticsearch"] },
-  { title: "MinIO", portal: true, endpoint: "Minio", creds: ["MinIO"] },
   { title: "RabbitMQ", portal: true, endpoint: "Rabbitmq", creds: ["RabbitMQ"] },
   { title: "SeaweedFS", portal: false, creds: ["SeaweedFS"] },
-  { title: "PostgreSQL", portal: false, creds: ["PostgreSQL", "PostgreSQL (superuser)"] },
-  { title: "Redis", portal: false, creds: ["Redis"], instances: true },
 ];
-
-const PORT_FORWARDS: Record<string, { service: string; port: number }> = {
-  PostgreSQL: { service: "postgresql-rw", port: 5432 },
-  Redis: { service: "redis", port: 6379 },
-};
 
 // When a credential drifts from what OSDU is configured with, cimpl emits the
 // usable secret under an "(actual)" suffix (e.g. "Elasticsearch (actual)")
@@ -343,15 +301,13 @@ function findCredential(
 // Curated ACCESS grid: one card per known operator-facing service. A portal
 // shows a green dot + portal ↗ (from its cimpl endpoint URL); a service shows a
 // cyan dot and no link. Credentials join as boxed copy-on-reveal pills. A
-// service the cluster doesn't expose at all (no endpoint, no credential, no
-// backing internal service) is skipped, so a partial stack shows no phantom
-// cards.
+// service the cluster doesn't expose at all (no endpoint, no credential) is
+// skipped, so a partial stack shows no phantom cards.
 function buildAccessCards(info: CimplInfo, stamp: ClusterStamp): CardItem[] {
   const endpoints = new Map<string, CimplEndpoint>();
   for (const e of info.endpoints ?? []) endpoints.set(matchKey(e.name), e);
   const credentials = new Map<string, CimplCredential>();
   for (const c of info.credentials ?? []) credentials.set(matchKey(c.service), c);
-  const internal = info.internal_services ?? [];
 
   const cards: CardItem[] = [];
   for (const svc of ACCESS_SERVICES) {
@@ -364,28 +320,21 @@ function buildAccessCards(info: CimplInfo, stamp: ClusterStamp): CardItem[] {
       if (cred) fields.push(credentialField(cred, stamp));
     }
 
-    const present =
-      Boolean(endpoint) ||
-      fields.length > 0 ||
-      internal.some((s) => matchKey(s.name).startsWith(base));
-    if (!present) continue;
+    // Render a card only when it carries something actionable — an openable
+    // portal URL or at least one credential. A service the cluster doesn't
+    // expose (no route, no credential) is skipped, not shown as an empty card.
+    if (!endpoint?.url && fields.length === 0) continue;
 
     // A portal is "ok" (green + ↗) only when it has a browser URL; a portal
-    // that exists but has no endpoint (gateway/ingress not configured yet) is
-    // "warn" — present, with its credential, but not openable — never green.
-    // Cluster-local services are always the neutral (cyan) tone.
+    // present but not yet routable (gateway/ingress unconfigured) is "warn" —
+    // its credential still shows, but it isn't openable. Cluster-local services
+    // are always the neutral (cyan) tone.
     const card: CardItem = {
       title: svc.title,
       dot: svc.portal ? (endpoint?.url ? "ok" : "warn") : "neutral",
     };
     if (endpoint?.url) card.href = endpoint.url;
-    if (svc.instances) {
-      const count = internal.filter((s) => matchKey(baseName(s.name)) === base).length;
-      if (count > 1) card.footnote = `${count} instances`;
-    }
-    const pf = portForwardField(svc, base, internal, endpoints);
-    const cardFields = pf ? [pf, ...fields] : fields;
-    if (cardFields.length > 0) card.fields = cardFields;
+    if (fields.length > 0) card.fields = fields;
     cards.push(card);
   }
   return cards;
@@ -739,7 +688,7 @@ function routeAbsentDeployment(input: ClusterInput): CanvasBoardView {
 
 function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
   const { info, lifecycle } = input;
-  const { context, reachable, flux, services } = lifecycle;
+  const { context, flux, services } = lifecycle;
   const suspended = info?.suspended === true;
   // An in-flight create marker beside a live deployment means the create run
   // is still working — the pill reads Bootstrapping rather than judging health.
@@ -753,30 +702,6 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
   const stamp: ClusterStamp = {};
   if (context) stamp.context = context;
   if (lifecycle.fingerprint) stamp.fingerprint = lifecycle.fingerprint;
-
-  const lifecycleRows: LeafSection = {
-    kind: "rows",
-    title: "Lifecycle",
-    boxed: true,
-    items: [
-      { glyph: context ? "ok" : "warn", text: "Context", trailing: context ?? "none" },
-      {
-        glyph: reachable ? "ok" : "error",
-        text: "Cluster",
-        trailing: reachable ? (suspended ? "suspended" : "reachable") : "unreachable",
-      },
-      {
-        glyph: reachable ? countTone(flux.ready, flux.total) : "neutral",
-        text: "Flux",
-        trailing: `${flux.ready}/${flux.total} reconciled`,
-      },
-      {
-        glyph: reachable ? countTone(services.ready, services.total) : "neutral",
-        text: "Services",
-        trailing: `${services.ready}/${services.total} ready`,
-      },
-    ],
-  };
 
   // Each action carries the cluster stamp so onAction can refuse to act on a
   // different cluster than the board was built against. Omitted when there's no
@@ -799,23 +724,34 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
       destructive: true,
     }),
   ];
-  const switchAction = switchContextAction(lifecycle);
-  if (switchAction) actionItems.push(switchAction);
-  const actions: ActionsSection = {
+  const verbActions: ActionsSection = {
     kind: "actions",
     title: "Actions",
+    // Wrap keeps the one-word verbs as a compact chip row rather than a stack of
+    // full-width buttons; Delete keeps its destructive styling and typed confirm.
+    wrap: true,
     items: actionItems,
   };
 
-  const sections: BoardSection[] = [
-    {
+  const sections: BoardSection[] = [];
+  // Switching context re-points kubectl to a DIFFERENT cluster and re-collects
+  // the whole board — a cluster-scope selector, not a verb on the current
+  // cluster. When a switch target exists it leads a full-width toolbar: the
+  // context dropdown on the left, the verb chips on the right — so it never reads
+  // as "reconcile/suspend/delete this cluster". With no target it isn't offered,
+  // and the verbs stand alone as the toolbar.
+  const switchAction = switchContextAction(lifecycle);
+  if (switchAction) {
+    sections.push({
       kind: "columns",
       columns: [
-        { weight: 1.4, sections: [lifecycleRows] },
-        { weight: 1, sections: [actions] },
+        { sections: [{ kind: "actions", title: "Active context", items: [switchAction] }] },
+        { sections: [verbActions] },
       ],
-    },
-  ];
+    });
+  } else {
+    sections.push(verbActions);
+  }
 
   // Offer Create only on cimpl's confirmed-absent verdict — never on a merely
   // failed probe, so a transient cimpl failure over a live stack can't surface
@@ -824,17 +760,25 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
 
   const access = info ? buildAccessCards(info, stamp) : [];
   if (access.length > 0) {
-    sections.push({ kind: "cards", title: "Access", boxed: true, items: access });
+    // A dense auto-fit shelf (grid) of boxed reveal-credential cards — the
+    // portals you open — instead of a full-width stacked column.
+    sections.push({ kind: "cards", title: "Access", boxed: true, grid: true, items: access });
   }
+
+  // cimpl pins/suspends the Flux source after every create, so a suspended
+  // source is the normal operating mode, not a health state — surface it as a
+  // small pause marker trailing the status pill rather than a lifecycle warning.
+  const status = clusterStatus(lifecycle, !info && input.deployment === "absent", bootstrapping);
+  if (suspended) status.label = `${status.label} ⏸`;
 
   return {
     view: "board",
     title: "Cluster",
     header: {
-      status: clusterStatus(lifecycle, !info && input.deployment === "absent", bootstrapping),
+      status,
       chip: context ?? "no context",
       segments: [
-        { label: "Flux", n: flux.ready, tone: countTone(flux.ready, flux.total) },
+        { label: "Kustomizations", n: flux.ready, tone: countTone(flux.ready, flux.total) },
         { label: "Services", n: services.ready, tone: countTone(services.ready, services.total) },
       ],
     },
