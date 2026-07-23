@@ -320,9 +320,6 @@ function buildAccessCards(info: CimplInfo, stamp: ClusterStamp): CardItem[] {
       if (cred) fields.push(credentialField(cred, stamp));
     }
 
-    // Render a card only when it carries something actionable — an openable
-    // portal URL or at least one credential. A service the cluster doesn't
-    // expose (no route, no credential) is skipped, not shown as an empty card.
     if (!endpoint?.url && fields.length === 0) continue;
 
     // A portal is "ok" (green + ↗) only when it has a browser URL; a portal
@@ -727,8 +724,6 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
   const verbActions: ActionsSection = {
     kind: "actions",
     title: "Actions",
-    // Wrap keeps the one-word verbs as a compact chip row rather than a stack of
-    // full-width buttons; Delete keeps its destructive styling and typed confirm.
     wrap: true,
     items: actionItems,
   };
@@ -760,8 +755,6 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
 
   const access = info ? buildAccessCards(info, stamp) : [];
   if (access.length > 0) {
-    // A dense auto-fit shelf (grid) of boxed reveal-credential cards — the
-    // portals you open — instead of a full-width stacked column.
     sections.push({ kind: "cards", title: "Access", boxed: true, grid: true, items: access });
   }
 
