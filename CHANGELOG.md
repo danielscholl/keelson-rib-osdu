@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.12.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.11.2...v0.12.0) (2026-07-23)
+
+
+### Added
+
+* **cluster:** fold controls into a toolbar, access into a shelf ([#132](https://github.com/danielscholl/keelson-rib-osdu/issues/132)) ([fea1918](https://github.com/danielscholl/keelson-rib-osdu/commit/fea19189e481e535d3f813b54f1f8e66d729e9d7))
+* **cluster:** stream cimpl's own color from create/delete workflows ([#135](https://github.com/danielscholl/keelson-rib-osdu/issues/135)) ([1eb763b](https://github.com/danielscholl/keelson-rib-osdu/commit/1eb763ba43993579ec566d03f93d2b52b9dbe490))
+
+
+### Fixed
+
+* **cluster:** withhold lifecycle verbs on the no-deployment state ([#134](https://github.com/danielscholl/keelson-rib-osdu/issues/134)) ([d0b7e3d](https://github.com/danielscholl/keelson-rib-osdu/commit/d0b7e3d3876d4da8841ee01e09d779f751e59c2e))
+* **release:** repoint PMC report grid at the current dashboards ([#130](https://github.com/danielscholl/keelson-rib-osdu/issues/130)) ([a1db384](https://github.com/danielscholl/keelson-rib-osdu/commit/a1db3848d9466ba6e4e7f4690131cc9eb10ce183))
+
+
+### Changed
+
+* **cluster:** cache revealed credentials so repeat copies are instant ([#133](https://github.com/danielscholl/keelson-rib-osdu/issues/133)) ([36f9660](https://github.com/danielscholl/keelson-rib-osdu/commit/36f96608c6938af4bfb3f70a08ee62b91e1c5cd4))
+
 ## [0.11.2](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.11.1...v0.11.2) (2026-07-17)
 
 
