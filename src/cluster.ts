@@ -721,37 +721,43 @@ function buildOperatingClusterBoard(input: ClusterInput): CanvasBoardView {
       destructive: true,
     }),
   ];
-  const verbActions: ActionsSection = {
-    kind: "actions",
-    title: "Actions",
-    wrap: true,
-    items: actionItems,
-  };
+  // On a reachable cluster with no CIMPL deployment, the lifecycle verbs act on
+  // nothing: Reconcile/Suspend no-op and Delete's live-context re-verify refuses
+  // outright. Create (and switching context) is the only real recourse, so the
+  // verbs are withheld — mirroring the foreign-context board. Unreachable and
+  // indeterminate clusters keep them (a dead-but-known cluster isn't stranded).
+  const noDeployment = !info && input.deployment === "absent";
+  const verbActions: ActionsSection | undefined =
+    lifecycle.reachable && noDeployment
+      ? undefined
+      : { kind: "actions", title: "Actions", wrap: true, items: actionItems };
 
   const sections: BoardSection[] = [];
   // Switching context re-points kubectl to a DIFFERENT cluster and re-collects
   // the whole board — a cluster-scope selector, not a verb on the current
-  // cluster. When a switch target exists it leads a full-width toolbar: the
-  // context dropdown on the left, the verb chips on the right — so it never reads
-  // as "reconcile/suspend/delete this cluster". With no target it isn't offered,
-  // and the verbs stand alone as the toolbar.
+  // cluster. When both it and the verbs are present they lead a full-width
+  // toolbar: the context dropdown on the left, the verb chips on the right — so
+  // it never reads as "reconcile/suspend/delete this cluster". Whichever is
+  // present alone stands as the toolbar on its own.
   const switchAction = switchContextAction(lifecycle);
-  if (switchAction) {
+  const switchSection: ActionsSection | undefined = switchAction
+    ? { kind: "actions", title: "Active context", items: [switchAction] }
+    : undefined;
+  if (switchSection && verbActions) {
     sections.push({
       kind: "columns",
-      columns: [
-        { sections: [{ kind: "actions", title: "Active context", items: [switchAction] }] },
-        { sections: [verbActions] },
-      ],
+      columns: [{ sections: [switchSection] }, { sections: [verbActions] }],
     });
-  } else {
+  } else if (switchSection) {
+    sections.push(switchSection);
+  } else if (verbActions) {
     sections.push(verbActions);
   }
 
   // Offer Create only on cimpl's confirmed-absent verdict — never on a merely
   // failed probe, so a transient cimpl failure over a live stack can't surface
   // a bring-up affordance (refuseCreateOverCimpl would refuse it anyway).
-  if (!info && input.deployment === "absent") sections.push(createClusterTabs("Create cluster"));
+  if (noDeployment) sections.push(createClusterTabs("Create cluster"));
 
   const access = info ? buildAccessCards(info, stamp) : [];
   if (access.length > 0) {
