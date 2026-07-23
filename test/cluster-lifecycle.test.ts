@@ -323,6 +323,7 @@ describe("cluster delete onAction (run-workflow effect)", () => {
       effect: "run-workflow",
       workflow: "osdu-cluster-delete",
       args: { context: "cimpl-a", fingerprint: "uid-1" },
+      stay: true,
     });
     expect(commandCalls(calls, "cimpl")).toEqual(["info --json"]);
   });
