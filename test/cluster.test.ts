@@ -550,7 +550,7 @@ describe("buildClusterBoard", () => {
     expect(board.sections.some((s) => s.kind === "cards")).toBe(false);
   });
 
-  test("a cimpl context without a deployment reads No deployment and offers the provider tabs", () => {
+  test("a cimpl context without a deployment reads No deployment, withholds the verbs, and offers the provider tabs", () => {
     const board = buildClusterBoard({
       deployment: "absent",
       lifecycle: {
@@ -563,12 +563,17 @@ describe("buildClusterBoard", () => {
     expect(canvasViewSchema.safeParse(board).success).toBe(true);
     // A reachable cimpl cluster with nothing on it is absence, not an outage.
     expect(board.header?.status).toEqual({ label: "⚠ No deployment", tone: "warn" });
-    // Create leaves the lifecycle actions column…
-    expect(actionsOf(board).items.map((a) => a.type)).not.toContain("create");
-    // …and rides its own full-width tabs strip, same shape as the empty state.
+    // The lifecycle verbs act on nothing here — Reconcile/Suspend no-op and
+    // Delete's live-context re-verify refuses — so they're withheld entirely.
+    const verbs = leafSections(board).flatMap((s) =>
+      s.kind === "actions" ? s.items.map((a) => a.type) : [],
+    );
+    expect(verbs).not.toContain("reconcile");
+    expect(verbs).not.toContain("suspend");
+    expect(verbs).not.toContain("delete");
+    // Create is the recourse — its own full-width tabs strip, same as the empty state.
     const tabs = board.sections.find((s) => s.kind === "actions" && s.title === "Create cluster");
     if (tabs?.kind !== "actions") throw new Error("expected a create tabs section");
-    expect(tabs.title).toBe("Create cluster");
     expect(tabs.tabs).toBe(true);
     expect(tabs.items.map((a) => a.label)).toEqual(["kind", "azure", "aws", "gcp"]);
   });
