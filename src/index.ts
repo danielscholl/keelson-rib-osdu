@@ -447,7 +447,8 @@ const rib: Rib = {
           },
           {
             id: "down",
-            bash: `cimpl ${CLUSTER_LIFECYCLE_ARGS.delete.join(" ")}`,
+            // cimpl (Rich) strips color when stdout isn't a TTY.
+            bash: `FORCE_COLOR=1 cimpl ${CLUSTER_LIFECYCLE_ARGS.delete.join(" ")}`,
             depends_on: ["verify"],
             timeout: 600_000,
           },

@@ -803,9 +803,15 @@ describe("osdu-cluster-delete workflow shape", () => {
     expect(verify?.bash).toContain("bun ");
     expect(verify?.bash).toContain("verify-cimpl-context.ts");
     expect(verify?.timeout).toBe(60_000);
+    // The verify gate parses its own output — it must stay uncolored.
+    expect(verify?.bash).not.toContain("FORCE_COLOR");
     expect(down?.depends_on).toEqual(["verify"]);
-    expect(down?.bash).toBe(`cimpl ${CLUSTER_LIFECYCLE_ARGS.delete.join(" ")}`);
+    expect(down?.bash).toBe(`FORCE_COLOR=1 cimpl ${CLUSTER_LIFECYCLE_ARGS.delete.join(" ")}`);
     expect(down?.timeout).toBe(600_000);
+  });
+
+  test("the streaming create node forces cimpl color", () => {
+    expect(CLUSTER_CREATE_BASH).toContain("export FORCE_COLOR=1");
   });
 });
 
