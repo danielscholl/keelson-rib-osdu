@@ -205,26 +205,62 @@ async function switchContext(action: RibAction, ctx: RibContext): Promise<RibAct
   return { ok: true, data: { ran: res.ran, current: res.current } };
 }
 
+// A single `cimpl info --show-secrets` is a ~3s cluster round-trip that returns
+// EVERY credential, yet a copy needs one. So the first reveal caches the whole
+// credential set in process memory for a short window and every copy after it is
+// instant. In-memory only, TTL-bounded — never snapshotted, logged, or persisted
+// (the secrets invariant): the reveal already holds a plaintext secret in memory
+// for the round-trip, and this only bounds how long. Keyed by the cluster the
+// caller's stamp names — and onAction runs the identity guard before this, so
+// that stamp is already confirmed to match the live cluster, and a different
+// cluster (new fingerprint/context) misses rather than serving another's secret.
+const REVEAL_CACHE_TTL_MS = 45_000;
+const revealCache = new Map<string, { creds: CimplCredentialSecret[]; expires: number }>();
+
+// Test seam: drop the cache so a case starts cold.
+export function resetRevealCache(): void {
+  revealCache.clear();
+}
+
 // Re-fetch one credential's password on demand for a clipboard copy. The secret
 // is returned straight to the caller (loopback) and is never written to a
 // snapshot or persisted. Uses runText + loose parse because `cimpl info` can
-// print a preamble before its JSON.
-async function revealCredential(action: RibAction, ctx: RibContext): Promise<RibActionResult> {
-  const payload = (action.payload ?? {}) as { service?: unknown };
+// print a preamble before its JSON. `now` is injectable for deterministic
+// TTL tests.
+export async function revealCredential(
+  action: RibAction,
+  ctx: RibContext,
+  now: number = Date.now(),
+): Promise<RibActionResult> {
+  const payload = (action.payload ?? {}) as {
+    service?: unknown;
+    context?: unknown;
+    fingerprint?: unknown;
+  };
   const service = typeof payload.service === "string" ? payload.service : "";
   if (!service) return { ok: false, error: "reveal-credential requires payload.service" };
 
-  const res = await ctx
-    .getExec()
-    .runText("cimpl", ["info", "--json", "--show-secrets"], { timeoutMs: 60_000 });
-  if (!res.ok) return { ok: false, error: res.error };
+  const cacheKey =
+    (typeof payload.fingerprint === "string" && payload.fingerprint) ||
+    (typeof payload.context === "string" && payload.context) ||
+    null;
 
   let creds: CimplCredentialSecret[];
-  try {
-    const parsed = parseCimplInfoJson(res.data) as { credentials?: CimplCredentialSecret[] };
-    creds = parsed.credentials ?? [];
-  } catch (e) {
-    return { ok: false, error: `failed to parse cimpl output: ${errText(e)}` };
+  const cached = cacheKey ? revealCache.get(cacheKey) : undefined;
+  if (cached && cached.expires > now) {
+    creds = cached.creds;
+  } else {
+    const res = await ctx
+      .getExec()
+      .runText("cimpl", ["info", "--json", "--show-secrets"], { timeoutMs: 60_000 });
+    if (!res.ok) return { ok: false, error: res.error };
+    try {
+      const parsed = parseCimplInfoJson(res.data) as { credentials?: CimplCredentialSecret[] };
+      creds = parsed.credentials ?? [];
+    } catch (e) {
+      return { ok: false, error: `failed to parse cimpl output: ${errText(e)}` };
+    }
+    if (cacheKey) revealCache.set(cacheKey, { creds, expires: now + REVEAL_CACHE_TTL_MS });
   }
 
   const cred = creds.find((c) => c.service === service);
