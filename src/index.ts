@@ -610,7 +610,17 @@ const rib: Rib = {
       if (typeof payload?.fingerprint === "string" && payload.fingerprint.length > 0) {
         args.fingerprint = payload.fingerprint;
       }
-      return { ok: true, data: { effect: "run-workflow", workflow: "osdu-cluster-delete", args } };
+      return {
+        ok: true,
+        data: {
+          effect: "run-workflow",
+          workflow: "osdu-cluster-delete",
+          args,
+          // Teardown is watched in place, the same as Create — the Cluster board
+          // stays put and the run drawer carries cimpl's own colored output.
+          stay: true,
+        },
+      };
     }
     const timeoutMs = 120_000;
     const res = await runClusterLifecycle(exec, verb, timeoutMs);
