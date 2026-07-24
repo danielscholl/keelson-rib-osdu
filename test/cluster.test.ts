@@ -454,6 +454,16 @@ describe("buildClusterBoard", () => {
     expect(profile?.required).toBeUndefined();
   });
 
+  test("the azure Network field is a segmented managed/private toggle", () => {
+    const azure = actionsOf(buildClusterBoard(noCluster)).items.find((a) => a.label === "azure");
+    const network = azure?.fields?.find((f) => f.name === "private");
+    expect(network?.segmented).toBe(true);
+    // Clear segment (managed VNet) is off; the one option opts into private subnets.
+    expect(network?.placeholder).toBe("managed VNet");
+    expect(network?.required).toBeUndefined();
+    expect(network?.options).toEqual([{ value: "private", label: "private subnets" }]);
+  });
+
   test("the create surface carries no static plan/command preview", () => {
     // A snapshot can't track form edits, so a defaults-only preview would read
     // stale; the truthful command shows on the provisioning board instead.
