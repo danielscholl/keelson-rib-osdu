@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.12.0...v0.13.0) (2026-07-24)
+
+
+### Added
+
+* **cluster:** make delete stay on the cluster board like create ([#136](https://github.com/danielscholl/keelson-rib-osdu/issues/136)) ([d7257ba](https://github.com/danielscholl/keelson-rib-osdu/commit/d7257ba669e331db1941075e7d3cc261f77d66e9))
+
 ## [0.12.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.11.2...v0.12.0) (2026-07-23)
 
 
