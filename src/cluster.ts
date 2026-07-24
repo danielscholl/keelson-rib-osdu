@@ -410,12 +410,14 @@ function createClusterFields(provider: string): ActionField[] {
     fields.push(
       { name: "location", label: "Location", placeholder: "eastus", half: true },
       {
-        // No boolean field kind: a non-required select clears to "" (managed
-        // VNet); "private" opts into azure private subnets.
+        // No boolean field kind, so managed/private is a two-state segmented
+        // toggle: the clear segment (managed VNet) is off, "private" opts into
+        // azure private subnets.
         name: "private",
         label: "Network",
         placeholder: "managed VNet",
         options: [{ value: PRIVATE_NETWORK_TOKEN, label: "private subnets" }],
+        segmented: true,
         half: true,
       },
     );
