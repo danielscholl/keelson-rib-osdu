@@ -57,6 +57,15 @@ export function providerLongName(id: string): string {
 export const CLUSTER_PROFILES = ["minimal", "core", "core-plus", "graduated", "full"] as const;
 export type ClusterProfile = (typeof CLUSTER_PROFILES)[number];
 
+// cimpl's per-provider default profile, surfaced as the create form's
+// preselected (required) segment so the choice is explicit rather than an
+// invisible CLI fallback: kind bakes a lean `core`, cloud a fuller `graduated`.
+// Keep in sync with cimpl-agent's per-provider defaults.
+export const DEFAULT_CLUSTER_PROFILE: Record<ClusterProvider, ClusterProfile> = {
+  kind: "core",
+  azure: "graduated",
+};
+
 // The exact form-field value that opts an azure create into private subnets.
 // Shared by the board's select option and the selection validator so the two
 // can't drift.
@@ -64,8 +73,8 @@ export const PRIVATE_NETWORK_TOKEN = "private";
 
 export interface ClusterCreateInput {
   provider: ClusterProvider;
-  // Left unset so cimpl's per-provider default fires (core for kind, graduated
-  // for cloud) — pinning a profile here would override that default.
+  // Optional: a bare workflow run leaves it unset and cimpl applies its
+  // per-provider default.
   profile?: ClusterProfile;
   env?: string;
   partition?: string;
