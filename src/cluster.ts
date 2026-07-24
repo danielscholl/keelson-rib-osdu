@@ -1,7 +1,9 @@
 import type { CanvasBoardView, RibExec } from "@keelson/shared";
 import {
   CLUSTER_PROFILES,
+  DEFAULT_CLUSTER_PROFILE,
   DEFAULT_CLUSTER_PROVIDER,
+  isClusterProvider,
   PRIVATE_NETWORK_TOKEN,
   PROVIDER_CARDS,
   providerLongName,
@@ -394,11 +396,15 @@ function createClusterFields(provider: string): ActionField[] {
   const fields: ActionField[] = [
     { name: "env", label: "Environment", placeholder: "dev", half: true },
     {
-      // Optional: left blank, cimpl applies its per-provider default — the
-      // segmented strip's clear segment carries that as its label.
+      // Required segmented toggle preselecting the provider's default profile
+      // (DEFAULT_CLUSTER_PROFILE) — no clear segment, so a profile is always
+      // chosen explicitly rather than falling through to cimpl's CLI default.
       name: "profile",
       label: "Profile",
-      placeholder: "cimpl default",
+      required: true,
+      defaultValue: isClusterProvider(provider)
+        ? DEFAULT_CLUSTER_PROFILE[provider]
+        : DEFAULT_CLUSTER_PROFILE.kind,
       options: selectOptions(CLUSTER_PROFILES),
       segmented: true,
       half: true,

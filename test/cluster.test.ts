@@ -449,9 +449,14 @@ describe("buildClusterBoard", () => {
     }
     const profile = byLabel.kind?.fields?.find((f) => f.name === "profile");
     expect(profile?.segmented).toBe(true);
-    // The clear segment wears the cimpl-default placeholder as its label.
-    expect(profile?.placeholder).toBe("cimpl default");
-    expect(profile?.required).toBeUndefined();
+    // Required with the provider's default preselected — no clear segment, so a
+    // profile is always chosen. kind defaults to core, azure to graduated.
+    expect(profile?.required).toBe(true);
+    expect(profile?.placeholder).toBeUndefined();
+    expect(profile?.defaultValue).toBe("core");
+    const azureProfile = byLabel.azure?.fields?.find((f) => f.name === "profile");
+    expect(azureProfile?.required).toBe(true);
+    expect(azureProfile?.defaultValue).toBe("graduated");
   });
 
   test("the azure Network field is a segmented managed/private toggle", () => {
