@@ -381,9 +381,9 @@ describe("buildClusterBoard", () => {
     expect(canvasViewSchema.safeParse(board).success).toBe(true);
     // Caution "No clusters yet", not a red error pill.
     expect(board.header?.status).toEqual({ label: "⚠ No clusters yet", tone: "caution" });
-    // One "Create cluster" frame: provider tabs beside the plan rail — only
-    // create actions, no inert reconcile/suspend/delete to operate.
-    expect(columnsSection(board).title).toBe("Create cluster");
+    // The create surface: a full-width provider strip over a plan + command
+    // receipt — only create actions, no inert reconcile/suspend/delete to operate.
+    expect(actionsOf(board).title).toBe("Provider");
     expect(actionsOf(board).items.every((a) => a.type === "create")).toBe(true);
     // No guard stamp (no cluster to guard yet): the payload names the provider only.
     expect(actionsOf(board).items[0]?.payload).toEqual({ provider: "kind" });
@@ -475,6 +475,10 @@ describe("buildClusterBoard", () => {
     // Mirrors what osdu-cluster-create actually runs for the defaults.
     expect(preview.items[0]?.title).toBe("cimpl up --provider kind");
     expect(preview.items[0]?.mono).toBe(true);
+    // Plan + command sit side by side as a full-width footer receipt.
+    const receipt = columnsSection(buildClusterBoard(noCluster));
+    expect(receipt.columns[0]?.sections[0]?.title).toBe("Cluster plan");
+    expect(receipt.columns[1]?.sections[0]?.title).toBe("Command preview");
   });
 
   test("parseCimplInfoJson skips a Rich/log preamble before the JSON object", () => {
@@ -616,16 +620,16 @@ describe("buildClusterBoard", () => {
   test("a foreign context offers no lifecycle verbs — create is the only recourse", () => {
     const board = buildClusterBoard(foreign);
     expect(allActions(board).every((a) => a.type === "create")).toBe(true);
-    // The create hero is the same frame as the empty state, default form open.
-    expect(columnsSection(board).title).toBe("Create cluster");
+    // The create surface is the same frame as the empty state, default form open.
     const tabs = actionsOf(board);
     expect(tabs.tabs).toBe(true);
+    expect(tabs.title).toBe("Provider");
     expect(tabs.items.find((a) => a.label === "kind")?.defaultOpen).toBe(true);
   });
 
-  test("the foreign board's rail leads with the current-context panel", () => {
+  test("the foreign board leads with the current-context panel", () => {
     const board = buildClusterBoard(foreign);
-    const panel = columnsSection(board).columns[1]?.sections[0];
+    const panel = board.sections[0];
     if (panel?.kind !== "rows") throw new Error("expected the context panel");
     expect(panel.title).toBe("Current context");
     expect(panel.items[0]?.text).toBe("osdu-mvp-aks");
@@ -641,7 +645,7 @@ describe("buildClusterBoard", () => {
       lifecycle: { ...foreign.lifecycle, reachable: false },
     });
     expect(board.header?.status).toEqual({ label: "⚠ Not a CIMPL stack", tone: "caution" });
-    const panel = columnsSection(board).columns[1]?.sections[0];
+    const panel = board.sections[0];
     if (panel?.kind !== "rows") throw new Error("expected the context panel");
     expect(panel.items[1]).toMatchObject({ glyph: "error", trailing: "unreachable" });
   });
