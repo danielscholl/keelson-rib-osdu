@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.13.0...v0.14.0) (2026-07-24)
+
+
+### Added
+
+* **cluster:** reflow the Create state to a full-width form and command receipt ([#138](https://github.com/danielscholl/keelson-rib-osdu/issues/138)) ([23a409b](https://github.com/danielscholl/keelson-rib-osdu/commit/23a409bf0dc84d342a3c23c6ce680fa667ea20aa))
+
 ## [0.13.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.12.0...v0.13.0) (2026-07-24)
 
 
