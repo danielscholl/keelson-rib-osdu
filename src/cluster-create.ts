@@ -73,9 +73,8 @@ export const PRIVATE_NETWORK_TOKEN = "private";
 
 export interface ClusterCreateInput {
   provider: ClusterProvider;
-  // Optional at the model level: a bare workflow run leaves it unset and cimpl
-  // applies its per-provider default. The create form instead preselects that
-  // default explicitly (DEFAULT_CLUSTER_PROFILE) as a required segment.
+  // Optional: a bare workflow run leaves it unset and cimpl applies its
+  // per-provider default.
   profile?: ClusterProfile;
   env?: string;
   partition?: string;

@@ -7,6 +7,7 @@ import {
   hasRealSecret,
   parseCimplInfoJson,
 } from "../src/cluster.ts";
+import { buildCreateCommand, DEFAULT_CLUSTER_PROFILE } from "../src/cluster-create.ts";
 import type { CreateMarker } from "../src/create-marker.ts";
 
 // Fixture credentials carry service + username ONLY — never a password. The
@@ -449,14 +450,23 @@ describe("buildClusterBoard", () => {
     }
     const profile = byLabel.kind?.fields?.find((f) => f.name === "profile");
     expect(profile?.segmented).toBe(true);
-    // Required with the provider's default preselected — no clear segment, so a
-    // profile is always chosen. kind defaults to core, azure to graduated.
     expect(profile?.required).toBe(true);
     expect(profile?.placeholder).toBeUndefined();
     expect(profile?.defaultValue).toBe("core");
     const azureProfile = byLabel.azure?.fields?.find((f) => f.name === "profile");
     expect(azureProfile?.required).toBe(true);
     expect(azureProfile?.defaultValue).toBe("graduated");
+  });
+
+  test("the preselected profile default assembles into the create command", () => {
+    // The form seeds `profile` from DEFAULT_CLUSTER_PROFILE; that value must
+    // survive assembly into the matching --profile flag, not be dropped.
+    expect(buildCreateCommand({ provider: "kind", profile: DEFAULT_CLUSTER_PROFILE.kind })).toBe(
+      "cimpl up --provider kind --profile core",
+    );
+    expect(buildCreateCommand({ provider: "azure", profile: DEFAULT_CLUSTER_PROFILE.azure })).toBe(
+      "cimpl up --provider azure --profile graduated",
+    );
   });
 
   test("the azure Network field is a segmented managed/private toggle", () => {

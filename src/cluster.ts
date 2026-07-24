@@ -396,9 +396,6 @@ function createClusterFields(provider: string): ActionField[] {
   const fields: ActionField[] = [
     { name: "env", label: "Environment", placeholder: "dev", half: true },
     {
-      // Required segmented toggle preselecting the provider's default profile
-      // (DEFAULT_CLUSTER_PROFILE) — no clear segment, so a profile is always
-      // chosen explicitly rather than falling through to cimpl's CLI default.
       name: "profile",
       label: "Profile",
       required: true,
