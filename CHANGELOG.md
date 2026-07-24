@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.15.0...v0.16.0) (2026-07-24)
+
+
+### Added
+
+* **cluster:** make Profile a required toggle preselecting the provider default ([#145](https://github.com/danielscholl/keelson-rib-osdu/issues/145)) ([fc716c1](https://github.com/danielscholl/keelson-rib-osdu/commit/fc716c15e848c8801cacbf0d119e81f57c941901))
+* **cluster:** make the azure Network field a segmented managed/private toggle ([#143](https://github.com/danielscholl/keelson-rib-osdu/issues/143)) ([acee8af](https://github.com/danielscholl/keelson-rib-osdu/commit/acee8afd5cdbeb820533de12008f85a397651920))
+
 ## [0.15.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.14.0...v0.15.0) (2026-07-24)
 
 
