@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.14.0...v0.15.0) (2026-07-24)
+
+
+### Added
+
+* **cluster:** pair current + target context in a two-column row ([#140](https://github.com/danielscholl/keelson-rib-osdu/issues/140)) ([79c350c](https://github.com/danielscholl/keelson-rib-osdu/commit/79c350c37debeba9af7e7e2de1b9329bdfe6cd9c))
+
 ## [0.14.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.13.0...v0.14.0) (2026-07-24)
 
 
