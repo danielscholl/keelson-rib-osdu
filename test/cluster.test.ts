@@ -80,12 +80,6 @@ function leafSections(b: Board) {
   );
 }
 
-function columnsSection(b: Board) {
-  const col = b.sections.find((s) => s.kind === "columns");
-  if (col?.kind !== "columns") throw new Error("expected a columns section");
-  return col;
-}
-
 // The primary actions section — the lifecycle verbs on the operating board, or
 // the create tabs on a bring-up board. The context switcher rides its own
 // "Active context" section, skipped here.
@@ -460,35 +454,15 @@ describe("buildClusterBoard", () => {
     expect(profile?.required).toBeUndefined();
   });
 
-  test("a default cluster plan + truthful command preview accompany the form", () => {
-    const sections = leafSections(buildClusterBoard(noCluster));
-    const plan = sections.find((s) => s.kind === "rows" && s.title === "Cluster plan");
-    if (plan?.kind !== "rows") throw new Error("expected a Cluster plan rows section");
-    expect(plan.items.map((r) => [r.text, r.trailing])).toEqual([
-      // Bare `cimpl up` names the cluster cimpl-stack — no default env applies.
-      ["Name", "cimpl-stack"],
-      ["Provider", "Local KinD cluster"],
-      ["Profile", "cimpl default"],
-    ]);
-    const preview = sections.find((s) => s.kind === "cards" && s.title === "Command preview");
-    if (preview?.kind !== "cards") throw new Error("expected a Command preview card");
-    // Mirrors what osdu-cluster-create actually runs for the defaults.
-    expect(preview.items[0]?.title).toBe("cimpl up --provider kind");
-    expect(preview.items[0]?.mono).toBe(true);
-    // The provider strip leads; plan + command follow as a full-width footer
-    // receipt with the command column wider so `cimpl up …` stays on one line.
+  test("the create surface carries no static plan/command preview", () => {
+    // A snapshot can't track form edits, so a defaults-only preview would read
+    // stale; the truthful command shows on the provisioning board instead.
     const board = buildClusterBoard(noCluster);
-    const providerIdx = board.sections.findIndex(
-      (s) => s.kind === "actions" && s.title === "Provider",
-    );
-    const receiptIdx = board.sections.findIndex((s) => s.kind === "columns");
-    expect(providerIdx).toBeGreaterThanOrEqual(0);
-    expect(receiptIdx).toBeGreaterThan(providerIdx);
-    const receipt = columnsSection(board);
-    expect(receipt.columns[0]?.sections[0]?.title).toBe("Cluster plan");
-    expect(receipt.columns[1]?.sections[0]?.title).toBe("Command preview");
-    expect(receipt.columns[0]?.weight).toBe(1);
-    expect(receipt.columns[1]?.weight).toBe(1.25);
+    const sections = leafSections(board);
+    expect(sections.some((s) => s.title === "Cluster plan")).toBe(false);
+    expect(sections.some((s) => s.title === "Command preview")).toBe(false);
+    // The empty state is just the provider strip — no receipt columns section.
+    expect(board.sections.some((s) => s.kind === "columns")).toBe(false);
   });
 
   test("parseCimplInfoJson skips a Rich/log preamble before the JSON object", () => {
@@ -825,7 +799,8 @@ describe("buildClusterBoard", () => {
     expect(caution.items[0]?.text).toContain("has not produced a deployment");
     expect(caution.items[0]?.trailing).toBe("cimpl-stack");
     expect(caution.items[0]?.detail).toContain("osdu-cluster-create");
-    expect(board.sections.some((s) => s.kind === "columns")).toBe(true);
+    // The foreign board still routes beneath it — the provider strip stays reachable.
+    expect(board.sections.some((s) => s.kind === "actions" && s.title === "Provider")).toBe(true);
   });
 
   test("a failed marker names the failure and keeps the run pointer", () => {
