@@ -474,7 +474,7 @@ function createClusterTabs(title: string): ActionsSection {
  * defaults, not live edits (a snapshot can't recompute as the operator types),
  * hence the preview's "edit the form, then Create" footnote.
  */
-function createClusterFrame(leadSections: LeafSection[] = []): BoardSection[] {
+function createClusterFrame(leadSections: BoardSection[] = []): BoardSection[] {
   const defaults: ClusterCreateInput = { provider: DEFAULT_CLUSTER_PROVIDER };
   const planRows: LeafSection = {
     kind: "rows",
@@ -557,9 +557,20 @@ function buildForeignContextBoard(lifecycle: ClusterLifecycle): CanvasBoardView 
       },
     ],
   };
-  const leadSections: LeafSection[] = [contextPanel];
   const switchAction = switchContextAction(lifecycle);
-  if (switchAction) leadSections.push({ kind: "actions", items: [switchAction] });
+  // With a switch target, pair current context and the target-context switch
+  // side by side — spend width, not height. Alone, the panel spans full-width.
+  const lead: BoardSection[] = switchAction
+    ? [
+        {
+          kind: "columns",
+          columns: [
+            { sections: [contextPanel] },
+            { sections: [{ kind: "actions", items: [switchAction] }] },
+          ],
+        },
+      ]
+    : [contextPanel];
 
   return {
     view: "board",
@@ -568,7 +579,7 @@ function buildForeignContextBoard(lifecycle: ClusterLifecycle): CanvasBoardView 
       status: { label: "⚠ Not a CIMPL stack", tone: "caution" },
       chip: context,
     },
-    sections: createClusterFrame(leadSections),
+    sections: createClusterFrame(lead),
   };
 }
 

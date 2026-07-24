@@ -675,6 +675,14 @@ describe("buildClusterBoard", () => {
     // Every other action is still a create tab — never reconcile/suspend/delete.
     const others = allActions(board).filter((a) => a.type !== "switch-context");
     expect(others.every((a) => a.type === "create")).toBe(true);
+    // Current + target context pair into one two-column row — width, not height.
+    const row = board.sections[0];
+    if (row?.kind !== "columns") throw new Error("expected a two-column context row");
+    expect(row.columns).toHaveLength(2);
+    expect(row.columns[0]?.sections[0]?.title).toBe("Current context");
+    const switchColumn = row.columns[1]?.sections[0];
+    if (switchColumn?.kind !== "actions") throw new Error("expected the switch column");
+    expect(switchColumn.items[0]?.type).toBe("switch-context");
   });
 
   test("an indeterminate cimpl probe keeps the operating board — new states need confirmed absence", () => {
