@@ -531,15 +531,16 @@ function buildForeignContextBoard(lifecycle: ClusterLifecycle): CanvasBoardView 
     ],
   };
   const switchAction = switchContextAction(lifecycle);
-  // With a switch target, pair current context and the target-context switch
-  // side by side — spend width, not height. Alone, the panel spans full-width.
+  // With a switch target, pair the active-context switch (left, titled to
+  // mirror the operating board) and current context side by side — spend width,
+  // not height. Alone, the panel spans full-width.
   const lead: BoardSection[] = switchAction
     ? [
         {
           kind: "columns",
           columns: [
+            { sections: [{ kind: "actions", title: "Active context", items: [switchAction] }] },
             { sections: [contextPanel] },
-            { sections: [{ kind: "actions", items: [switchAction] }] },
           ],
         },
       ]
