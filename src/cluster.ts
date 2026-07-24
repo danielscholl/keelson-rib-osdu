@@ -467,15 +467,14 @@ function createClusterTabs(title: string): ActionsSection {
 
 /**
  * The "Create cluster" surface shared by the empty state and the
- * foreign-context board — a full-width provider tab strip opening per-provider
- * `cimpl up` forms, with a full-width plan + command-preview receipt beneath —
- * so the two create surfaces can't drift. Context recourse (a context panel, a
- * switch action) leads full-width above the strip via `railLead`. Returns the
- * surface's sections in order for the caller to spread into the board. Static
- * like every board: the plan and preview reflect the defaults, not live edits
- * (a snapshot can't recompute as the operator types).
+ * foreign-context board, so the two can't drift: a full-width provider tab
+ * strip opening per-provider `cimpl up` forms, then a plan + command-preview
+ * receipt. `leadSections` (a context panel, a switch action) lead full-width
+ * above the strip. Static like every board — the plan and preview reflect the
+ * defaults, not live edits (a snapshot can't recompute as the operator types),
+ * hence the preview's "edit the form, then Create" footnote.
  */
-function createClusterFrame(railLead: LeafSection[] = []): BoardSection[] {
+function createClusterFrame(leadSections: LeafSection[] = []): BoardSection[] {
   const defaults: ClusterCreateInput = { provider: DEFAULT_CLUSTER_PROVIDER };
   const planRows: LeafSection = {
     kind: "rows",
@@ -497,8 +496,7 @@ function createClusterFrame(railLead: LeafSection[] = []): BoardSection[] {
       },
     ],
   };
-  // Plan + command sit below the full-width form as a footer receipt; the
-  // command gets a touch more width so `cimpl up …` reads on one line.
+  // The command column is slightly wider so `cimpl up …` reads on one line.
   const receipt: ColumnsSection = {
     kind: "columns",
     columns: [
@@ -506,7 +504,7 @@ function createClusterFrame(railLead: LeafSection[] = []): BoardSection[] {
       { weight: 1.25, sections: [commandPreview] },
     ],
   };
-  return [...railLead, createClusterTabs("Provider"), receipt];
+  return [...leadSections, createClusterTabs("Provider"), receipt];
 }
 
 /**
@@ -559,9 +557,9 @@ function buildForeignContextBoard(lifecycle: ClusterLifecycle): CanvasBoardView 
       },
     ],
   };
-  const railLead: LeafSection[] = [contextPanel];
+  const leadSections: LeafSection[] = [contextPanel];
   const switchAction = switchContextAction(lifecycle);
-  if (switchAction) railLead.push({ kind: "actions", items: [switchAction] });
+  if (switchAction) leadSections.push({ kind: "actions", items: [switchAction] });
 
   return {
     view: "board",
@@ -570,7 +568,7 @@ function buildForeignContextBoard(lifecycle: ClusterLifecycle): CanvasBoardView 
       status: { label: "⚠ Not a CIMPL stack", tone: "caution" },
       chip: context,
     },
-    sections: createClusterFrame(railLead),
+    sections: createClusterFrame(leadSections),
   };
 }
 

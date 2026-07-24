@@ -475,10 +475,20 @@ describe("buildClusterBoard", () => {
     // Mirrors what osdu-cluster-create actually runs for the defaults.
     expect(preview.items[0]?.title).toBe("cimpl up --provider kind");
     expect(preview.items[0]?.mono).toBe(true);
-    // Plan + command sit side by side as a full-width footer receipt.
-    const receipt = columnsSection(buildClusterBoard(noCluster));
+    // The provider strip leads; plan + command follow as a full-width footer
+    // receipt with the command column wider so `cimpl up …` stays on one line.
+    const board = buildClusterBoard(noCluster);
+    const providerIdx = board.sections.findIndex(
+      (s) => s.kind === "actions" && s.title === "Provider",
+    );
+    const receiptIdx = board.sections.findIndex((s) => s.kind === "columns");
+    expect(providerIdx).toBeGreaterThanOrEqual(0);
+    expect(receiptIdx).toBeGreaterThan(providerIdx);
+    const receipt = columnsSection(board);
     expect(receipt.columns[0]?.sections[0]?.title).toBe("Cluster plan");
     expect(receipt.columns[1]?.sections[0]?.title).toBe("Command preview");
+    expect(receipt.columns[0]?.weight).toBe(1);
+    expect(receipt.columns[1]?.weight).toBe(1.25);
   });
 
   test("parseCimplInfoJson skips a Rich/log preamble before the JSON object", () => {
