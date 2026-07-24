@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.16.0...v0.17.0) (2026-07-24)
+
+
+### Added
+
+* **cluster:** lead the foreign board with the active-context switch, titled to match ([#146](https://github.com/danielscholl/keelson-rib-osdu/issues/146)) ([055192d](https://github.com/danielscholl/keelson-rib-osdu/commit/055192db14587dc9a2700881ec4fc8c4d500776b))
+
 ## [0.16.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.15.0...v0.16.0) (2026-07-24)
 
 
