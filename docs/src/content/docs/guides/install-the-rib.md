@@ -47,6 +47,7 @@ none of these. Each is read from the server process's environment:
 | `KEELSON_OSDU_PMC_URL` | the PMC report dashboard's Pages site | Base URL for the Release Train PMC grid's Status Summary, Releases, and History links. |
 | `KEELSON_OSDU_ANALYTICS_URL` | the PMC analytics dashboard's Pages site | Base URL for the PMC grid's Analytics, Release Reports, and Status Reports links (a separate Pages site). |
 | `KEELSON_OSDU_BUNDLE_TTL_MS` | `600000` (10 min) | How long the shared activity fetch is cached before a re-fetch. |
+| `KEELSON_OSDU_REPORT_TTL_MS` | `600000` (10 min) | How long the shared `osdu-quality release` report is cached before a re-fetch. `0` disables the cache. |
 | `CIMPL_CONTEXT_PREFIXES` | `cimpl-,kind-cimpl,k3d-cimpl,cimpl_` | Which kubectl context prefixes count as cimpl-managed. A non-empty value **replaces** the default set. |
 
 `CIMPL_CONTEXT_PREFIXES` decides which contexts the rib presents as yours to

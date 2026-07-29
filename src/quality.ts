@@ -6,6 +6,14 @@ import type {
   CanvasTone,
   RibExec,
 } from "@keelson/shared";
+import {
+  defaultCacheDir,
+  readCacheEntry,
+  releaseLock,
+  tryClaimLock,
+  ttlFromEnv,
+  writeCacheEntry,
+} from "./cache.ts";
 import { localExec } from "./exec.ts";
 
 // Shape of `osdu-quality release --output json`. Only the fields the lane reads
@@ -59,16 +67,95 @@ export interface ReleaseReport {
 // `services` scopes the report to named services via the CLI's own `--service`
 // flag; empty means every service in the CLI's service map. The collectors pass
 // nothing, so the published boards stay platform-wide.
+//
+// The unscoped report is the rib's single heaviest GitLab load (a pipelines +
+// Sonar sweep of every core service), and Quality and Security both need it —
+// often at the same instant, since a stale surface fires both lanes on open. So
+// unscoped fetches ride the cross-process file cache with a single-flight lock:
+// the loser waits for the winner's write instead of duplicating the sweep. A
+// scoped call bypasses the cache; a TTL of 0 disables it entirely.
+export interface ReportCacheDeps {
+  cacheDir?: string | null;
+  ttlMs?: number;
+  now?: () => number;
+  lockWaitMs?: number;
+  lockPollMs?: number;
+}
+
+const REPORT_CACHE_VERSION = 1;
+const REPORT_CACHE_FILE = `release-report-v${REPORT_CACHE_VERSION}.json`;
+const REPORT_LOCK_FILE = `${REPORT_CACHE_FILE}.lock`;
+const REPORT_TTL_MS = 600_000;
+// Past the CLI's own 120s timeout, so a waiter only self-fetches once the
+// holder has certainly settled; a crashed holder's lock goes stale just after.
+const REPORT_LOCK_WAIT_MS = 130_000;
+const REPORT_LOCK_STALE_MS = 150_000;
+const REPORT_LOCK_POLL_MS = 1_000;
+
 export async function fetchReleaseReport(
   exec: RibExec = localExec(),
   services: readonly string[] = [],
+  deps: ReportCacheDeps = {},
 ): Promise<{ report: ReleaseReport; error?: string }> {
-  const args = ["release", "--output", "json"];
-  if (services.length > 0) args.push("--service", services.join(","));
-  const res = await exec.runJSON<ReleaseReport>("osdu-quality", args, {
-    timeoutMs: 120_000,
-  });
-  return res.ok ? { report: res.data } : { report: { services: [] }, error: res.error };
+  const now = deps.now ?? (() => Date.now());
+  const ttlMs = deps.ttlMs ?? ttlFromEnv("KEELSON_OSDU_REPORT_TTL_MS", REPORT_TTL_MS);
+  const cacheDir =
+    services.length > 0 || ttlMs <= 0 || deps.cacheDir === null
+      ? null
+      : (deps.cacheDir ?? defaultCacheDir());
+  const read = (): ReleaseReport | null =>
+    cacheDir
+      ? readCacheEntry<ReleaseReport>(
+          cacheDir,
+          REPORT_CACHE_FILE,
+          REPORT_CACHE_VERSION,
+          now(),
+          ttlMs,
+        )
+      : null;
+
+  let hit = read();
+  if (hit) return { report: hit };
+
+  let locked = false;
+  if (cacheDir) {
+    locked = tryClaimLock(cacheDir, REPORT_LOCK_FILE, REPORT_LOCK_STALE_MS);
+    if (!locked) {
+      const pollMs = deps.lockPollMs ?? REPORT_LOCK_POLL_MS;
+      const deadline = Date.now() + (deps.lockWaitMs ?? REPORT_LOCK_WAIT_MS);
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, pollMs));
+        hit = read();
+        if (hit) return { report: hit };
+        // Lock gone with nothing cached: the holder failed — take over.
+        if (tryClaimLock(cacheDir, REPORT_LOCK_FILE, REPORT_LOCK_STALE_MS)) {
+          locked = true;
+          break;
+        }
+      }
+    }
+  }
+
+  try {
+    // A rival may have fetched, written, and released between the first read
+    // and this claim — re-check before paying for the sweep.
+    if (locked) {
+      hit = read();
+      if (hit) return { report: hit };
+    }
+    const args = ["release", "--output", "json"];
+    if (services.length > 0) args.push("--service", services.join(","));
+    const res = await exec.runJSON<ReleaseReport>("osdu-quality", args, {
+      timeoutMs: 120_000,
+    });
+    if (!res.ok) return { report: { services: [] }, error: res.error };
+    if (cacheDir) {
+      writeCacheEntry(cacheDir, REPORT_CACHE_FILE, REPORT_CACHE_VERSION, res.data, now());
+    }
+    return { report: res.data };
+  } finally {
+    if (cacheDir && locked) releaseLock(cacheDir, REPORT_LOCK_FILE);
+  }
 }
 
 export type Tone = CanvasTone;

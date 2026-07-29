@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { RibExec } from "@keelson/shared";
 import { fetchClusterInfo } from "../src/cluster.ts";
 import { getKustomizations, getReadiness } from "../src/kubectl.ts";
@@ -41,7 +44,7 @@ export function makeExec(opts: ExecOpts): {
 describe("fetchReleaseReport", () => {
   test("runs the osdu-quality release CLI and returns the parsed report", async () => {
     const { exec, calls } = makeExec({ json: () => ({ ok: true, data: report }) });
-    const { report: r, error } = await fetchReleaseReport(exec);
+    const { report: r, error } = await fetchReleaseReport(exec, [], { cacheDir: null });
     expect((r.services ?? []).length).toBeGreaterThan(0);
     expect(error).toBeUndefined();
     expect(calls[0]).toEqual({ cmd: "osdu-quality", args: ["release", "--output", "json"] });
@@ -50,7 +53,132 @@ describe("fetchReleaseReport", () => {
   test("degrades to an empty report WITH an error when the CLI fails", async () => {
     const { exec } = makeExec({ json: () => ({ ok: false, error: "boom", code: 1 }) });
     // The error channel distinguishes a real failure from a genuinely empty report.
-    expect(await fetchReleaseReport(exec)).toEqual({ report: { services: [] }, error: "boom" });
+    expect(await fetchReleaseReport(exec, [], { cacheDir: null })).toEqual({
+      report: { services: [] },
+      error: "boom",
+    });
+  });
+});
+
+describe("fetchReleaseReport cache", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+  const tempDir = (tag: string): string => {
+    const dir = join(tmpdir(), `rib-osdu-report-${process.pid}-${tag}-${Date.now()}`);
+    dirs.push(dir);
+    return dir;
+  };
+
+  test("serves a hit within TTL and refetches after expiry", async () => {
+    const dir = tempDir("ttl");
+    const { exec, calls } = makeExec({ json: () => ({ ok: true, data: report }) });
+    const base = { cacheDir: dir, ttlMs: 600_000 };
+
+    await fetchReleaseReport(exec, [], { ...base, now: () => 1_000 });
+    await fetchReleaseReport(exec, [], { ...base, now: () => 200_000 }); // within TTL → cache hit
+    expect(calls).toHaveLength(1);
+    await fetchReleaseReport(exec, [], { ...base, now: () => 1_000 + 700_000 }); // past TTL → refetch
+    expect(calls).toHaveLength(2);
+  });
+
+  test("a degraded fetch is not cached, so the next run retries within TTL", async () => {
+    const dir = tempDir("deg");
+    let mode: "fail" | "ok" = "fail";
+    const { exec, calls } = makeExec({
+      json: () =>
+        mode === "fail" ? { ok: false, error: "down", code: 1 } : { ok: true, data: report },
+    });
+    const base = { cacheDir: dir, ttlMs: 600_000 };
+
+    const degraded = await fetchReleaseReport(exec, [], { ...base, now: () => 1_000 });
+    expect(degraded.error).toBe("down");
+    mode = "ok";
+    const { report: r } = await fetchReleaseReport(exec, [], { ...base, now: () => 2_000 });
+    expect(calls).toHaveLength(2);
+    expect((r.services ?? []).length).toBeGreaterThan(0);
+  });
+
+  test("a scoped report bypasses the cache without poisoning the unscoped entry", async () => {
+    const dir = tempDir("scope");
+    const { exec, calls } = makeExec({ json: () => ({ ok: true, data: report }) });
+    const base = { cacheDir: dir, ttlMs: 600_000, now: () => 1_000 };
+
+    await fetchReleaseReport(exec, [], base); // warms the unscoped cache
+    await fetchReleaseReport(exec, ["partition"], base); // scoped → always fetches
+    expect(calls).toHaveLength(2);
+    await fetchReleaseReport(exec, [], base); // unscoped entry still served
+    expect(calls).toHaveLength(2);
+  });
+
+  // A broken cache backend must degrade to direct fetches, not read as lock
+  // contention (which would stall every call for the full lock-wait window).
+  test("an unusable cache dir degrades to direct fetches instead of stalling", async () => {
+    const blocker = join(tmpdir(), `rib-osdu-report-notadir-${process.pid}-${Date.now()}`);
+    dirs.push(blocker);
+    writeFileSync(blocker, "a file where the cache dir should be");
+    const { exec, calls } = makeExec({ json: () => ({ ok: true, data: report }) });
+    const base = { cacheDir: join(blocker, "cache"), ttlMs: 600_000, now: () => 1_000 };
+
+    await fetchReleaseReport(exec, [], base);
+    await fetchReleaseReport(exec, [], base);
+    expect(calls).toHaveLength(2);
+  });
+
+  test("a TTL of 0 disables the cache entirely", async () => {
+    const dir = tempDir("off");
+    const { exec, calls } = makeExec({ json: () => ({ ok: true, data: report }) });
+    const base = { cacheDir: dir, ttlMs: 0, now: () => 1_000 };
+
+    await fetchReleaseReport(exec, [], base);
+    await fetchReleaseReport(exec, [], base);
+    expect(calls).toHaveLength(2);
+  });
+
+  // The single-flight guarantee: Quality and Security fire together when a stale
+  // surface opens, and the pair must cost ONE sweep, not two.
+  test("concurrent unscoped fetches collapse to one CLI run", async () => {
+    const dir = tempDir("flight");
+    let fetches = 0;
+    const slowExec = {
+      async runJSON() {
+        fetches++;
+        await new Promise((r) => setTimeout(r, 100));
+        return { ok: true, data: report };
+      },
+    } as unknown as RibExec;
+    const base = { cacheDir: dir, ttlMs: 600_000, lockPollMs: 10 };
+
+    const [a, b] = await Promise.all([
+      fetchReleaseReport(slowExec, [], base),
+      fetchReleaseReport(slowExec, [], base),
+    ]);
+    expect(fetches).toBe(1);
+    expect(a.report).toEqual(b.report);
+    expect((a.report.services ?? []).length).toBeGreaterThan(0);
+  });
+
+  test("a waiter takes over when the lock holder fails without caching", async () => {
+    const dir = tempDir("takeover");
+    let fetches = 0;
+    const flakyExec = {
+      async runJSON() {
+        fetches++;
+        const failed = fetches === 1;
+        await new Promise((r) => setTimeout(r, 50));
+        return failed ? { ok: false, error: "down", code: 1 } : { ok: true, data: report };
+      },
+    } as unknown as RibExec;
+    const base = { cacheDir: dir, ttlMs: 600_000, lockPollMs: 10 };
+
+    const results = await Promise.all([
+      fetchReleaseReport(flakyExec, [], base),
+      fetchReleaseReport(flakyExec, [], base),
+    ]);
+    expect(fetches).toBe(2);
+    expect(results.filter((r) => r.error).length).toBe(1);
+    expect(results.filter((r) => (r.report.services ?? []).length > 0).length).toBe(1);
   });
 });
 

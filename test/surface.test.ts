@@ -61,6 +61,21 @@ describe("CIMPL surface", () => {
     ]);
   });
 
+  // `workflowArgs: {}` opts a region out of the server heartbeat (args-bearing
+  // regions are client-driven only), so GitLab is polled only while the surface
+  // is open; the cluster header reads only the local cluster and stays warm.
+  test("GitLab-backed regions are client-driven only; the cluster header stays on the heartbeat", () => {
+    const layout = rib.surfaces?.[0]?.layout;
+    const gitlabRegions = [
+      layout?.banner,
+      layout?.footer,
+      ...(layout?.rows.flatMap((r) => r.columns) ?? []),
+    ];
+    expect(gitlabRegions.length).toBeGreaterThan(0);
+    for (const region of gitlabRegions) expect(region?.workflowArgs).toEqual({});
+    expect(layout?.header?.workflowArgs).toBeUndefined();
+  });
+
   test("every region's refresh workflow is one the rib actually contributes", () => {
     const ctx = {} as Parameters<NonNullable<typeof rib.contributeWorkflows>>[0];
     const contributed = new Set(
