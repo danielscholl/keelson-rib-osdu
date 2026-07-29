@@ -137,6 +137,12 @@ export async function fetchReleaseReport(
   }
 
   try {
+    // A rival may have fetched, written, and released between the first read
+    // and this claim — re-check before paying for the sweep.
+    if (locked) {
+      hit = read();
+      if (hit) return { report: hit };
+    }
     const args = ["release", "--output", "json"];
     if (services.length > 0) args.push("--service", services.join(","));
     const res = await exec.runJSON<ReleaseReport>("osdu-quality", args, {

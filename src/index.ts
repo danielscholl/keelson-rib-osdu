@@ -315,8 +315,9 @@ const rib: Rib = {
           collapsed: true,
           workflow: "osdu-cluster",
           // Fast enough that a provisioning/reconciling board tracks the
-          // cluster while the surface is open (a create settles in minutes);
-          // the refresh only runs while the surface is open.
+          // cluster while the surface is open (a create settles in minutes).
+          // Unlike the GitLab lanes, the header stays on the server heartbeat
+          // (local cluster reads only), so the board is warm on open.
           cadenceMs: 60_000,
           title: "Cluster",
         },

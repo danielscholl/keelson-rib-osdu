@@ -47,9 +47,11 @@ cluster visibly tracks while you watch it (a create settles in minutes).
 Your personal queue moves in minutes too, so the banner refreshes every
 ten. The release train and the events feed move with MR traffic (thirty
 minutes). The three lane boards aggregate whole-platform reports that
-change a few times a day, so they refresh every two hours. Every cadence
-only runs while the CIMPL tab is open, and each lane also re-collects on
-demand when you run its workflow by hand.
+change a few times a day, so they refresh every two hours. The
+GitLab-backed lanes only refresh while the CIMPL tab is open; the header
+is the one exception, staying on the server heartbeat (it reads only the
+local cluster) so the board is warm when you arrive. Each lane also
+re-collects on demand when you run its workflow by hand.
 
 ### Header: Cluster
 

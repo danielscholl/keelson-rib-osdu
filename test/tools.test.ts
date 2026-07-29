@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import type {
   MessageChunk,
   RibContext,
@@ -14,7 +14,13 @@ import report from "./fixtures/release-report.json";
 
 // TTL 0 disables the release-report file cache (see fetchReleaseReport), so the
 // stub-exec tool tests below never read or write a shared cache directory.
-process.env.KEELSON_OSDU_REPORT_TTL_MS = "0";
+const REPORT_TTL_ENV = "KEELSON_OSDU_REPORT_TTL_MS";
+const originalReportTtl = process.env[REPORT_TTL_ENV];
+process.env[REPORT_TTL_ENV] = "0";
+afterAll(() => {
+  if (originalReportTtl === undefined) delete process.env[REPORT_TTL_ENV];
+  else process.env[REPORT_TTL_ENV] = originalReportTtl;
+});
 
 type ToolResult = Extract<MessageChunk, { type: "tool_result" }>;
 function results(emits: MessageChunk[]): ToolResult[] {

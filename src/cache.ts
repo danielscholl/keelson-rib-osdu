@@ -86,9 +86,17 @@ export function tryClaimLock(dir: string, file: string, staleMs: number): boolea
   const path = join(dir, file);
   try {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
+  } catch {
+    // No usable lock dir — degrade to an uncollapsed fetch, never a stall.
+    return true;
+  }
+  try {
     writeFileSync(path, String(process.pid), { flag: "wx" });
     return true;
-  } catch {
+  } catch (e) {
+    // Only an existing lock is contention; any other failure (read-only dir,
+    // full disk) means no usable lock backend — degrade like the cache does.
+    if ((e as { code?: string }).code !== "EEXIST") return true;
     try {
       if (Date.now() - statSync(path).mtimeMs >= staleMs) {
         // Atomic takeover: rename the stale lock to a name only this process

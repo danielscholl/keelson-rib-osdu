@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RibExec } from "@keelson/shared";
@@ -109,6 +109,20 @@ describe("fetchReleaseReport cache", () => {
     await fetchReleaseReport(exec, ["partition"], base); // scoped → always fetches
     expect(calls).toHaveLength(2);
     await fetchReleaseReport(exec, [], base); // unscoped entry still served
+    expect(calls).toHaveLength(2);
+  });
+
+  // A broken cache backend must degrade to direct fetches, not read as lock
+  // contention (which would stall every call for the full lock-wait window).
+  test("an unusable cache dir degrades to direct fetches instead of stalling", async () => {
+    const blocker = join(tmpdir(), `rib-osdu-report-notadir-${process.pid}-${Date.now()}`);
+    dirs.push(blocker);
+    writeFileSync(blocker, "a file where the cache dir should be");
+    const { exec, calls } = makeExec({ json: () => ({ ok: true, data: report }) });
+    const base = { cacheDir: join(blocker, "cache"), ttlMs: 600_000, now: () => 1_000 };
+
+    await fetchReleaseReport(exec, [], base);
+    await fetchReleaseReport(exec, [], base);
     expect(calls).toHaveLength(2);
   });
 
