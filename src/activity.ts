@@ -11,10 +11,8 @@
 // recovered via `glab api graphql` (transparent auth). Every external call
 // degrades to a no-op — a degraded source yields a raw/empty value, never a throw.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
 import { runText } from "@keelson/shared/exec";
+import { defaultCacheDir, readCacheEntry, ttlFromEnv, writeCacheEntry } from "./cache.ts";
 
 export const GITLAB_GROUP = process.env.KEELSON_OSDU_GITLAB_GROUP ?? "osdu/platform";
 // glab's default host is gitlab.com; the OSDU group lives on the community
@@ -27,7 +25,8 @@ const EPIC_LIMIT = 500;
 const ASSIGNEE_BATCH = 100;
 const MR_PAGE_SIZE = 100;
 const MAX_MR_PAGES = 30;
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
+const BUNDLE_CACHE_FILE = `venus-bundle-v${CACHE_VERSION}.json`;
 const DEFAULT_TTL_MS = 600_000;
 
 // The Venus core services — the 17 platform services mirror cimpl-agent's bridge
@@ -324,51 +323,6 @@ function epicIids(raw: unknown): number[] {
     .filter((i): i is number => typeof i === "number");
 }
 
-// --- cache ---------------------------------------------------------------
-
-interface CacheEntry {
-  version: number;
-  fetchedAt: number;
-  bundle: VenusBundle;
-}
-
-// Cross-process cache so collectors on staggered cadences reuse one fetch.
-// Co-locate with the harness DB when KEELSON_DB is set, else the OS temp dir.
-function defaultCacheDir(): string {
-  const db = process.env.KEELSON_DB;
-  const base = db ? dirname(db) : tmpdir();
-  return join(base, "rib-osdu-cache");
-}
-
-function cacheFile(dir: string): string {
-  return join(dir, `venus-bundle-v${CACHE_VERSION}.json`);
-}
-
-function readCache(dir: string, now: number, ttlMs: number): VenusBundle | null {
-  try {
-    const file = cacheFile(dir);
-    if (!existsSync(file)) return null;
-    const entry = JSON.parse(readFileSync(file, "utf8")) as CacheEntry;
-    if (entry.version !== CACHE_VERSION) return null;
-    if (now - entry.fetchedAt >= ttlMs) return null;
-    return entry.bundle;
-  } catch {
-    return null;
-  }
-}
-
-function writeCache(dir: string, bundle: VenusBundle, now: number): void {
-  try {
-    mkdirSync(dir, { recursive: true });
-    const entry: CacheEntry = { version: CACHE_VERSION, fetchedAt: now, bundle };
-    const tmp = join(dir, `venus-bundle-v${CACHE_VERSION}.${process.pid}.tmp`);
-    writeFileSync(tmp, JSON.stringify(entry));
-    renameSync(tmp, cacheFile(dir));
-  } catch {
-    // Cache is best-effort; a write failure just means the next run refetches.
-  }
-}
-
 // --- bundle --------------------------------------------------------------
 
 export interface VenusBundle {
@@ -389,11 +343,17 @@ export interface BundleDeps {
 
 export async function loadVenusBundle(deps: BundleDeps = {}): Promise<VenusBundle> {
   const now = deps.now ?? (() => Date.now());
-  const ttlMs = deps.ttlMs ?? readTtlEnv();
+  const ttlMs = deps.ttlMs ?? ttlFromEnv("KEELSON_OSDU_BUNDLE_TTL_MS", DEFAULT_TTL_MS);
   const cacheDir = deps.cacheDir === null ? null : (deps.cacheDir ?? defaultCacheDir());
 
   if (cacheDir) {
-    const hit = readCache(cacheDir, now(), ttlMs);
+    const hit = readCacheEntry<VenusBundle>(
+      cacheDir,
+      BUNDLE_CACHE_FILE,
+      CACHE_VERSION,
+      now(),
+      ttlMs,
+    );
     if (hit) return hit;
   }
 
@@ -436,13 +396,8 @@ export async function loadVenusBundle(deps: BundleDeps = {}): Promise<VenusBundl
   mrsRaw = patchUpdatedAt(mrsRaw, await fetchMrUpdatedAt(runGql));
 
   const bundle: VenusBundle = { mrsRaw, epicsRaw, errors };
-  if (cacheDir && !coreFetchFailed) writeCache(cacheDir, bundle, now());
+  if (cacheDir && !coreFetchFailed) {
+    writeCacheEntry(cacheDir, BUNDLE_CACHE_FILE, CACHE_VERSION, bundle, now());
+  }
   return bundle;
-}
-
-function readTtlEnv(): number {
-  const raw = process.env.KEELSON_OSDU_BUNDLE_TTL_MS;
-  if (!raw) return DEFAULT_TTL_MS;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_TTL_MS;
 }

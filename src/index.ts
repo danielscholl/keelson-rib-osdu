@@ -300,6 +300,9 @@ const rib: Rib = {
   // Composes the lane boards into one CIMPL nav tab (the G4 surface); regions
   // bind the same snapshot keys the views publish. The Cluster board is the
   // collapsible header (the cluster's health + access + actions strip).
+  // GitLab-backed regions carry `workflowArgs: {}` — an args-bearing region is
+  // client-driven only, so the idle server heartbeat never polls GitLab; only
+  // the cluster header (local cluster reads) stays server-refreshed.
   surfaces: [
     {
       id: "cimpl",
@@ -320,6 +323,7 @@ const rib: Rib = {
         banner: {
           key: WAITING_KEY,
           workflow: "osdu-waiting",
+          workflowArgs: {},
           cadenceMs: 600_000,
           title: "Waiting on You",
           glyph: { char: "⌖", tone: "caution" },
@@ -330,6 +334,7 @@ const rib: Rib = {
               {
                 key: RELEASE_KEY,
                 workflow: "osdu-release",
+                workflowArgs: {},
                 cadenceMs: 1_800_000,
                 title: "Release Train",
                 glyph: { char: "⚑", tone: "accent" },
@@ -341,6 +346,7 @@ const rib: Rib = {
               {
                 key: FEATURES_KEY,
                 workflow: "osdu-features",
+                workflowArgs: {},
                 cadenceMs: 7_200_000,
                 title: "Features",
                 glyph: { char: "◆", tone: "brand" },
@@ -348,6 +354,7 @@ const rib: Rib = {
               {
                 key: QUALITY_KEY,
                 workflow: "osdu-quality",
+                workflowArgs: {},
                 cadenceMs: 7_200_000,
                 title: "Quality",
                 glyph: { char: "⬢", tone: "info" },
@@ -355,6 +362,7 @@ const rib: Rib = {
               {
                 key: SECURITY_KEY,
                 workflow: "osdu-security",
+                workflowArgs: {},
                 cadenceMs: 7_200_000,
                 title: "Security",
                 glyph: { char: "▲", tone: "caution" },
@@ -367,6 +375,7 @@ const rib: Rib = {
           collapsible: true,
           collapsed: true,
           workflow: "osdu-events",
+          workflowArgs: {},
           cadenceMs: 1_800_000,
           title: "Current Events",
         },
