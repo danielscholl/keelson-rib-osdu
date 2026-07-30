@@ -67,13 +67,16 @@ describe("buildQualityTable", () => {
     expect(rowByService("Wellbore Worker")?.accept).toBe("—");
   });
 
-  test("rows are worst-health first (weakest signal), then name", () => {
+  // Health is the min of coverage / unit / acceptance — the numbers the table
+  // shows. Wellbore Worker has no signal at all, so it sorts last rather than
+  // mid-pack: unknown must not displace measured evidence.
+  test("rows are worst-health first (weakest visible signal), no-data last", () => {
     expect(table.rows.map((r) => serviceValue(r.service))).toEqual([
       "CRS Conversion",
       "Register",
       "Search",
-      "Wellbore Worker",
       "Partition",
+      "Wellbore Worker",
     ]);
   });
 
@@ -111,33 +114,38 @@ describe("buildQualityBoard", () => {
     ]);
   });
 
-  test("header pulse buckets every service into good/poor/fail", () => {
+  // Buckets on the displayed numbers only: Partition 94.7 / Search 82.6 read
+  // Good despite their D letters, CRS Conversion fails on its real 0% acceptance,
+  // and signal-less Wellbore Worker is No data — not an invented "Poor".
+  test("header pulse buckets on visible signals, with a No data segment", () => {
     const segs = board.header?.segments ?? [];
-    expect(segs.map((s) => s.label)).toEqual(["Good", "Poor", "Fail"]);
     expect(segs).toEqual([
-      { label: "Good", n: 1, tone: "ok" },
+      { label: "Good", n: 2, tone: "ok" },
       { label: "Poor", n: 1, tone: "warn" },
-      { label: "Fail", n: 3, tone: "error" },
+      { label: "Fail", n: 1, tone: "error" },
+      { label: "No data", n: 1, tone: "neutral" },
     ]);
   });
 
-  test("KPI tiles are Pass / Flaky / Fail / Skip / Gate summed across stages", () => {
+  // Four tiles, not five: a fifth narrowed each to 90px and wrapped the Gate
+  // fraction onto two lines in the 1/3-width lane.
+  test("KPI tiles are Pass / Fail / Skip / Gate summed across stages", () => {
     const stats = board.sections.find((s) => s.kind === "stats");
     if (stats?.kind !== "stats") throw new Error("no stats section");
-    expect(stats.items.map((i) => i.label)).toEqual(["Pass", "Flaky", "Fail", "Skip", "Gate"]);
+    expect(stats.items.map((i) => i.label)).toEqual(["Pass", "Fail", "Skip", "Gate"]);
     expect(stats.items[0]).toEqual({
       label: "Pass",
       value: "95.8%",
       sub: "unit + acceptance",
       tone: "ok",
     });
-    expect(stats.items[2]).toEqual({
+    expect(stats.items[1]).toEqual({
       label: "Fail",
       value: 19,
       sub: "3.8% of total",
       tone: "error",
     });
-    expect(stats.items[3]).toEqual({
+    expect(stats.items[2]).toEqual({
       label: "Skip",
       value: 2,
       sub: "0.4% of total",
@@ -145,7 +153,7 @@ describe("buildQualityBoard", () => {
     });
     // Two of the five carry a Sonar gate verdict; both are ERROR. The sub names
     // the three with no Sonar project so 2/2 can't pass for the service count.
-    expect(stats.items[4]).toEqual({
+    expect(stats.items[3]).toEqual({
       label: "Gate",
       value: "2 / 2",
       sub: "failing · 3 no gate",
@@ -189,6 +197,7 @@ describe("buildQualityBoard", () => {
     expect(worst.columns.map((c) => c.key)).toEqual([
       "service",
       "pct",
+      "n",
       "passed",
       "skipped",
       "failed",
@@ -206,6 +215,7 @@ describe("buildQualityBoard", () => {
         href: "https://gitlab.example.com/osdu/crs-conversion/-/pipelines/102",
       },
       pct: { value: "0%", tone: "error" },
+      n: "7",
       passed: { badges: [{ text: "0" }] },
       skipped: { badges: [{ text: "2", tone: "warn" }] },
       failed: { badges: [{ text: "5", tone: "error" }] },
@@ -422,5 +432,47 @@ describe("buildQualityBoard against a live-shaped payload", () => {
   test("the title uses the branch label when release is the sentinel", () => {
     expect(live.release).toBe("default");
     expect(liveBoard.title).toBe("Quality · main · master");
+  });
+
+  // The design-proposal numbers, pinned: every Fail traces to a sub-50 signal
+  // the board displays, and the three signal-less services read No data instead
+  // of the letter-driven 15-Fail the old min-of-grades axis produced.
+  test("header pulse reads Good 4 · Poor 7 · Fail 9 · No data 3", () => {
+    expect(liveBoard.header?.segments).toEqual([
+      { label: "Good", n: 4, tone: "ok" },
+      { label: "Poor", n: 7, tone: "warn" },
+      { label: "Fail", n: 9, tone: "error" },
+      { label: "No data", n: 3, tone: "neutral" },
+    ]);
+  });
+
+  test("no-data services never occupy a worst-first table slot", () => {
+    const noData = (live.services ?? [])
+      .filter(
+        (s) =>
+          s.sonar?.coverage_pct == null &&
+          s.unit?.pass_rate == null &&
+          s.acceptance?.pass_rate == null,
+      )
+      .map((s) => s.display_name || s.name);
+    expect(noData.length).toBe(3);
+    const shown = liveTable.rows.map((r) => {
+      const c = r.service;
+      return c && typeof c === "object" ? (c as { value?: unknown }).value : c;
+    });
+    for (const name of noData) expect(shown).not.toContain(name);
+  });
+
+  test("worst-acceptance rows carry the sample size beside the rate", () => {
+    const tables = liveBoard.sections.filter((s) => s.kind === "table");
+    const worst = tables[tables.length - 1];
+    if (worst?.kind !== "table") throw new Error("no worst table");
+    expect(worst.columns.map((c) => c.key)).toContain("n");
+    // Notification's 0% is a two-test sample — the n cell is what says so.
+    const notification = worst.rows.find((r) => {
+      const c = r.service;
+      return (c && typeof c === "object" ? (c as { value?: unknown }).value : c) === "Notification";
+    });
+    expect(notification?.n).toBe("2");
   });
 });

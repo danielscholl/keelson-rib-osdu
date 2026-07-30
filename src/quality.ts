@@ -177,12 +177,10 @@ const COV_GREEN = 80;
 // Matches the PMC report's own coverage_status band, so a service doesn't read
 // amber here and red there.
 const COV_YELLOW = 60;
-// Weakest-link service health (cimpl-agent ReleaseAnalyzer): grade A–E → 100…20,
-// an absent signal floors at 70 (concerning, not confirmed-broken), bucketed at
-// 80 (good) / 50 (fail). Drives the Good/Poor/Fail pulse and the worst-first sort.
+// Weakest-link service health, bucketed at 80 (good) / 50 (fail). Drives the
+// Good/Poor/Fail pulse and the worst-first sort.
 const HEALTH_GOOD = 80;
 const HEALTH_FAIL = 50;
-const NULL_FLOOR = 70;
 const SONAR_CAP = 10;
 const WORST_CAP = 10;
 
@@ -272,22 +270,18 @@ function gradeBadge(rating: string | null | undefined): CanvasCellBadge {
   return text === "—" ? { text } : { text, tone: gradeTone(text) };
 }
 
-const GRADE_SCORE: Record<string, number> = { A: 100, B: 80, C: 60, D: 40, E: 20 };
-function gradeScore(rating: string | null | undefined): number {
-  return GRADE_SCORE[(rating ?? "").toUpperCase()] ?? NULL_FLOOR;
-}
-// Weakest signal across grades + coverage + pass rates; an absent number floors
-// at NULL_FLOOR so an unscanned service reads "poor", not "fail".
-function serviceHealth(svc: ServiceReport): number {
-  const sonar = svc.sonar ?? {};
-  return Math.min(
-    gradeScore(sonar.reliability_rating),
-    gradeScore(sonar.security_rating),
-    gradeScore(sonar.maintainability_rating),
-    num(sonar.coverage_pct) ?? NULL_FLOOR,
-    stageRate(svc.unit) ?? NULL_FLOOR,
-    stageRate(svc.acceptance) ?? NULL_FLOOR,
-  );
+// Weakest of the signals the board itself displays — coverage and the two pass
+// rates — so every red in the headline traces to a visible cell. Sonar letter
+// grades are opinions rendered as chips, not failures, and stay off the axis
+// (they made three 100%-passing services read "Fail" on a lone letter). Null
+// when a service has no numeric signal at all — that is "unknown", not a score.
+function serviceHealth(svc: ServiceReport): number | null {
+  const signals = [
+    num(svc.sonar?.coverage_pct),
+    stageRate(svc.unit),
+    stageRate(svc.acceptance),
+  ].filter((v): v is number => v !== null);
+  return signals.length > 0 ? Math.min(...signals) : null;
 }
 
 type Segment = { label: string; n: number; tone: Tone };
@@ -295,17 +289,21 @@ function buildPulse(services: ServiceReport[]): Segment[] {
   let good = 0;
   let poor = 0;
   let fail = 0;
+  let missing = 0;
   for (const svc of services) {
     const h = serviceHealth(svc);
-    if (h >= HEALTH_GOOD) good += 1;
+    if (h === null) missing += 1;
+    else if (h >= HEALTH_GOOD) good += 1;
     else if (h >= HEALTH_FAIL) poor += 1;
     else fail += 1;
   }
-  return [
+  const segments: Segment[] = [
     { label: "Good", n: good, tone: "ok" },
     { label: "Poor", n: poor, tone: "warn" },
     { label: "Fail", n: fail, tone: "error" },
   ];
+  if (missing > 0) segments.push({ label: "No data", n: missing, tone: "neutral" });
+  return segments;
 }
 
 // ---- KPI tiles: Pass / Flaky / Fail / Skip, summed across unit + acceptance ----
@@ -338,8 +336,9 @@ function buildKpis(services: ServiceReport[]): StatItem[] {
       sub: "unit + acceptance",
       tone: toneRate(passPct),
     },
-    // `release` carries no flake signal — mirrors cimpl-agent's deferred Flaky tile.
-    { label: "Flaky", value: 0, sub: "no signal", tone: "neutral" },
+    // No Flaky tile: `release` carries no flake signal, so it was a permanent
+    // `0 · no signal` placeholder. A fifth tile squeezed the row to 90px and wrapped
+    // the Gate fraction across two lines, so the slot goes to a signal that exists.
     // With no counts at all, Fail/Skip are unknown (not zero) — show a dash.
     {
       label: "Fail",
@@ -421,7 +420,10 @@ export function buildQualityTable(report: ReleaseReport): CanvasTableView {
   const services = report.services ?? [];
   const rows = services
     .map((svc) => ({
-      health: serviceHealth(svc),
+      // The table ranks measured evidence; a no-signal service sorts last (its
+      // count rides the header's "No data" segment) instead of displacing a
+      // genuinely failing row from the visible slice.
+      health: serviceHealth(svc) ?? Number.POSITIVE_INFINITY,
       name: (svc.display_name || svc.name || "—").toLowerCase(),
       row: {
         service: serviceCell(svc.display_name || svc.name || "—", svc.sonar?.sonar_url),
@@ -499,9 +501,12 @@ function stageBar(
 function countCell(n: number, tone: Tone): Cell {
   return { badges: [n > 0 ? { text: n.toLocaleString(), tone } : { text: n.toLocaleString() }] };
 }
+// `n` (total tests run) sits beside the rate so a 0% on a 2-test sample can't
+// read as the peer of a 30% with 98 real failures.
 const WORST_COLUMNS = [
   { key: "service", label: "Service" },
   { key: "pct", label: "Pass %" },
+  { key: "n", label: "n" },
   { key: "passed", label: "Pass" },
   { key: "skipped", label: "Skip" },
   { key: "failed", label: "Fail" },
@@ -532,6 +537,7 @@ function buildWorstAcceptance(services: ServiceReport[]): CanvasTableView {
         ({
           service: serviceCell(r.name, r.pipeline_url),
           pct: r.pct === null ? "—" : { value: `${Math.round(r.pct)}%`, tone: toneRate(r.pct) },
+          n: `${(r.passed + r.failed + r.skipped).toLocaleString()}`,
           passed: countCell(r.passed, "ok"),
           skipped: countCell(r.skipped, "warn"),
           failed: countCell(r.failed, "error"),
