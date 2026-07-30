@@ -169,13 +169,12 @@ export async function fetchReleaseReport(
 export type Tone = CanvasTone;
 type Cell = CanvasCell;
 
-// Pass-rate / coverage tone thresholds mirror cimpl-agent's SonarTable (passCls
-// 95/80, covCls 80/50) so the lane's colours match the prototype.
+// Pass-rate tones mirror cimpl-agent's SonarTable (95/80). Coverage keeps the
+// prototype's green at 80 but takes its amber band (60) from the PMC report's
+// coverage_status, so a service doesn't read amber here and red there.
 const PASS_GREEN = 95;
 const PASS_YELLOW = 80;
 const COV_GREEN = 80;
-// Matches the PMC report's own coverage_status band, so a service doesn't read
-// amber here and red there.
 const COV_YELLOW = 60;
 // Weakest-link service health, bucketed at 80 (good) / 50 (fail). Drives the
 // Good/Poor/Fail pulse and the worst-first sort.
@@ -325,10 +324,12 @@ function buildKpis(services: ServiceReport[]): StatItem[] {
   const ofTotal = (n: number) => (total > 0 ? `${round1((n / total) * 100)}% of total` : "—");
   // Unit dominates the blended denominator and rarely fails, so name what the
   // percentage is over rather than letting it read as an acceptance figure.
-  const gateScoped = services.filter((s) => (s.sonar?.quality_gate ?? "").trim().length > 0);
-  const gateFailing = gateScoped.filter(
-    (s) => (s.sonar?.quality_gate ?? "").toUpperCase() !== "OK",
-  ).length;
+  // Sonar's alert_status is OK / WARN / ERROR / NONE: NONE means no gate is
+  // configured (out of scope, like a missing value), and only ERROR is a failure.
+  const gates = services
+    .map((s) => (s.sonar?.quality_gate ?? "").trim().toUpperCase())
+    .filter((g) => g.length > 0 && g !== "NONE");
+  const gateFailing = gates.filter((g) => g === "ERROR").length;
   return [
     {
       label: "Pass",
@@ -357,16 +358,16 @@ function buildKpis(services: ServiceReport[]): StatItem[] {
     // doesn't take ten table rows to notice.
     {
       label: "Gate",
-      value: gateScoped.length > 0 ? `${gateFailing} / ${gateScoped.length}` : "—",
+      value: gates.length > 0 ? `${gateFailing} / ${gates.length}` : "—",
       // Not every service has a Sonar project, so say how many the denominator
       // leaves out rather than letting it pass for the service count.
       sub:
-        gateScoped.length === 0
+        gates.length === 0
           ? "no signal"
-          : services.length > gateScoped.length
-            ? `failing · ${services.length - gateScoped.length} no gate`
+          : services.length > gates.length
+            ? `failing · ${services.length - gates.length} no gate`
             : "failing",
-      tone: gateScoped.length === 0 ? "neutral" : gateFailing > 0 ? "error" : "ok",
+      tone: gates.length === 0 ? "neutral" : gateFailing > 0 ? "error" : "ok",
     },
   ];
 }

@@ -22,17 +22,11 @@ export function analyticsSite(): string {
   return (override || ANALYTICS_SITE_DEFAULT).replace(/\/+$/, "");
 }
 
-// One cell per distinct destination. The report site is a single-page app whose
-// three views are addressed by fragment (`VIEWS` + a `location.hash` read on
-// init), so #dev/#qa/#libraries are three real pages on a cold load — which is
-// all a canvas cell does, since grid links open in a new tab.
-//
-// Deliberately absent: `releases.html`, which filters the same history manifest
-// `history.html` renders down to its frozen entries, so it can only ever show a
-// subset; and the analytics site's release/status report archives, which are
-// stale renders of the `osdu-quality release` payload the Quality lane already
-// holds live. The analytics root stays — job-level reliability across every
-// cloud provider is the one lens no rib view renders.
+// One cell per distinct destination; the report SPA's three views resolve by
+// fragment on a cold load, which is all a grid cell does. Deliberately absent:
+// `releases.html` (a frozen-only subset of what the history page renders) and
+// the analytics site's report archives (stale renders of the same payload the
+// Quality lane already shows live).
 export function pmcReportLinks(report = pmcSite(), analytics = analyticsSite()): PmcLink[] {
   const r = report.replace(/\/+$/, "");
   const a = analytics.replace(/\/+$/, "");

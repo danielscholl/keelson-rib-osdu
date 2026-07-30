@@ -161,6 +161,26 @@ describe("buildQualityBoard", () => {
     });
   });
 
+  // Sonar's alert_status vocabulary: only ERROR fails; WARN is scoped but not
+  // failing; NONE means no gate configured and stays out of both counts.
+  test("Gate tile counts only ERROR as failing and excludes NONE from scope", () => {
+    const b = buildQualityBoard({
+      services: [
+        { name: "ok", sonar: { quality_gate: "OK" } },
+        { name: "warn", sonar: { quality_gate: "warn" } },
+        { name: "err", sonar: { quality_gate: "ERROR" } },
+        { name: "none", sonar: { quality_gate: "NONE" } },
+        { name: "absent", sonar: {} },
+      ],
+    });
+    const stats = b.sections.find((s) => s.kind === "stats");
+    if (stats?.kind !== "stats") throw new Error("no stats section");
+    const gate = stats.items.find((i) => i.label === "Gate");
+    expect(gate?.value).toBe("1 / 3");
+    expect(gate?.sub).toBe("failing · 2 no gate");
+    expect(gate?.tone).toBe("error");
+  });
+
   test("test-performance pulse buckets services by acceptance pass rate", () => {
     const seg = board.sections.find((s) => s.kind === "segments");
     if (seg?.kind !== "segments") throw new Error("no segments section");
