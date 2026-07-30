@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { canvasViewSchema } from "@keelson/shared";
 import { buildQualityBoard, buildQualityTable, type ReleaseReport } from "../src/quality.ts";
 import report from "./fixtures/release-report.json";
+import liveReport from "./fixtures/release-report-live.json";
 
 const table = buildQualityTable(report as ReleaseReport);
 const board = buildQualityBoard(report as ReleaseReport);
@@ -76,8 +77,10 @@ describe("buildQualityTable", () => {
     ]);
   });
 
-  test("caption carries service count and release", () => {
-    expect(table.caption).toBe("Quality · 5 services · default");
+  // "default" is the CLI's no-release sentinel, so the caption falls through to
+  // the branch label the CLI composed for readers.
+  test("caption carries service count and the resolved scope label", () => {
+    expect(table.caption).toBe("Quality · 5 services · master");
   });
 });
 
@@ -118,11 +121,16 @@ describe("buildQualityBoard", () => {
     ]);
   });
 
-  test("KPI tiles are Pass / Flaky / Fail / Skip summed across stages", () => {
+  test("KPI tiles are Pass / Flaky / Fail / Skip / Gate summed across stages", () => {
     const stats = board.sections.find((s) => s.kind === "stats");
     if (stats?.kind !== "stats") throw new Error("no stats section");
-    expect(stats.items.map((i) => i.label)).toEqual(["Pass", "Flaky", "Fail", "Skip"]);
-    expect(stats.items[0]).toEqual({ label: "Pass", value: "95.8%", sub: "CI tests", tone: "ok" });
+    expect(stats.items.map((i) => i.label)).toEqual(["Pass", "Flaky", "Fail", "Skip", "Gate"]);
+    expect(stats.items[0]).toEqual({
+      label: "Pass",
+      value: "95.8%",
+      sub: "unit + acceptance",
+      tone: "ok",
+    });
     expect(stats.items[2]).toEqual({
       label: "Fail",
       value: 19,
@@ -135,16 +143,27 @@ describe("buildQualityBoard", () => {
       sub: "0.4% of total",
       tone: "warn",
     });
+    // Two of the five carry a Sonar gate verdict; both are ERROR. The sub names
+    // the three with no Sonar project so 2/2 can't pass for the service count.
+    expect(stats.items[4]).toEqual({
+      label: "Gate",
+      value: "2 / 2",
+      sub: "failing · 3 no gate",
+      tone: "error",
+    });
   });
 
   test("test-performance pulse buckets services by acceptance pass rate", () => {
     const seg = board.sections.find((s) => s.kind === "segments");
     if (seg?.kind !== "segments") throw new Error("no segments section");
     expect(seg.title).toBe("Test performance");
+    // Wellbore Worker has no acceptance stage at all; it gets its own bucket
+    // rather than inflating Failing.
     expect(seg.items).toEqual([
       { label: "Passing", n: 2, tone: "ok" },
       { label: "Slipping", n: 1, tone: "warn" },
-      { label: "Failing", n: 2, tone: "error" },
+      { label: "Failing", n: 1, tone: "error" },
+      { label: "No data", n: 1, tone: "neutral" },
     ]);
   });
 
@@ -154,7 +173,7 @@ describe("buildQualityBoard", () => {
     expect(bars.items).toEqual([
       { label: "Unit tests", value: 379, total: 382, tone: "ok", trailing: "379 / 382 · 99.2%" },
       {
-        label: "Acceptance tests",
+        label: "Acceptance tests (gitlab dev)",
         value: 97,
         total: 115,
         tone: "warn",
@@ -235,7 +254,7 @@ describe("buildQualityBoard edge cases", () => {
     if (bars?.kind !== "bars") throw new Error("no bars section");
     // The bar reports the same 80% (12 / 15) as the table and pulse.
     expect(bars.items).toContainEqual({
-      label: "Acceptance tests",
+      label: "Acceptance tests (gitlab dev)",
       value: 12,
       total: 15,
       tone: "warn",
@@ -338,5 +357,70 @@ describe("buildQualityBoard edge cases", () => {
     const worst = tables[tables.length - 1];
     if (worst?.kind !== "table") throw new Error("no worst table");
     expect(worst.rows[0]?.service).toBe("Creds");
+  });
+});
+
+// The focused fixture above pins cell shaping. This one is a capture of a real
+// `osdu-quality release` payload, so it is the only fixture that reaches the row
+// caps, carries the CLI's own `aggregates`, and contains the `status: "missing"`
+// / `errors` / `sonar.source` fields the live CLI emits. Its job is to keep the
+// board honest against the aggregates the same response ships.
+describe("buildQualityBoard against a live-shaped payload", () => {
+  const live = liveReport as ReleaseReport;
+  const aggregates = (liveReport as { aggregates: Record<string, number> }).aggregates;
+  const liveBoard = buildQualityBoard(live);
+  const liveTable = buildQualityTable(live);
+  const segmentsOf = (title: string) => {
+    const s = liveBoard.sections.find((x) => x.kind === "segments" && x.title === title);
+    if (s?.kind !== "segments") throw new Error(`no ${title} segments`);
+    return s.items;
+  };
+
+  test("emits a valid board and reaches both row caps", () => {
+    expect(canvasViewSchema.safeParse(liveBoard).success).toBe(true);
+    expect(live.services?.length).toBeGreaterThan(10);
+    const tables = liveBoard.sections.filter((s) => s.kind === "table");
+    for (const t of tables) {
+      if (t.kind !== "table") throw new Error("expected table");
+      expect(t.rows).toHaveLength(10);
+    }
+  });
+
+  // The defect this guards: bucketing an unmeasured stage as a failure made the
+  // pulse disagree with the worst-acceptance table and with the CLI's own count.
+  test("Failing matches the CLI's acceptance_below_80, with No data carrying the rest", () => {
+    const items = segmentsOf("Test performance");
+    const byLabel = Object.fromEntries(items.map((i) => [i.label, i.n]));
+    expect(byLabel.Failing).toBe(aggregates.acceptance_below_80);
+    const missing = (live.services ?? []).filter((s) => s.acceptance?.status === "missing").length;
+    expect(missing).toBeGreaterThan(0);
+    expect(byLabel["No data"]).toBe(missing);
+    // Every service lands in exactly one bucket.
+    expect(items.reduce((t, i) => t + i.n, 0)).toBe(live.services?.length ?? 0);
+  });
+
+  test("the Gate tile reports the CLI's quality_gate_failing count", () => {
+    const stats = liveBoard.sections.find((s) => s.kind === "stats");
+    if (stats?.kind !== "stats") throw new Error("no stats section");
+    const gate = stats.items.find((i) => i.label === "Gate");
+    const scoped = (live.services ?? []).filter((s) => s.sonar?.quality_gate).length;
+    expect(gate?.value).toBe(`${aggregates.quality_gate_failing} / ${scoped}`);
+    expect(gate?.tone).toBe("error");
+  });
+
+  test("both tables disclose that they are a slice, not the platform", () => {
+    expect(liveTable.caption).toBe(`Worst 10 of ${live.services?.length} services · main · master`);
+    const tables = liveBoard.sections.filter((s) => s.kind === "table");
+    for (const t of tables) {
+      if (t.kind !== "table") throw new Error("expected table");
+      expect(t.caption).toMatch(/^Worst 10 of \d+/);
+    }
+  });
+
+  // `release` is the sentinel "default" in the live payload, so the title must
+  // fall through to the branch label rather than printing the sentinel.
+  test("the title uses the branch label when release is the sentinel", () => {
+    expect(live.release).toBe("default");
+    expect(liveBoard.title).toBe("Quality · main · master");
   });
 });

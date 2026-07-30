@@ -1,0 +1,770 @@
+{
+  "release": "default",
+  "branch": "main · master",
+  "generated_at": "2026-07-30T01:10:11.499961+00:00",
+  "provider": "cimpl",
+  "services": [
+    {
+      "name": "crs-catalog-service",
+      "display_name": "CRS Catalog",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/system/reference/crs-catalog-service/-/pipelines/376044",
+      "sonar": {
+        "coverage_pct": 81.7,
+        "quality_gate": "ERROR",
+        "reliability_rating": "C",
+        "security_rating": "A",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Acrs-catalog-service",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 249,
+        "failed": 0,
+        "skipped": 0,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 43.5,
+        "passed": 20,
+        "failed": 26,
+        "skipped": 0,
+        "status": "failing"
+      },
+      "vulnerabilities": {
+        "critical": 1,
+        "high": 12,
+        "medium": 35,
+        "low": 0,
+        "info": 4,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "crs-conversion-service",
+      "display_name": "CRS Conversion",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/system/reference/crs-conversion-service/-/pipelines/375513",
+      "sonar": {
+        "coverage_pct": 36.9,
+        "quality_gate": "ERROR",
+        "reliability_rating": "B",
+        "security_rating": "A",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Acrs-conversion-service",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 83.1,
+        "passed": 172,
+        "failed": 0,
+        "skipped": 35,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 32.4,
+        "passed": 11,
+        "failed": 23,
+        "skipped": 0,
+        "status": "failing"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 17,
+        "low": 0,
+        "info": 15,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "dataset",
+      "display_name": "Dataset",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/system/dataset/-/pipelines/377353",
+      "sonar": {
+        "coverage_pct": 72.5,
+        "quality_gate": "ERROR",
+        "reliability_rating": "C",
+        "security_rating": "A",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Adataset",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 165,
+        "failed": 0,
+        "skipped": 0,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 100,
+        "passed": 14,
+        "failed": 0,
+        "skipped": 0,
+        "status": "ok"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 15,
+        "medium": 14,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "eds-dms",
+      "display_name": "EDS DMS",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/data-flow/ingestion/external-data-sources/eds-dms/-/pipelines/376043",
+      "sonar": {
+        "coverage_pct": 22.2,
+        "quality_gate": "ERROR",
+        "reliability_rating": "C",
+        "security_rating": "A",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Aeds-dms",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 69,
+        "failed": 0,
+        "skipped": 0,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "status": "missing"
+      },
+      "vulnerabilities": {
+        "critical": 6,
+        "high": 0,
+        "medium": 14,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "entitlements",
+      "display_name": "Entitlements",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/security-and-compliance/entitlements/-/pipelines/376454",
+      "sonar": {
+        "coverage_pct": 50.2,
+        "quality_gate": "ERROR",
+        "reliability_rating": "A",
+        "security_rating": "A",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Aentitlements",
+        "source": "sonar"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 269,
+        "failed": 0,
+        "source": "sonar"
+      },
+      "acceptance": {
+        "pass_rate": 96.4,
+        "passed": 53,
+        "failed": 0,
+        "skipped": 2,
+        "status": "ok"
+      },
+      "vulnerabilities": {
+        "critical": 2,
+        "high": 4,
+        "medium": 21,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "file",
+      "display_name": "File",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/system/file/-/pipelines/377309",
+      "sonar": {
+        "coverage_pct": 61.6,
+        "quality_gate": "ERROR",
+        "reliability_rating": "C",
+        "security_rating": "A",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Afile",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 150,
+        "failed": 0,
+        "skipped": 0,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 100,
+        "passed": 40,
+        "failed": 0,
+        "skipped": 0,
+        "status": "ok"
+      },
+      "vulnerabilities": {
+        "critical": 2,
+        "high": 0,
+        "medium": 22,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "indexer-service",
+      "display_name": "Indexer",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/system/indexer-service/-/pipelines/377367",
+      "sonar": {
+        "coverage_pct": 79.9,
+        "quality_gate": "ERROR",
+        "reliability_rating": "D",
+        "security_rating": "D",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Aindexer-service",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 99.3,
+        "passed": 1124,
+        "failed": 0,
+        "skipped": 8,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 96.9,
+        "passed": 31,
+        "failed": 0,
+        "skipped": 1,
+        "status": "ok"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 2,
+        "medium": 21,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "ingestion-workflow",
+      "display_name": "Ingestion Workflow",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/data-flow/ingestion/ingestion-workflow/-/pipelines/377459",
+      "sonar": {
+        "coverage_pct": 61,
+        "quality_gate": "ERROR",
+        "reliability_rating": "B",
+        "security_rating": "A",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Aingestion-workflow",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 207,
+        "failed": 0,
+        "skipped": 0,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 97.8,
+        "passed": 90,
+        "failed": 0,
+        "skipped": 2,
+        "status": "ok"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 74,
+        "medium": 48,
+        "low": 11,
+        "info": 0,
+        "unknown": 6
+      }
+    },
+    {
+      "name": "legal",
+      "display_name": "Legal",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/security-and-compliance/legal/-/pipelines/376455",
+      "sonar": {
+        "coverage_pct": 81.6,
+        "quality_gate": "ERROR",
+        "reliability_rating": "B",
+        "security_rating": "A",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Alegal",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 348,
+        "failed": 0,
+        "skipped": 0,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 98.7,
+        "passed": 74,
+        "failed": 0,
+        "skipped": 1,
+        "status": "ok"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 1,
+        "medium": 19,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "notification",
+      "display_name": "Notification",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/system/notification/-/pipelines/376412",
+      "sonar": {
+        "coverage_pct": 52.7,
+        "quality_gate": "ERROR",
+        "reliability_rating": "A",
+        "security_rating": "A",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Anotification",
+        "source": "sonar"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 84,
+        "failed": 0,
+        "source": "sonar"
+      },
+      "acceptance": {
+        "pass_rate": 0,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 1,
+        "status": "failing"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 18,
+        "medium": 54,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "open-etp-client",
+      "display_name": "Open ETP Client",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/domain-data-mgmt-services/reservoir/open-etp-client/-/pipelines/375646",
+      "sonar": null,
+      "unit": null,
+      "acceptance": {
+        "status": "missing"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 12,
+        "medium": 63,
+        "low": 3,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "open-etp-server",
+      "display_name": "Reservoir DDMS",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/domain-data-mgmt-services/reservoir/open-etp-server/-/pipelines/375660",
+      "sonar": null,
+      "unit": null,
+      "acceptance": {
+        "status": "missing"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 1,
+        "medium": 0,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "partition",
+      "display_name": "Partition",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/system/partition/-/pipelines/376641",
+      "sonar": {
+        "coverage_pct": 93.3,
+        "quality_gate": "ERROR",
+        "reliability_rating": "B",
+        "security_rating": "D",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Apartition",
+        "source": "sonar-partial"
+      },
+      "unit": null,
+      "acceptance": {
+        "status": "missing"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 9,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "policy",
+      "display_name": "Policy",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/security-and-compliance/policy/-/pipelines/375776",
+      "sonar": {
+        "coverage_pct": 31.8,
+        "quality_gate": "ERROR",
+        "reliability_rating": "C",
+        "security_rating": "C",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Apolicy",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 97,
+        "passed": 97,
+        "failed": 0,
+        "skipped": 3,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 89.7,
+        "passed": 271,
+        "failed": 0,
+        "skipped": 31,
+        "status": "ok"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 3,
+        "medium": 11,
+        "low": 2,
+        "info": 21,
+        "unknown": 1
+      }
+    },
+    {
+      "name": "rafs-ddms-services",
+      "display_name": "RAFS DDMS",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/domain-data-mgmt-services/rock-and-fluid-sample/rafs-ddms-services/-/pipelines/377437",
+      "sonar": {
+        "coverage_pct": 36.7,
+        "quality_gate": "ERROR",
+        "reliability_rating": "C",
+        "security_rating": "D",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Arafs-ddms-services",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 99.1,
+        "passed": 2071,
+        "failed": 0,
+        "skipped": 18,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 97.2,
+        "passed": 458,
+        "failed": 13,
+        "skipped": 0,
+        "status": "ok"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 4,
+        "medium": 9,
+        "low": 2,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "register",
+      "display_name": "Register",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/system/register/-/pipelines/375705",
+      "sonar": {
+        "coverage_pct": 68,
+        "quality_gate": "ERROR",
+        "reliability_rating": "D",
+        "security_rating": "A",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Aregister",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 190,
+        "failed": 0,
+        "skipped": 0,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "status": "missing"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 3,
+        "medium": 13,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "schema-service",
+      "display_name": "Schema",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/system/schema-service/-/pipelines/376317",
+      "sonar": {
+        "coverage_pct": 68.3,
+        "quality_gate": "ERROR",
+        "reliability_rating": "E",
+        "security_rating": "A",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Aschema-service",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 296,
+        "failed": 0,
+        "skipped": 0,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 100,
+        "passed": 211,
+        "failed": 0,
+        "skipped": 0,
+        "status": "ok"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 2,
+        "medium": 21,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "search-service",
+      "display_name": "Search",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/system/search-service/-/pipelines/376106",
+      "sonar": {
+        "coverage_pct": 82.6,
+        "quality_gate": "ERROR",
+        "reliability_rating": "D",
+        "security_rating": "D",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Asearch-service",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 458,
+        "failed": 0,
+        "skipped": 0,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 29.5,
+        "passed": 41,
+        "failed": 98,
+        "skipped": 0,
+        "status": "failing"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 21,
+        "low": 0,
+        "info": 2,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "secret",
+      "display_name": "Secret",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/security-and-compliance/secret/-/pipelines/375937",
+      "sonar": {
+        "coverage_pct": 26.9,
+        "quality_gate": "ERROR",
+        "reliability_rating": "C",
+        "security_rating": "A",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Asecret",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 56,
+        "failed": 0,
+        "skipped": 0,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 100,
+        "passed": 47,
+        "failed": 0,
+        "skipped": 0,
+        "status": "ok"
+      },
+      "vulnerabilities": {
+        "critical": 1,
+        "high": 0,
+        "medium": 10,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "storage",
+      "display_name": "Storage",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/system/storage/-/pipelines/375904",
+      "sonar": {
+        "coverage_pct": 84.5,
+        "quality_gate": "ERROR",
+        "reliability_rating": "D",
+        "security_rating": "B",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Astorage",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 1095,
+        "failed": 0,
+        "skipped": 0,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 99.4,
+        "passed": 179,
+        "failed": 0,
+        "skipped": 1,
+        "status": "ok"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 5,
+        "medium": 20,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "unit-service",
+      "display_name": "Unit Service",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/system/reference/unit-service/-/pipelines/375462",
+      "sonar": {
+        "coverage_pct": 81.9,
+        "quality_gate": "ERROR",
+        "reliability_rating": "D",
+        "security_rating": "B",
+        "maintainability_rating": "A",
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Aunit-service",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 100,
+        "passed": 427,
+        "failed": 0,
+        "skipped": 0,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 100,
+        "passed": 32,
+        "failed": 0,
+        "skipped": 0,
+        "status": "ok"
+      },
+      "vulnerabilities": {
+        "critical": 1,
+        "high": 4,
+        "medium": 49,
+        "low": 11,
+        "info": 3,
+        "unknown": 6
+      }
+    },
+    {
+      "name": "wellbore-domain-services",
+      "display_name": "Wellbore DDMS",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/domain-data-mgmt-services/wellbore/wellbore-domain-services/-/pipelines/375661",
+      "sonar": {
+        "sonar_url": "https://sonarcloud.io/project/overview?id=org.opengroup.osdu%3Awellbore-domain-services",
+        "source": "sonar-partial"
+      },
+      "unit": {
+        "pass_rate": 96.7,
+        "passed": 1257,
+        "failed": 0,
+        "skipped": 43,
+        "source": "gitlab-ci"
+      },
+      "acceptance": {
+        "pass_rate": 18.9,
+        "passed": 25,
+        "failed": 9,
+        "skipped": 98,
+        "status": "failing"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 2,
+        "medium": 3,
+        "low": 0,
+        "info": 50,
+        "unknown": 0
+      }
+    },
+    {
+      "name": "wellbore-domain-services-worker",
+      "display_name": "Wellbore Worker",
+      "pipeline_url": "https://community.opengroup.org/osdu/platform/domain-data-mgmt-services/wellbore/wellbore-domain-services-worker/-/pipelines/377190",
+      "sonar": null,
+      "unit": null,
+      "acceptance": {
+        "status": "missing"
+      },
+      "vulnerabilities": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "info": 0,
+        "unknown": 0
+      },
+      "errors": ["no acceptance or allure job in pipeline"]
+    }
+  ],
+  "aggregates": {
+    "service_count": 23,
+    "avg_coverage": 61.8,
+    "quality_gate_failing": 19,
+    "low_quality_services": 14,
+    "acceptance_below_80": 5,
+    "total_critical": 13,
+    "total_high": 162,
+    "total_medium": 494,
+    "total_low": 29,
+    "projects_with_critical": 6
+  }
+}

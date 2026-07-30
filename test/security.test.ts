@@ -68,6 +68,39 @@ describe("buildSecurityBoard", () => {
     expect(byLabel("Vuln MRs")).toBeDefined();
   });
 
+  // The tile totals the whole release report, but the CVE sections under it are
+  // core-only. When the two differ the sub must name the split rather than
+  // claiming "in core" — and no off-core service may be dropped to make it tidy.
+  test("KPI subs name the core / off-core split instead of claiming 'in core'", () => {
+    const b = buildSecurityBoard({
+      report: {
+        services: [
+          // In VENUS_CORE.
+          { name: "storage", display_name: "Storage", vulnerabilities: { critical: 2, high: 1 } },
+          // Not in VENUS_CORE — its criticals must still be counted.
+          { name: "eds-dms", display_name: "EDS DMS", vulnerabilities: { critical: 3, high: 0 } },
+        ],
+      },
+      now: NOW,
+    });
+    const stats = b.sections.find((s) => s.kind === "stats");
+    if (stats?.kind !== "stats") throw new Error("no stats section");
+    const crit = stats.items.find((i) => i.label === "Critical");
+    expect(crit?.value).toBe(5);
+    expect(crit?.sub).toBe("2 in core · 3 off-core");
+    // All-core totals keep the plain label.
+    expect(stats.items.find((i) => i.label === "High")?.sub).toBe("in core");
+  });
+
+  // "default" is the CLI's no-release sentinel; both lanes title on the branch.
+  test("board title falls through the release sentinel to the branch label", () => {
+    const b = buildSecurityBoard({
+      report: { release: "default", branch: "main · master", services: [] },
+      now: NOW,
+    });
+    expect(b.title).toBe("Security · main · master");
+  });
+
   test("Low security rating: below-A grades worst-first, A filtered out", () => {
     const grid = section("grid", "Low security rating");
     expect(grid?.kind).toBe("grid");

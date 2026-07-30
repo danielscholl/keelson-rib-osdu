@@ -27,12 +27,15 @@ export interface SonarMetrics {
   sonar_url?: string | null;
 }
 // A per-stage test result — a pass rate plus the raw counts the KPI tiles, the
-// stage bars, and the worst-acceptance table sum over.
+// stage bars, and the worst-acceptance table sum over. `status` is the CLI's own
+// verdict; "missing" marks a stage it found no job for, which must not read as a
+// failure.
 export interface TestMetrics {
   pass_rate?: number | null;
   passed?: number | null;
   failed?: number | null;
   skipped?: number | null;
+  status?: string | null;
 }
 export interface VulnCounts {
   critical?: number | null;
@@ -55,6 +58,7 @@ export interface ServiceReport {
 export interface ReleaseReport {
   release?: string | null;
   branch?: string | null;
+  generated_at?: string | null;
   services?: ServiceReport[];
 }
 
@@ -170,7 +174,9 @@ type Cell = CanvasCell;
 const PASS_GREEN = 95;
 const PASS_YELLOW = 80;
 const COV_GREEN = 80;
-const COV_YELLOW = 50;
+// Matches the PMC report's own coverage_status band, so a service doesn't read
+// amber here and red there.
+const COV_YELLOW = 60;
 // Weakest-link service health (cimpl-agent ReleaseAnalyzer): grade A–E → 100…20,
 // an absent signal floors at 70 (concerning, not confirmed-broken), bucketed at
 // 80 (good) / 50 (fail). Drives the Good/Poor/Fail pulse and the worst-first sort.
@@ -213,6 +219,21 @@ function stageRate(m: TestMetrics | null | undefined): number | null {
 // don't fabricate zeros for a pass-rate-only / partial report.
 function hasCounts(m: TestMetrics | null | undefined): boolean {
   return num(m?.passed) !== null || num(m?.failed) !== null || num(m?.skipped) !== null;
+}
+// A stage the CLI found no job for. Distinct from a failing stage: it carries no
+// rate, and the CLI says so outright in `status`.
+function stageMissing(m: TestMetrics | null | undefined): boolean {
+  return stageRate(m) === null || m?.status === "missing";
+}
+
+// The reader-facing label for the report's scope. `release` is the CLI's
+// sentinel when no release was resolved, so fall through to the branch label it
+// composed for exactly this purpose. Shared with the Security lane so both
+// boards title themselves the same way.
+export function scopeLabel(report: ReleaseReport): string {
+  const release = report.release?.trim();
+  if (release && release !== "default") return release;
+  return report.branch?.trim() || "current";
 }
 
 function toneRate(value: number | null): Tone {
@@ -304,11 +325,17 @@ function buildKpis(services: ServiceReport[]): StatItem[] {
   const total = passed + failed + skipped;
   const passPct = total > 0 ? round1((passed / total) * 100) : null;
   const ofTotal = (n: number) => (total > 0 ? `${round1((n / total) * 100)}% of total` : "—");
+  // Unit dominates the blended denominator and rarely fails, so name what the
+  // percentage is over rather than letting it read as an acceptance figure.
+  const gateScoped = services.filter((s) => (s.sonar?.quality_gate ?? "").trim().length > 0);
+  const gateFailing = gateScoped.filter(
+    (s) => (s.sonar?.quality_gate ?? "").toUpperCase() !== "OK",
+  ).length;
   return [
     {
       label: "Pass",
       value: passPct === null ? "—" : `${passPct}%`,
-      sub: "CI tests",
+      sub: "unit + acceptance",
       tone: toneRate(passPct),
     },
     // `release` carries no flake signal — mirrors cimpl-agent's deferred Flaky tile.
@@ -325,6 +352,22 @@ function buildKpis(services: ServiceReport[]): StatItem[] {
       value: total > 0 ? skipped : "—",
       sub: ofTotal(skipped),
       tone: total > 0 && skipped > 0 ? "warn" : "neutral",
+    },
+    // The Sonar gate is the loudest signal the upstream PMC report leads with,
+    // and the report already carries it per service — surface the count so it
+    // doesn't take ten table rows to notice.
+    {
+      label: "Gate",
+      value: gateScoped.length > 0 ? `${gateFailing} / ${gateScoped.length}` : "—",
+      // Not every service has a Sonar project, so say how many the denominator
+      // leaves out rather than letting it pass for the service count.
+      sub:
+        gateScoped.length === 0
+          ? "no signal"
+          : services.length > gateScoped.length
+            ? `failing · ${services.length - gateScoped.length} no gate`
+            : "failing",
+      tone: gateScoped.length === 0 ? "neutral" : gateFailing > 0 ? "error" : "ok",
     },
   ];
 }
@@ -394,28 +437,38 @@ export function buildQualityTable(report: ReleaseReport): CanvasTableView {
     view: "table",
     columns: SONAR_COLUMNS,
     rows,
-    caption: `Quality · ${services.length} services · ${report.release ?? "current"}`,
+    // Say when the slice is a slice: 10 of 23 rows with no caption reads as the
+    // whole platform.
+    caption:
+      rows.length < services.length
+        ? `Worst ${rows.length} of ${services.length} services · ${scopeLabel(report)}`
+        : `Quality · ${services.length} services · ${scopeLabel(report)}`,
   };
 }
 
 // ---- Test performance: pulse + aggregate stage bars + worst-acceptance table ----
+// An unmeasured service gets its own bucket rather than reading as a failure:
+// counting it red made this pulse contradict the worst-acceptance table below it,
+// which filters those services out, and the CLI's own `acceptance_below_80`.
 function buildTestPulse(services: ServiceReport[]): Segment[] {
   let passing = 0;
   let slipping = 0;
   let failing = 0;
+  let missing = 0;
   for (const svc of services) {
     const a = stageRate(svc.acceptance);
-    // An unmeasured service reads failing, mirroring cimpl-agent's bucket.
-    if (a === null) failing += 1;
-    else if (a >= PASS_GREEN) passing += 1;
-    else if (a >= PASS_YELLOW) slipping += 1;
+    if (stageMissing(svc.acceptance)) missing += 1;
+    else if ((a as number) >= PASS_GREEN) passing += 1;
+    else if ((a as number) >= PASS_YELLOW) slipping += 1;
     else failing += 1;
   }
-  return [
+  const segments: Segment[] = [
     { label: "Passing", n: passing, tone: "ok" },
     { label: "Slipping", n: slipping, tone: "warn" },
     { label: "Failing", n: failing, tone: "error" },
   ];
+  if (missing > 0) segments.push({ label: "No data", n: missing, tone: "neutral" });
+  return segments;
 }
 
 type BarItem = { label: string; value: number; total: number; tone?: Tone; trailing?: string };
@@ -454,6 +507,9 @@ const WORST_COLUMNS = [
   { key: "failed", label: "Fail" },
 ];
 function buildWorstAcceptance(services: ServiceReport[]): CanvasTableView {
+  const eligible = services.filter(
+    (svc) => hasCounts(svc.acceptance) && stageRate(svc.acceptance) !== null,
+  ).length;
   const rows = services
     .map((svc) => ({
       name: svc.display_name || svc.name || "—",
@@ -481,7 +537,15 @@ function buildWorstAcceptance(services: ServiceReport[]): CanvasTableView {
           failed: countCell(r.failed, "error"),
         }) satisfies Record<string, Cell>,
     );
-  return { view: "table", columns: WORST_COLUMNS, rows };
+  return {
+    view: "table",
+    columns: WORST_COLUMNS,
+    rows,
+    caption:
+      rows.length < eligible
+        ? `Worst ${rows.length} of ${eligible} measured services`
+        : `${rows.length} measured service${rows.length === 1 ? "" : "s"}`,
+  };
 }
 
 /**
@@ -496,21 +560,33 @@ export function buildQualityBoard(report: ReleaseReport): CanvasBoardView {
 
   if (services.length > 0) {
     const sonar = buildQualityTable(report);
-    sections.push({ kind: "table", columns: sonar.columns, rows: sonar.rows });
+    sections.push({
+      kind: "table",
+      columns: sonar.columns,
+      rows: sonar.rows,
+      ...(sonar.caption ? { caption: sonar.caption } : {}),
+    });
     sections.push({ kind: "segments", title: "Test performance", items: buildTestPulse(services) });
     const bars = [
+      // Acceptance is the CLI's gitlab-dev environment; the upstream report
+      // measures three, so name which one this is rather than implying all.
       stageBar("Unit tests", services, (s) => s.unit),
-      stageBar("Acceptance tests", services, (s) => s.acceptance),
+      stageBar("Acceptance tests (gitlab dev)", services, (s) => s.acceptance),
     ].filter((b): b is BarItem => b !== null);
     if (bars.length > 0) sections.push({ kind: "bars", items: bars });
     const worst = buildWorstAcceptance(services);
     if (worst.rows.length > 0)
-      sections.push({ kind: "table", columns: worst.columns, rows: worst.rows });
+      sections.push({
+        kind: "table",
+        columns: worst.columns,
+        rows: worst.rows,
+        ...(worst.caption ? { caption: worst.caption } : {}),
+      });
   }
 
   return {
     view: "board",
-    title: `Quality · ${report.release ?? "current"}`,
+    title: `Quality · ${scopeLabel(report)}`,
     header: { segments: buildPulse(services) },
     sections,
   };
