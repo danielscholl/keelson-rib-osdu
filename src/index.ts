@@ -59,10 +59,13 @@ const RELEASE_COLLECTOR = new URL("../bin/collect-release.ts", import.meta.url).
 const WAITING_COLLECTOR = new URL("../bin/collect-waiting.ts", import.meta.url).pathname;
 const VERIFY_CIMPL_CONTEXT = new URL("../bin/verify-cimpl-context.ts", import.meta.url).pathname;
 
-// Both lanes run the shared release-report fetch, which can wait out a lock
-// holder and then fetch itself (REPORT_LOCK_WAIT_MS + REPORT_FETCH_TIMEOUT_MS in
-// quality.ts) — past the 5m the harness caps a bash node at by default.
-const REPORT_LANE_TIMEOUT_MS = 540_000;
+// The shared release-report fetch can wait out a lock holder and then fetch
+// itself (REPORT_LOCK_WAIT_MS + REPORT_FETCH_TIMEOUT_MS in quality.ts) — past the
+// 5m the harness caps a bash node at by default.
+const QUALITY_LANE_TIMEOUT_MS = 600_000;
+// Security runs the OSV fix sweep after that report, MAX_OSV_LOOKUPS / OSV_BATCH
+// sequential batches at OSV_TIMEOUT_MS each (security.ts) — ~200s more.
+const SECURITY_LANE_TIMEOUT_MS = 900_000;
 
 interface CimplCredentialSecret {
   service?: string;
@@ -496,7 +499,7 @@ const rib: Rib = {
             id: "collect",
             bash: `bun ${QUALITY_COLLECTOR}`,
             output_schema: { type: "object", required: ["view", "sections"] },
-            timeout: REPORT_LANE_TIMEOUT_MS,
+            timeout: QUALITY_LANE_TIMEOUT_MS,
           },
         ],
       },
@@ -529,7 +532,7 @@ const rib: Rib = {
             id: "collect",
             bash: `bun ${SECURITY_COLLECTOR}`,
             output_schema: { type: "object", required: ["view", "sections"] },
-            timeout: REPORT_LANE_TIMEOUT_MS,
+            timeout: SECURITY_LANE_TIMEOUT_MS,
           },
         ],
       },
