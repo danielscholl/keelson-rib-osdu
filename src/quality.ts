@@ -27,12 +27,15 @@ export interface SonarMetrics {
   sonar_url?: string | null;
 }
 // A per-stage test result — a pass rate plus the raw counts the KPI tiles, the
-// stage bars, and the worst-acceptance table sum over.
+// stage bars, and the worst-acceptance table sum over. `status` is the CLI's own
+// verdict; "missing" marks a stage it found no job for, which must not read as a
+// failure.
 export interface TestMetrics {
   pass_rate?: number | null;
   passed?: number | null;
   failed?: number | null;
   skipped?: number | null;
+  status?: string | null;
 }
 export interface VulnCounts {
   critical?: number | null;
@@ -55,6 +58,7 @@ export interface ServiceReport {
 export interface ReleaseReport {
   release?: string | null;
   branch?: string | null;
+  generated_at?: string | null;
   services?: ServiceReport[];
 }
 
@@ -165,18 +169,17 @@ export async function fetchReleaseReport(
 export type Tone = CanvasTone;
 type Cell = CanvasCell;
 
-// Pass-rate / coverage tone thresholds mirror cimpl-agent's SonarTable (passCls
-// 95/80, covCls 80/50) so the lane's colours match the prototype.
+// Pass-rate tones mirror cimpl-agent's SonarTable (95/80). Coverage keeps the
+// prototype's green at 80 but takes its amber band (60) from the PMC report's
+// coverage_status, so a service doesn't read amber here and red there.
 const PASS_GREEN = 95;
 const PASS_YELLOW = 80;
 const COV_GREEN = 80;
-const COV_YELLOW = 50;
-// Weakest-link service health (cimpl-agent ReleaseAnalyzer): grade A–E → 100…20,
-// an absent signal floors at 70 (concerning, not confirmed-broken), bucketed at
-// 80 (good) / 50 (fail). Drives the Good/Poor/Fail pulse and the worst-first sort.
+const COV_YELLOW = 60;
+// Weakest-link service health, bucketed at 80 (good) / 50 (fail). Drives the
+// Good/Poor/Fail pulse and the worst-first sort.
 const HEALTH_GOOD = 80;
 const HEALTH_FAIL = 50;
-const NULL_FLOOR = 70;
 const SONAR_CAP = 10;
 const WORST_CAP = 10;
 
@@ -213,6 +216,21 @@ function stageRate(m: TestMetrics | null | undefined): number | null {
 // don't fabricate zeros for a pass-rate-only / partial report.
 function hasCounts(m: TestMetrics | null | undefined): boolean {
   return num(m?.passed) !== null || num(m?.failed) !== null || num(m?.skipped) !== null;
+}
+// A stage the CLI found no job for. Distinct from a failing stage: it carries no
+// rate, and the CLI says so outright in `status`.
+function stageMissing(m: TestMetrics | null | undefined): boolean {
+  return stageRate(m) === null || m?.status === "missing";
+}
+
+// The reader-facing label for the report's scope. `release` is the CLI's
+// sentinel when no release was resolved, so fall through to the branch label it
+// composed for exactly this purpose. Shared with the Security lane so both
+// boards title themselves the same way.
+export function scopeLabel(report: ReleaseReport): string {
+  const release = report.release?.trim();
+  if (release && release !== "default") return release;
+  return report.branch?.trim() || "current";
 }
 
 function toneRate(value: number | null): Tone {
@@ -251,22 +269,18 @@ function gradeBadge(rating: string | null | undefined): CanvasCellBadge {
   return text === "—" ? { text } : { text, tone: gradeTone(text) };
 }
 
-const GRADE_SCORE: Record<string, number> = { A: 100, B: 80, C: 60, D: 40, E: 20 };
-function gradeScore(rating: string | null | undefined): number {
-  return GRADE_SCORE[(rating ?? "").toUpperCase()] ?? NULL_FLOOR;
-}
-// Weakest signal across grades + coverage + pass rates; an absent number floors
-// at NULL_FLOOR so an unscanned service reads "poor", not "fail".
-function serviceHealth(svc: ServiceReport): number {
-  const sonar = svc.sonar ?? {};
-  return Math.min(
-    gradeScore(sonar.reliability_rating),
-    gradeScore(sonar.security_rating),
-    gradeScore(sonar.maintainability_rating),
-    num(sonar.coverage_pct) ?? NULL_FLOOR,
-    stageRate(svc.unit) ?? NULL_FLOOR,
-    stageRate(svc.acceptance) ?? NULL_FLOOR,
-  );
+// Weakest of the signals the board itself displays — coverage and the two pass
+// rates — so every red in the headline traces to a visible cell. Sonar letter
+// grades are opinions rendered as chips, not failures, and stay off the axis
+// (they made three 100%-passing services read "Fail" on a lone letter). Null
+// when a service has no numeric signal at all — that is "unknown", not a score.
+function serviceHealth(svc: ServiceReport): number | null {
+  const signals = [
+    num(svc.sonar?.coverage_pct),
+    stageRate(svc.unit),
+    stageRate(svc.acceptance),
+  ].filter((v): v is number => v !== null);
+  return signals.length > 0 ? Math.min(...signals) : null;
 }
 
 type Segment = { label: string; n: number; tone: Tone };
@@ -274,17 +288,21 @@ function buildPulse(services: ServiceReport[]): Segment[] {
   let good = 0;
   let poor = 0;
   let fail = 0;
+  let missing = 0;
   for (const svc of services) {
     const h = serviceHealth(svc);
-    if (h >= HEALTH_GOOD) good += 1;
+    if (h === null) missing += 1;
+    else if (h >= HEALTH_GOOD) good += 1;
     else if (h >= HEALTH_FAIL) poor += 1;
     else fail += 1;
   }
-  return [
+  const segments: Segment[] = [
     { label: "Good", n: good, tone: "ok" },
     { label: "Poor", n: poor, tone: "warn" },
     { label: "Fail", n: fail, tone: "error" },
   ];
+  if (missing > 0) segments.push({ label: "No data", n: missing, tone: "neutral" });
+  return segments;
 }
 
 // ---- KPI tiles: Pass / Flaky / Fail / Skip, summed across unit + acceptance ----
@@ -304,15 +322,24 @@ function buildKpis(services: ServiceReport[]): StatItem[] {
   const total = passed + failed + skipped;
   const passPct = total > 0 ? round1((passed / total) * 100) : null;
   const ofTotal = (n: number) => (total > 0 ? `${round1((n / total) * 100)}% of total` : "—");
+  // Unit dominates the blended denominator and rarely fails, so name what the
+  // percentage is over rather than letting it read as an acceptance figure.
+  // Sonar's alert_status is OK / WARN / ERROR / NONE: NONE means no gate is
+  // configured (out of scope, like a missing value), and only ERROR is a failure.
+  const gates = services
+    .map((s) => (s.sonar?.quality_gate ?? "").trim().toUpperCase())
+    .filter((g) => g.length > 0 && g !== "NONE");
+  const gateFailing = gates.filter((g) => g === "ERROR").length;
   return [
     {
       label: "Pass",
       value: passPct === null ? "—" : `${passPct}%`,
-      sub: "CI tests",
+      sub: "unit + acceptance",
       tone: toneRate(passPct),
     },
-    // `release` carries no flake signal — mirrors cimpl-agent's deferred Flaky tile.
-    { label: "Flaky", value: 0, sub: "no signal", tone: "neutral" },
+    // No Flaky tile: `release` carries no flake signal, so it was a permanent
+    // `0 · no signal` placeholder. A fifth tile squeezed the row to 90px and wrapped
+    // the Gate fraction across two lines, so the slot goes to a signal that exists.
     // With no counts at all, Fail/Skip are unknown (not zero) — show a dash.
     {
       label: "Fail",
@@ -325,6 +352,22 @@ function buildKpis(services: ServiceReport[]): StatItem[] {
       value: total > 0 ? skipped : "—",
       sub: ofTotal(skipped),
       tone: total > 0 && skipped > 0 ? "warn" : "neutral",
+    },
+    // The Sonar gate is the loudest signal the upstream PMC report leads with,
+    // and the report already carries it per service — surface the count so it
+    // doesn't take ten table rows to notice.
+    {
+      label: "Gate",
+      value: gates.length > 0 ? `${gateFailing} / ${gates.length}` : "—",
+      // Not every service has a Sonar project, so say how many the denominator
+      // leaves out rather than letting it pass for the service count.
+      sub:
+        gates.length === 0
+          ? "no signal"
+          : services.length > gates.length
+            ? `failing · ${services.length - gates.length} no gate`
+            : "failing",
+      tone: gates.length === 0 ? "neutral" : gateFailing > 0 ? "error" : "ok",
     },
   ];
 }
@@ -378,7 +421,10 @@ export function buildQualityTable(report: ReleaseReport): CanvasTableView {
   const services = report.services ?? [];
   const rows = services
     .map((svc) => ({
-      health: serviceHealth(svc),
+      // The table ranks measured evidence; a no-signal service sorts last (its
+      // count rides the header's "No data" segment) instead of displacing a
+      // genuinely failing row from the visible slice.
+      health: serviceHealth(svc) ?? Number.POSITIVE_INFINITY,
       name: (svc.display_name || svc.name || "—").toLowerCase(),
       row: {
         service: serviceCell(svc.display_name || svc.name || "—", svc.sonar?.sonar_url),
@@ -394,28 +440,38 @@ export function buildQualityTable(report: ReleaseReport): CanvasTableView {
     view: "table",
     columns: SONAR_COLUMNS,
     rows,
-    caption: `Quality · ${services.length} services · ${report.release ?? "current"}`,
+    // Say when the slice is a slice: 10 of 23 rows with no caption reads as the
+    // whole platform.
+    caption:
+      rows.length < services.length
+        ? `Worst ${rows.length} of ${services.length} services · ${scopeLabel(report)}`
+        : `Quality · ${services.length} services · ${scopeLabel(report)}`,
   };
 }
 
 // ---- Test performance: pulse + aggregate stage bars + worst-acceptance table ----
+// An unmeasured service gets its own bucket rather than reading as a failure:
+// counting it red made this pulse contradict the worst-acceptance table below it,
+// which filters those services out, and the CLI's own `acceptance_below_80`.
 function buildTestPulse(services: ServiceReport[]): Segment[] {
   let passing = 0;
   let slipping = 0;
   let failing = 0;
+  let missing = 0;
   for (const svc of services) {
     const a = stageRate(svc.acceptance);
-    // An unmeasured service reads failing, mirroring cimpl-agent's bucket.
-    if (a === null) failing += 1;
-    else if (a >= PASS_GREEN) passing += 1;
-    else if (a >= PASS_YELLOW) slipping += 1;
+    if (stageMissing(svc.acceptance)) missing += 1;
+    else if ((a as number) >= PASS_GREEN) passing += 1;
+    else if ((a as number) >= PASS_YELLOW) slipping += 1;
     else failing += 1;
   }
-  return [
+  const segments: Segment[] = [
     { label: "Passing", n: passing, tone: "ok" },
     { label: "Slipping", n: slipping, tone: "warn" },
     { label: "Failing", n: failing, tone: "error" },
   ];
+  if (missing > 0) segments.push({ label: "No data", n: missing, tone: "neutral" });
+  return segments;
 }
 
 type BarItem = { label: string; value: number; total: number; tone?: Tone; trailing?: string };
@@ -446,14 +502,20 @@ function stageBar(
 function countCell(n: number, tone: Tone): Cell {
   return { badges: [n > 0 ? { text: n.toLocaleString(), tone } : { text: n.toLocaleString() }] };
 }
+// `n` (total tests run) sits beside the rate so a 0% on a 2-test sample can't
+// read as the peer of a 30% with 98 real failures.
 const WORST_COLUMNS = [
   { key: "service", label: "Service" },
   { key: "pct", label: "Pass %" },
+  { key: "n", label: "n" },
   { key: "passed", label: "Pass" },
   { key: "skipped", label: "Skip" },
   { key: "failed", label: "Fail" },
 ];
 function buildWorstAcceptance(services: ServiceReport[]): CanvasTableView {
+  const eligible = services.filter(
+    (svc) => hasCounts(svc.acceptance) && stageRate(svc.acceptance) !== null,
+  ).length;
   const rows = services
     .map((svc) => ({
       name: svc.display_name || svc.name || "—",
@@ -476,12 +538,21 @@ function buildWorstAcceptance(services: ServiceReport[]): CanvasTableView {
         ({
           service: serviceCell(r.name, r.pipeline_url),
           pct: r.pct === null ? "—" : { value: `${Math.round(r.pct)}%`, tone: toneRate(r.pct) },
+          n: `${(r.passed + r.failed + r.skipped).toLocaleString()}`,
           passed: countCell(r.passed, "ok"),
           skipped: countCell(r.skipped, "warn"),
           failed: countCell(r.failed, "error"),
         }) satisfies Record<string, Cell>,
     );
-  return { view: "table", columns: WORST_COLUMNS, rows };
+  return {
+    view: "table",
+    columns: WORST_COLUMNS,
+    rows,
+    caption:
+      rows.length < eligible
+        ? `Worst ${rows.length} of ${eligible} measured services`
+        : `${rows.length} measured service${rows.length === 1 ? "" : "s"}`,
+  };
 }
 
 /**
@@ -496,21 +567,33 @@ export function buildQualityBoard(report: ReleaseReport): CanvasBoardView {
 
   if (services.length > 0) {
     const sonar = buildQualityTable(report);
-    sections.push({ kind: "table", columns: sonar.columns, rows: sonar.rows });
+    sections.push({
+      kind: "table",
+      columns: sonar.columns,
+      rows: sonar.rows,
+      ...(sonar.caption ? { caption: sonar.caption } : {}),
+    });
     sections.push({ kind: "segments", title: "Test performance", items: buildTestPulse(services) });
     const bars = [
+      // Acceptance is the CLI's gitlab-dev environment; the upstream report
+      // measures three, so name which one this is rather than implying all.
       stageBar("Unit tests", services, (s) => s.unit),
-      stageBar("Acceptance tests", services, (s) => s.acceptance),
+      stageBar("Acceptance tests (gitlab dev)", services, (s) => s.acceptance),
     ].filter((b): b is BarItem => b !== null);
     if (bars.length > 0) sections.push({ kind: "bars", items: bars });
     const worst = buildWorstAcceptance(services);
     if (worst.rows.length > 0)
-      sections.push({ kind: "table", columns: worst.columns, rows: worst.rows });
+      sections.push({
+        kind: "table",
+        columns: worst.columns,
+        rows: worst.rows,
+        ...(worst.caption ? { caption: worst.caption } : {}),
+      });
   }
 
   return {
     view: "board",
-    title: `Quality · ${report.release ?? "current"}`,
+    title: `Quality · ${scopeLabel(report)}`,
     header: { segments: buildPulse(services) },
     sections,
   };

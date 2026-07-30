@@ -13,6 +13,7 @@ import {
   fetchReleaseReport,
   type ReleaseReport,
   type ServiceReport,
+  scopeLabel,
   type Tone,
   type VulnCounts,
 } from "./quality.ts";
@@ -208,6 +209,12 @@ function withUnscanned(sub: string, unscanned: number): string {
   return unscanned > 0 ? `${sub} · ${unscanned} unscanned` : sub;
 }
 
+// True when the report row is one of the core services the CVE sections below
+// the tiles are scoped to.
+function isCoreReport(s: ServiceReport): boolean {
+  return VENUS_CORE.has(s.name ?? "") || VENUS_CORE.has(serviceOf(s.gitlab_path));
+}
+
 function buildKpis(services: ServiceReport[], mrs: SecurityMr[]): StatItem[] {
   const scanned = services.filter((s) => s.vulnerabilities != null);
   const unscanned = services.length - scanned.length;
@@ -225,29 +232,44 @@ function buildKpis(services: ServiceReport[], mrs: SecurityMr[]): StatItem[] {
   let crit = 0;
   let high = 0;
   let medium = 0;
+  let coreCrit = 0;
+  let coreHigh = 0;
+  let coreMedium = 0;
   for (const svc of scanned) {
     const t = totals(svc.vulnerabilities);
     crit += t.crit;
     high += t.high;
     medium += t.medium;
+    if (isCoreReport(svc)) {
+      coreCrit += t.crit;
+      coreHigh += t.high;
+      coreMedium += t.medium;
+    }
   }
+  // The tile totals the whole report; the CVE sections below are core-only. Name
+  // the split whenever they differ, so the number can't read as "in core" when it
+  // isn't — that mismatch is exactly what made the old "in core" sub wrong.
+  const split = (total: number, core: number, cleanSub: string): string => {
+    if (total === 0) return cleanSub;
+    return total === core ? "in core" : `${core} in core · ${total - core} off-core`;
+  };
   return [
     {
       label: "Critical",
       value: crit,
-      sub: withUnscanned(crit > 0 ? "in core" : "core is clean", unscanned),
+      sub: withUnscanned(split(crit, coreCrit, "core is clean"), unscanned),
       tone: crit > 0 ? "error" : "ok",
     },
     {
       label: "High",
       value: high,
-      sub: withUnscanned(high > 0 ? "in core" : "no high", unscanned),
+      sub: withUnscanned(split(high, coreHigh, "no high"), unscanned),
       tone: high > 0 ? "warn" : "ok",
     },
     {
       label: "Medium",
       value: medium,
-      sub: withUnscanned(medium > 0 ? "in core" : "no medium", unscanned),
+      sub: withUnscanned(split(medium, coreMedium, "no medium"), unscanned),
       tone: "neutral",
     },
     vulnMr,
@@ -600,10 +622,12 @@ export function buildSecurityBoard(inputs: SecurityInputs): CanvasBoardView {
   const { report } = inputs;
   const services = report.services ?? [];
   // The group GraphQL query returns CVEs across every osdu/platform project;
-  // scope them to core so the CVE sections agree with the core-scoped KPI tiles
-  // and offenders (both fed by the core-only release report). Scoping first is
-  // the cheaper order: the filter keys on project_path, which is part of the
-  // dedupe identity, so a key's records are all kept or all dropped together.
+  // scope them to core so the CVE sections stay a core remediation queue. The KPI
+  // tiles deliberately do NOT narrow to match: the release report is wider than
+  // core, and dropping an off-core service would hide real criticals to make a
+  // label tidy. The tiles name the split instead. Scoping first is the cheaper
+  // order: the filter keys on project_path, which is part of the dedupe identity,
+  // so a key's records are all kept or all dropped together.
   const vulns = dedupeVulns(
     (inputs.vulns ?? []).filter((v) => VENUS_CORE.has(serviceOf(v.project_path))),
   );
@@ -645,7 +669,7 @@ export function buildSecurityBoard(inputs: SecurityInputs): CanvasBoardView {
 
   return {
     view: "board",
-    title: `Security · ${report.release ?? "current"}`,
+    title: `Security · ${scopeLabel(report)}`,
     header: {
       segments: buildPulse(services),
     },

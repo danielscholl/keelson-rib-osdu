@@ -16,8 +16,8 @@ const DECORATIVE_TONES = ["info", "brand", "accent", "caution", "ok"];
 
 const NOW = new Date("2026-06-06T12:00:00Z");
 const PMC_LINKS = [
-  { text: "Status Summary", href: "https://pmc.example.test/" },
-  { text: "Analytics", href: "https://pmc.example.test/analytics/index.html" },
+  { text: "Dev Daily", href: "https://pmc.example.test/#dev" },
+  { text: "Run History", href: "https://pmc.example.test/history.html" },
 ];
 
 // A core service so the MR counts as a platform win.
@@ -105,7 +105,7 @@ describe("buildReleaseBoard", () => {
     expect(board.header?.chip).toBe("M26 (mode)");
   });
 
-  test("trails a badge-less PMC Report grid after the columns when links are present", () => {
+  test("trails a badge-less PMC Quality Report grid after the columns when links are present", () => {
     const board = buildReleaseBoard({
       pmcLinks: PMC_LINKS,
       openMrs: [{ iid: 1, title: "a", state: "opened", milestone: "M26 - Release 0.30" }],
@@ -121,19 +121,21 @@ describe("buildReleaseBoard", () => {
 
     const report = board.sections[1];
     if (report?.kind !== "grid") throw new Error("expected report grid after columns");
-    expect(report.title).toBe("PMC Report");
+    expect(report.title).toBe("PMC Quality Report");
     expect(report.cells).toEqual(PMC_LINKS.map((l) => ({ label: l.text, href: l.href })));
     // No badge: there is no per-link signal to grade, so none is invented.
     expect(report.cells.every((cell) => cell.badge === undefined)).toBe(true);
   });
 
-  test("omits the PMC Report section when no links are present", () => {
+  test("omits the PMC Quality Report section when no links are present", () => {
     for (const pmcLinks of [undefined, [], [{ text: "Status Summary", href: "  " }]]) {
       const board = buildReleaseBoard({ pmcLinks, now: NOW });
       expect(board.sections).toHaveLength(1);
       expect(board.sections[0]?.kind).toBe("columns");
       expect(
-        board.sections.some((section) => section.kind === "grid" && section.title === "PMC Report"),
+        board.sections.some(
+          (section) => section.kind === "grid" && section.title === "PMC Quality Report",
+        ),
       ).toBe(false);
     }
   });
