@@ -45,15 +45,31 @@ describe("analyticsSite", () => {
 });
 
 describe("pmcReportLinks", () => {
-  test("links each dashboard surface off its owning site", () => {
+  test("addresses the report's three views by fragment, off its owning site", () => {
     expect(pmcReportLinks("https://pmc.example.test", "https://an.example.test")).toEqual([
-      { text: "Status Summary", href: "https://pmc.example.test/" },
-      { text: "Releases", href: "https://pmc.example.test/releases.html" },
-      { text: "History", href: "https://pmc.example.test/history.html" },
-      { text: "Analytics", href: "https://an.example.test/" },
-      { text: "Release Reports", href: "https://an.example.test/release-reports.html" },
-      { text: "Status Reports", href: "https://an.example.test/status-reports.html" },
+      { text: "Dev Daily", href: "https://pmc.example.test/#dev" },
+      { text: "QA Dev", href: "https://pmc.example.test/#qa" },
+      { text: "Libraries", href: "https://pmc.example.test/#libraries" },
+      { text: "Run History", href: "https://pmc.example.test/history.html" },
+      { text: "Test Reliability", href: "https://an.example.test/" },
     ]);
+  });
+
+  test("every cell opens a distinct destination", () => {
+    const links = pmcReportLinks("https://pmc.example.test", "https://an.example.test");
+    expect(new Set(links.map((l) => l.href)).size).toBe(links.length);
+    expect(new Set(links.map((l) => l.text)).size).toBe(links.length);
+  });
+
+  test("drops the destinations that only ever duplicate another cell", () => {
+    const hrefs = pmcReportLinks("https://pmc.example.test", "https://an.example.test").map(
+      (l) => l.href,
+    );
+    // releases.html is a frozen-only subset of history.html; the analytics
+    // archives are stale renders of the Quality lane's own live payload.
+    for (const dropped of ["releases.html", "release-reports.html", "status-reports.html"]) {
+      expect(hrefs.some((href) => href.includes(dropped))).toBe(false);
+    }
   });
 
   test("does not double the slash when a site carries a trailing one", () => {
