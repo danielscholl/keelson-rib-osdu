@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.18.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.17.0...v0.18.0) (2026-07-30)
+
+
+### Added
+
+* **quality:** evidence-based quality board and current PMC links ([#152](https://github.com/danielscholl/keelson-rib-osdu/issues/152)) ([f496aa9](https://github.com/danielscholl/keelson-rib-osdu/commit/f496aa9f31e3c8db17ba4cc54fe1b88f7a2956af))
+
+
+### Fixed
+
+* **quality:** fail lane on degraded report instead of publishing zeros ([#151](https://github.com/danielscholl/keelson-rib-osdu/issues/151)) ([d962f48](https://github.com/danielscholl/keelson-rib-osdu/commit/d962f4880bdff66afb3ca649f11d5aff46112154))
+
+
+### Changed
+
+* stop idle GitLab polling and share one release-report fetch ([#149](https://github.com/danielscholl/keelson-rib-osdu/issues/149)) ([126f301](https://github.com/danielscholl/keelson-rib-osdu/commit/126f301ae559342a6eec744ccaaff39d3ebec30c))
+
 ## [0.17.0](https://github.com/danielscholl/keelson-rib-osdu/compare/v0.16.0...v0.17.0) (2026-07-24)
 
 
