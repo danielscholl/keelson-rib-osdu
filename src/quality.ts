@@ -86,10 +86,14 @@ const REPORT_CACHE_VERSION = 1;
 const REPORT_CACHE_FILE = `release-report-v${REPORT_CACHE_VERSION}.json`;
 const REPORT_LOCK_FILE = `${REPORT_CACHE_FILE}.lock`;
 const REPORT_TTL_MS = 600_000;
-// Past the CLI's own 120s timeout, so a waiter only self-fetches once the
-// holder has certainly settled; a crashed holder's lock goes stale just after.
-const REPORT_LOCK_WAIT_MS = 130_000;
-const REPORT_LOCK_STALE_MS = 150_000;
+// The unscoped sweep runs ~40s alone, but the GitLab-backed lanes all fire on
+// surface open and it slows several-fold under that contention.
+const REPORT_FETCH_TIMEOUT_MS = 240_000;
+// Ordered past REPORT_FETCH_TIMEOUT_MS so a waiter only self-fetches once the
+// holder has settled; the index.ts node timeouts must clear the worst case,
+// REPORT_LOCK_WAIT_MS + REPORT_FETCH_TIMEOUT_MS.
+const REPORT_LOCK_WAIT_MS = 250_000;
+const REPORT_LOCK_STALE_MS = 270_000;
 const REPORT_LOCK_POLL_MS = 1_000;
 
 export async function fetchReleaseReport(
@@ -146,7 +150,7 @@ export async function fetchReleaseReport(
     const args = ["release", "--output", "json"];
     if (services.length > 0) args.push("--service", services.join(","));
     const res = await exec.runJSON<ReleaseReport>("osdu-quality", args, {
-      timeoutMs: 120_000,
+      timeoutMs: REPORT_FETCH_TIMEOUT_MS,
     });
     if (!res.ok) return { report: { services: [] }, error: res.error };
     if (cacheDir) {
