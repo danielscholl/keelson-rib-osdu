@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ribSurfaceDescriptorSchema } from "@keelson/shared";
+import { columnRegions, ribSurfaceDescriptorSchema } from "@keelson/shared";
 import rib from "../src/index.ts";
 
 describe("CIMPL surface", () => {
@@ -27,24 +27,27 @@ describe("CIMPL surface", () => {
   });
 
   test("the Release Train is the full-width row above the lanes", () => {
-    const strip = rib.surfaces?.[0]?.layout.rows[0];
-    expect(strip?.columns.map((c) => c.key)).toEqual(["rib:osdu:release"]);
-    expect(strip?.columns[0]?.workflow).toBe("osdu-release");
-    expect(strip?.columns[0]?.title).toBe("Release Train");
+    const columns = rib.surfaces?.[0]?.layout.rows[0]?.columns ?? [];
+    expect(columns.map((c) => columnRegions(c).map((r) => r.key))).toEqual([["rib:osdu:release"]]);
+    const strip = columns.flatMap(columnRegions);
+    expect(strip[0]?.workflow).toBe("osdu-release");
+    expect(strip[0]?.title).toBe("Release Train");
   });
 
   test("the surface composes the three lane boards in Features·Quality·Security order", () => {
+    // Per column, not flattened per row: the three lanes are siblings, so a single
+    // stack holding all three must not satisfy this.
     const columns = rib.surfaces?.[0]?.layout.rows[1]?.columns ?? [];
-    expect(columns.map((c) => c.key)).toEqual([
-      "rib:osdu:features",
-      "rib:osdu:quality",
-      "rib:osdu:security",
+    expect(columns.map((c) => columnRegions(c).map((r) => r.key))).toEqual([
+      ["rib:osdu:features"],
+      ["rib:osdu:quality"],
+      ["rib:osdu:security"],
     ]);
-    expect(columns.every((c) => c.key.startsWith("rib:osdu:"))).toBe(true);
+    expect(columns.flatMap(columnRegions).every((c) => c.key.startsWith("rib:osdu:"))).toBe(true);
   });
 
   test("each lane carries a static identity (title + toned glyph)", () => {
-    const columns = rib.surfaces?.[0]?.layout.rows[1]?.columns ?? [];
+    const columns = (rib.surfaces?.[0]?.layout.rows[1]?.columns ?? []).flatMap(columnRegions);
     expect(columns.map((c) => c.title)).toEqual(["Features", "Quality", "Security"]);
     expect(columns.map((c) => c.glyph?.tone)).toEqual(["brand", "info", "caution"]);
     expect(columns.every((c) => typeof c.glyph?.char === "string")).toBe(true);
@@ -54,7 +57,7 @@ describe("CIMPL surface", () => {
   test("each region names the workflow its refresh re-runs", () => {
     const layout = rib.surfaces?.[0]?.layout;
     expect(layout?.header?.workflow).toBe("osdu-cluster");
-    expect(layout?.rows[1]?.columns.map((c) => c.workflow)).toEqual([
+    expect((layout?.rows[1]?.columns ?? []).flatMap(columnRegions).map((c) => c.workflow)).toEqual([
       "osdu-features",
       "osdu-quality",
       "osdu-security",
@@ -69,7 +72,7 @@ describe("CIMPL surface", () => {
     const gitlabRegions = [
       layout?.banner,
       layout?.footer,
-      ...(layout?.rows.flatMap((r) => r.columns) ?? []),
+      ...(layout?.rows.flatMap((r) => r.columns.flatMap(columnRegions)) ?? []),
     ];
     expect(gitlabRegions.length).toBeGreaterThan(0);
     for (const region of gitlabRegions) expect(region?.workflowArgs).toEqual({});
@@ -85,7 +88,7 @@ describe("CIMPL surface", () => {
     const regions = [
       layout?.header,
       layout?.banner,
-      ...(layout?.rows.flatMap((r) => r.columns) ?? []),
+      ...(layout?.rows.flatMap((r) => r.columns.flatMap(columnRegions)) ?? []),
     ];
     for (const region of regions) {
       if (region?.workflow) expect(contributed.has(region.workflow)).toBe(true);
