@@ -426,7 +426,7 @@ describe("buildQualityBoard against a live-shaped payload", () => {
     expect(missing).toBeGreaterThan(0);
     expect(byLabel["No data"]).toBe(missing);
     // Every service lands in exactly one bucket.
-    expect(items.reduce((t, i) => t + i.n, 0)).toBe(live.services?.length ?? 0);
+    expect(items.reduce((t, i) => t + (i.n ?? 0), 0)).toBe(live.services?.length ?? 0);
   });
 
   test("the Gate tile reports the CLI's quality_gate_failing count", () => {
